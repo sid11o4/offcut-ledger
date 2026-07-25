@@ -1,0 +1,126 @@
+:root{
+  --paper:#F1F0EA;
+  --paper-dim:#E6E4DA;
+  --ink:#20241F;
+  --ink-soft:#5B5F56;
+  --line:#C9C6B8;
+  --walnut:#3B2A20;
+  --copper:#B8752B;
+  --copper-soft:#EAD3AF;
+  --sage:#3F6B4B;
+  --sage-soft:#DCE7DD;
+  --rust:#8C3B2E;
+  --rust-soft:#F1DAD4;
+  --radius:2px;
+}
+*{box-sizing:border-box;}
+html, body, #root{height:100%;}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:-apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  background-image:
+    linear-gradient(var(--paper-dim) 1px, transparent 1px),
+    linear-gradient(90deg, var(--paper-dim) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+.mono{font-family:'Courier New', Courier, monospace;}
+.display{font-family:'Arial Black', Impact, sans-serif;}
+
+#shell{display:flex; min-height:100vh; position:relative; z-index:1;}
+#watermark-layer{
+  position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden;
+}
+#watermark-layer span{
+  position:absolute; white-space:nowrap; font-family:'Arial Black', Impact, sans-serif;
+  font-size:13px; color:var(--walnut); opacity:0.045; transform:rotate(-30deg);
+  letter-spacing:.08em;
+}
+
+nav{
+  width:210px; flex-shrink:0; background:var(--walnut); color:#EFE6DA;
+  padding:22px 0; display:flex; flex-direction:column; gap:2px;
+}
+nav .brand{
+  padding:0 20px 20px 20px; border-bottom:1px solid rgba(255,255,255,.15); margin-bottom:14px;
+}
+nav .brand .t1{font-family:'Arial Black', Impact, sans-serif; font-size:18px; letter-spacing:.5px; line-height:1.15;}
+nav .brand .t2{font-family:'Courier New', Courier, monospace; font-size:10.5px; color:#C9B79A; margin-top:6px; letter-spacing:.5px;}
+nav button.tab{
+  background:none; border:none; text-align:left; color:#D8CCBA; padding:11px 20px;
+  font-family:-apple-system, 'Segoe UI', Roboto, Arial, sans-serif; font-size:13.5px; font-weight:500; cursor:pointer;
+  border-left:3px solid transparent; display:flex; gap:10px; align-items:center;
+}
+nav button.tab .idx{font-family:'Courier New', Courier, monospace; font-size:11px; color:#9C8C74;}
+nav button.tab:hover{background:rgba(255,255,255,.06); color:#fff;}
+nav button.tab.active{background:rgba(255,255,255,.1); color:#fff; border-left-color:var(--copper);}
+nav .footnote{margin-top:auto; padding:16px 20px 0 20px; font-size:10.5px; color:#8A7C68; font-family:'Courier New', Courier, monospace; border-top:1px solid rgba(255,255,255,.1);}
+
+main{flex:1; padding:30px 40px 60px 40px; max-width:1180px;}
+h1.page{font-family:'Arial Black', Impact, sans-serif; font-size:22px; margin:0 0 4px 0;}
+p.sub{color:var(--ink-soft); font-size:13.5px; margin:0 0 26px 0; max-width:640px; line-height:1.5;}
+
+.card{
+  background:#FBFAF6; border:1px solid var(--line); border-radius:var(--radius);
+  padding:20px 22px; margin-bottom:20px;
+}
+.card h2{font-size:13px; text-transform:uppercase; letter-spacing:.08em; margin:0 0 16px 0; color:var(--ink-soft); font-weight:600;}
+
+.row{display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;}
+.field{display:flex; flex-direction:column; gap:5px;}
+.field label{font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft); font-weight:600;}
+.field input, .field select{
+  font-family:'Courier New', Courier, monospace; font-size:13px; padding:8px 10px; border:1px solid var(--line);
+  border-radius:var(--radius); background:#fff; color:var(--ink); min-width:110px;
+}
+.field input:focus, .field select:focus{outline:2px solid var(--copper); outline-offset:1px;}
+
+button.btn{
+  font-family:-apple-system, 'Segoe UI', Roboto, Arial, sans-serif; font-weight:600; font-size:13px; padding:9px 18px;
+  border-radius:var(--radius); border:1px solid var(--walnut); background:var(--walnut); color:#fff;
+  cursor:pointer;
+}
+button.btn:hover{background:#4E382A;}
+button.btn.secondary{background:#fff; color:var(--walnut); border:1px solid var(--line);}
+button.btn.secondary:hover{border-color:var(--walnut);}
+button.btn.copper{background:var(--copper); border-color:var(--copper);}
+button.btn.copper:hover{background:#A2661F;}
+button.btn:focus-visible{outline:2px solid var(--copper); outline-offset:2px;}
+button.btn:disabled{opacity:.4; cursor:not-allowed;}
+
+input[type=file]{font-family:-apple-system, 'Segoe UI', Roboto, Arial, sans-serif; font-size:12.5px;}
+
+table{width:100%; border-collapse:collapse; font-size:12.5px;}
+th{
+  text-align:left; font-family:'Courier New', Courier, monospace; font-size:10.5px; text-transform:uppercase;
+  letter-spacing:.05em; color:var(--ink-soft); border-bottom:1.5px solid var(--ink); padding:7px 8px; white-space:nowrap;
+}
+td{padding:7px 8px; border-bottom:1px solid var(--line); font-family:'Courier New', Courier, monospace; white-space:nowrap;}
+tr:hover td{background:var(--paper-dim);}
+.tablewrap{overflow-x:auto; max-height:420px; overflow-y:auto; border:1px solid var(--line);}
+
+.pill{display:inline-block; padding:2px 8px; border-radius:20px; font-size:10.5px; font-weight:600; font-family:-apple-system, 'Segoe UI', Roboto, Arial, sans-serif;}
+.pill.match{background:var(--sage-soft); color:var(--sage);}
+.pill.miss{background:var(--rust-soft); color:var(--rust);}
+.pill.rot{background:var(--copper-soft); color:var(--copper);}
+
+.stat{display:flex; gap:18px; margin-bottom:20px; flex-wrap:wrap;}
+.stat .box{background:#FBFAF6; border:1px solid var(--line); padding:14px 20px; min-width:120px;}
+.stat .box .n{font-family:'Arial Black', Impact, sans-serif; font-size:26px; line-height:1;}
+.stat .box .l{font-size:10.5px; text-transform:uppercase; color:var(--ink-soft); margin-top:6px; letter-spacing:.05em;}
+.stat .box.copper .n{color:var(--copper);}
+.stat .box.sage .n{color:var(--sage);}
+.stat .box.rust .n{color:var(--rust);}
+
+.icon-del{cursor:pointer; color:var(--rust); font-family:-apple-system, 'Segoe UI', Roboto, Arial, sans-serif; font-weight:700; background:none; border:none; font-size:14px;}
+.empty{padding:30px; text-align:center; color:var(--ink-soft); font-size:13px; border:1px dashed var(--line);}
+
+.diagram-cell svg{display:block;}
+.toast{
+  position:fixed; bottom:22px; right:22px; background:var(--walnut); color:#fff; padding:10px 18px;
+  font-family:-apple-system, 'Segoe UI', Roboto, Arial, sans-serif; font-size:12.5px; border-radius:var(--radius); opacity:0; transition:opacity .25s;
+  pointer-events:none; z-index:99;
+}
+.toast.show{opacity:1;}
+.hint{font-size:11.5px; color:var(--ink-soft); margin-top:8px; line-height:1.5;}
+a.link{color:var(--copper); text-decoration:none; font-weight:600;}
+a.link:hover{text-decoration:underline;}
