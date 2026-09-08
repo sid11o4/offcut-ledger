@@ -1,0 +1,62 @@
+// Client-side mirror of the calculation engine (see supabase/migrations/0012) used ONLY to
+// show a live preview to the user before they submit a Daily Log entry. The database RPC
+// (record_job_work_entry) is the sole source of truth for what actually gets stored/billed --
+// this never writes anything, it just previews the same math using already-fetched lookups.
+
+export function expandServiceComponents(service, allServices, allComponents) {
+  if (!service) return []
+  if (!service.is_composite) {
+    return [{ componentService: service, multiplier: 1 }]
+  }
+  return allComponents
+    .filter((c) => c.service_id === service.id)
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((c) => ({
+      componentService: allServices.find((s) => s.id === c.component_service_id),
+      multiplier: Number(c.multiplier),
+    }))
+    .filter((c) => c.componentService)
+}
+
+export function findEffectiveRate(rates, serviceId, rateCategoryId, asOfDate) {
+  const row = rates.find(
+    (r) =>
+      r.job_work_service_id === serviceId &&
+      r.rate_category_id === rateCategoryId &&
+      r.effective_from <= asOfDate &&
+      (!r.effective_to || r.effective_to >= asOfDate),
+  )
+  return row ? Number(row.rate) : null
+}
+
+// Per-unit rate for ANY service (atomic or composite) -- used by the Estimates line-item
+// editor, where a single service can be picked and needs one blended rate, unlike the Daily
+// Log preview above which shows each component separately.
+export function serviceUnitRate(service, rateCategoryId, asOfDate, allServices, allComponents, allRates) {
+  const components = expandServiceComponents(service, allServices, allComponents)
+  let total = 0
+  for (const { componentService, multiplier } of components) {
+    const rate = findEffectiveRate(allRates, componentService.id, rateCategoryId, asOfDate)
+    if (rate === null) return null
+    total += rate * multiplier
+  }
+  return total
+}
+
+export function previewEntry({ service, baseQuantity, rateCategoryId, asOfDate, allServices, allComponents, allRates }) {
+  const qty = Number(baseQuantity)
+  if (!service || !qty || qty <= 0 || !rateCategoryId || !asOfDate) {
+    return { lines: [], total: 0, missingRates: [] }
+  }
+  const components = expandServiceComponents(service, allServices, allComponents)
+  const missingRates = []
+  const lines = components.map(({ componentService, multiplier }) => {
+    const componentQuantity = qty * multiplier
+    const rate = findEffectiveRate(allRates, componentService.id, rateCategoryId, asOfDate)
+    if (rate === null) missingRates.push(componentService.name)
+    const amount = rate === null ? 0 : Math.round(componentQuantity * rate * 100) / 100
+    return { service: componentService, multiplier, componentQuantity, rate, amount }
+  })
+  const total = Math.round(lines.reduce((sum, l) => sum + l.amount, 0) * 100) / 100
+  return { lines, total, missingRates }
+}
