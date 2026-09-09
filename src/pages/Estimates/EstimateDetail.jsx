@@ -218,7 +218,11 @@ export default function EstimateDetail() {
                   <tr className="font-semibold">
                     <td>Total</td><td></td><td></td><td></td>
                     <td>{money(estimate.subtotal)}</td>
-                    <td>{money([...(actualsQ.data?.values() || [])].reduce((s, x) => s + x.amount, 0))}</td>
+                    <td>
+                      {money(
+                        items.reduce((s, it) => s + (actualsQ.data?.get(it.service_id)?.amount || 0), 0),
+                      )}
+                    </td>
                   </tr>
                 </tfoot>
               </table>

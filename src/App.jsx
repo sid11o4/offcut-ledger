@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { ProtectedRoute, RequirePermission } from './components/ProtectedRoute'
 import Layout from './components/Layout'
@@ -28,7 +28,11 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={session ? <Dashboard /> : <Login />} />
+      {/* Was `session ? <Dashboard/> : <Login/>` -- rendered Dashboard in place, still at
+          the /login URL and outside <Layout>, so every successful first login landed the
+          user on a dead-end page with no sidebar, header, nav, search, or sign-out button.
+          Redirect instead, so a fresh login goes through the normal Layout-wrapped tree. */}
+      <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
       <Route
         path="/"
         element={
