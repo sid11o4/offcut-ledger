@@ -1,0 +1,12 @@
+# SPA fallback for Apache/LiteSpeed hosting (Hostinger). This is the Apache
+# equivalent of vercel.json's rewrite rule: this is a client-side-routed React
+# Router app, so any request for a path that isn't a real file on disk must
+# fall back to index.html and let the router take over. Without this, a
+# direct link, bookmark, or page refresh on any route other than "/" 404s.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>
