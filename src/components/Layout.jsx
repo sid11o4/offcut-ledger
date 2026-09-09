@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from './Toast'
 import { supabase } from '../lib/supabaseClient'
+import GlobalSearch from './GlobalSearch'
 
 const NAV = [
   { to: '/', label: 'Dashboard', end: true },
@@ -70,6 +71,9 @@ export default function Layout() {
             <div className="px-1 py-3 mb-2">
               <div className="font-semibold text-brand-700">Formgrid Factory</div>
             </div>
+            <div className="px-1 mb-2">
+              <GlobalSearch />
+            </div>
             <nav className="space-y-1">
               <NavItems onNavigate={() => setMobileOpen(false)} />
             </nav>
@@ -83,7 +87,10 @@ export default function Layout() {
             ☰
           </button>
           <div className="md:hidden font-semibold text-brand-700">Formgrid Factory</div>
-          <div className="relative ml-auto">
+          <div className="hidden md:block flex-1 max-w-sm mx-4">
+            <GlobalSearch />
+          </div>
+          <div className="relative md:ml-0 ml-auto">
             <button className="btn-ghost" onClick={() => setMenuOpen((o) => !o)}>
               <span className="font-medium text-ink-800">{profile?.full_name || 'Account'}</span>
               <span className="text-ink-400 text-xs">({roleName || '—'})</span>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabaseClient'
 import { PageHeader, Card, Badge, EmptyState, LoadingBlock } from '../components/ui'
@@ -58,8 +58,8 @@ export default function AuditLog() {
               <thead><tr><th>When</th><th>User</th><th>Table</th><th>Action</th><th>Record</th><th></th></tr></thead>
               <tbody>
                 {rows.map((r) => (
-                  <>
-                    <tr key={r.id}>
+                  <Fragment key={r.id}>
+                    <tr>
                       <td>{displayDateTime(r.changed_at)}</td>
                       <td>{r.profiles?.full_name || <span className="text-ink-400">System</span>}</td>
                       <td className="font-mono text-xs">{r.table_name}</td>
@@ -81,7 +81,7 @@ export default function AuditLog() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>

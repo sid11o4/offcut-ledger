@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabaseClient'
 import { useToast } from '../components/Toast'
@@ -11,7 +12,11 @@ import { today, displayDate } from '../lib/dates'
 import { money, qty } from '../lib/format'
 
 export default function DailyLog() {
-  const [date, setDate] = useState(today())
+  // Supports deep-linking from Global Search ("...appeared in that day's Daily Log" -- spec
+  // section 27/50) via /daily-log?date=YYYY-MM-DD; falls back to today when absent/invalid.
+  const [searchParams] = useSearchParams()
+  const initialDate = /^\d{4}-\d{2}-\d{2}$/.test(searchParams.get('date') || '') ? searchParams.get('date') : today()
+  const [date, setDate] = useState(initialDate)
   const { profile, hasPermission } = useAuth()
   const toast = useToast()
   const qc = useQueryClient()
