@@ -14,9 +14,22 @@ export default function IncomeExpenseStatement() {
   // Ensure any recurring expense due within/at the end of this period has been generated
   // before we read the statement — otherwise a report run before anyone opened Recurring
   // Expenses this period would silently under-count fixed costs.
+  //
+  // supabase.rpc(...) returns a PostgREST thenable, not a spec-compliant Promise -- it has
+  // .then() but not .finally(), so calling .finally() on it threw a TypeError and setSynced
+  // never ran, permanently stuck on the loading state. A real try/finally around an awaited
+  // call works with any thenable.
   useEffect(() => {
+    let cancelled = false
     setSynced(false)
-    supabase.rpc('sync_recurring_expenses', { p_as_of: end }).finally(() => setSynced(true))
+    ;(async () => {
+      try {
+        await supabase.rpc('sync_recurring_expenses', { p_as_of: end })
+      } finally {
+        if (!cancelled) setSynced(true)
+      }
+    })()
+    return () => { cancelled = true }
   }, [end])
 
   const statementQ = useQuery({
