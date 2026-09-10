@@ -6,6 +6,7 @@ import { useConfirm } from '../../components/ConfirmDialog'
 import { useAuth } from '../../context/AuthContext'
 import { Card, Badge, EmptyState, LoadingBlock } from '../../components/ui'
 import { useJobWorkServices, useJobWorkComponents, useUnits, useProcesses } from '../../lib/queries'
+import { deleteErrorMessage } from '../../lib/errors'
 
 export default function JobWorkServicesTab() {
   const servicesQ = useJobWorkServices()
@@ -64,6 +65,25 @@ export default function JobWorkServicesTab() {
     else {
       toast.success('Updated.')
       qc.invalidateQueries({ queryKey: ['job_work_services'] })
+    }
+  }
+
+  async function deleteService(row) {
+    const ok = await confirm(`Delete "${row.name}" permanently?`, {
+      detail: 'Only possible if it has no rates and no logged job-work yet. This cannot be undone.',
+      tone: 'danger',
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
+    // A composite's own component rows are removed automatically (job_work_components.service_id
+    // is ON DELETE CASCADE). An atomic service used inside a composite, or one with rates /
+    // logged work, is blocked by its other foreign keys and reported as "in use".
+    const { error } = await supabase.from('job_work_services').delete().eq('id', row.id)
+    if (error) toast.error(deleteErrorMessage(error, `"${row.name}"`))
+    else {
+      toast.success('Deleted.')
+      qc.invalidateQueries({ queryKey: ['job_work_services'] })
+      qc.invalidateQueries({ queryKey: ['job_work_components'] })
     }
   }
 
@@ -162,6 +182,7 @@ export default function JobWorkServicesTab() {
                     <button className="btn-ghost text-xs px-2" onClick={() => toggleActive(s)}>
                       {s.active ? 'Deactivate' : 'Reactivate'}
                     </button>
+                    <button className="btn-ghost text-xs px-2 text-bad" onClick={() => deleteService(s)}>Delete</button>
                   </td>
                 </tr>
               ))}

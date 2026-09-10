@@ -134,11 +134,12 @@ decision in the migration files, and summarized here:
 - **Role set is fixed, permissions are configurable** (`0002_roles_permissions_profiles.sql`):
   four roles (Admin, Manager, Factory Staff, Accounts) rather than fully dynamic role creation.
   What's configurable without code changes is which permissions each role holds.
-- **New-user provisioning is dashboard-based** (`UsersPermissions.jsx`): creating an auth user
-  via the client SDK (`supabase.auth.signUp`) would hijack the admin's own browser session, and
-  a true admin-invite flow needs the service-role key, which must never ship to the browser. New
-  logins are created via the Supabase dashboard (or a future Edge Function using a server-side
-  secret), then assigned a role in-app.
+- **New users are created in-app by an admin** (`UsersPermissions.jsx` → `supabase/functions/manage-user`):
+  a client-side `supabase.auth.signUp` would hijack the admin's own session, so user create /
+  delete / email-change go through a JWT-verified, admin-only Edge Function that holds the
+  service-role key server-side. New logins land on the least-privileged "Staff" role; the admin
+  then assigns the real role. The last active admin can't be demoted, deactivated, or deleted
+  (enforced in `0024_last_admin_guard.sql` and the Edge Function).
 - **Recurring expense recognition** (`0010_expenses_and_recurring.sql`): a recurring expense is
   recognized exactly once per its frequency cycle, on that cycle's due date, when that due date
   falls on/before the date a report or sync is run for. A partial-period report includes a

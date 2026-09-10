@@ -89,7 +89,8 @@ export default function EstimateDetail() {
 
   function onServiceChange(serviceId) {
     const service = services.find((s) => s.id === serviceId)
-    const rate = service ? serviceUnitRate(service, estimate.rate_category_id, estimate.estimate_date, servicesQ.data, componentsQ.data, ratesQ.data) : null
+    // Estimates price each line in the service's own default unit (no per-line unit picker here).
+    const rate = service ? serviceUnitRate(service, estimate.rate_category_id, service.unit_id, estimate.estimate_date, servicesQ.data, componentsQ.data, ratesQ.data) : null
     setAddingItem({ ...addingItem, service_id: serviceId, rate: rate ?? '' })
   }
 

@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
+import { useConfirm } from '../../components/ConfirmDialog'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, StatusBadge, EmptyState, LoadingBlock } from '../../components/ui'
 import { useProjects, useClients, useRateCategories } from '../../lib/queries'
+import { deleteErrorMessage } from '../../lib/errors'
 import { displayDate, today } from '../../lib/dates'
 
 const STATUSES = ['draft', 'active', 'on_hold', 'completed', 'closed', 'cancelled']
@@ -15,11 +17,23 @@ export default function ProjectsList() {
   const clientsQ = useClients()
   const categoriesQ = useRateCategories()
   const toast = useToast()
+  const confirm = useConfirm()
   const qc = useQueryClient()
   const { profile, hasPermission } = useAuth()
   const [editing, setEditing] = useState(null)
   const [filter, setFilter] = useState('')
   const canWrite = hasPermission('project_manage')
+
+  async function deleteProject(row) {
+    const ok = await confirm(`Delete "${row.name}" permanently?`, {
+      detail: 'Only possible if it has no job-work, bills, estimates or expenses. This cannot be undone.',
+      tone: 'danger', confirmLabel: 'Delete',
+    })
+    if (!ok) return
+    const { error } = await supabase.from('projects').delete().eq('id', row.id)
+    if (error) toast.error(deleteErrorMessage(error, `"${row.name}"`))
+    else { toast.success('Deleted.'); qc.invalidateQueries({ queryKey: ['projects'] }) }
+  }
 
   const projects = projectsQ.data || []
   const clients = (clientsQ.data || []).filter((c) => c.active)
@@ -86,7 +100,12 @@ export default function ProjectsList() {
                     <td>{p.rate_categories?.name}</td>
                     <td>{displayDate(p.start_date)}</td>
                     <td><StatusBadge status={p.status} /></td>
-                    {canWrite && <td className="text-right"><button className="btn-ghost text-xs px-2" onClick={() => setEditing(p)}>Edit</button></td>}
+                    {canWrite && (
+                      <td className="text-right whitespace-nowrap">
+                        <button className="btn-ghost text-xs px-2" onClick={() => setEditing(p)}>Edit</button>
+                        <button className="btn-ghost text-xs px-2 text-bad" onClick={() => deleteProject(p)}>Delete</button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

@@ -6,6 +6,7 @@ import { useConfirm } from '../../components/ConfirmDialog'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Badge, EmptyState, LoadingBlock } from '../../components/ui'
 import { useClients, useRateCategories } from '../../lib/queries'
+import { deleteErrorMessage } from '../../lib/errors'
 
 export default function ClientsList() {
   const clientsQ = useClients()
@@ -58,6 +59,17 @@ export default function ClientsList() {
     else { toast.success('Updated.'); qc.invalidateQueries({ queryKey: ['clients'] }) }
   }
 
+  async function deleteClient(row) {
+    const ok = await confirm(`Delete "${row.name}" permanently?`, {
+      detail: 'Only possible if it has no projects. This cannot be undone.',
+      tone: 'danger', confirmLabel: 'Delete',
+    })
+    if (!ok) return
+    const { error } = await supabase.from('clients').delete().eq('id', row.id)
+    if (error) toast.error(deleteErrorMessage(error, `"${row.name}"`))
+    else { toast.success('Deleted.'); qc.invalidateQueries({ queryKey: ['clients'] }) }
+  }
+
   return (
     <div>
       <PageHeader
@@ -87,6 +99,7 @@ export default function ClientsList() {
                       <td className="text-right whitespace-nowrap">
                         <button className="btn-ghost text-xs px-2" onClick={() => setEditing(c)}>Edit</button>
                         <button className="btn-ghost text-xs px-2" onClick={() => toggleActive(c)}>{c.active ? 'Deactivate' : 'Reactivate'}</button>
+                        <button className="btn-ghost text-xs px-2 text-bad" onClick={() => deleteClient(c)}>Delete</button>
                       </td>
                     )}
                   </tr>

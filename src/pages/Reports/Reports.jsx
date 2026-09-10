@@ -16,8 +16,8 @@ import { money, qty } from '../../lib/format'
 const DIMENSIONS = [
   { key: 'report_revenue_by_project', label: 'By Project', rowKey: 'project_id', drill: 'project', cols: [['project_name', 'Project'], ['entry_count', 'Entries'], ['revenue', 'Revenue']] },
   { key: 'report_revenue_by_service', label: 'By Job Work', rowKey: 'service_id', drill: 'service', cols: [['service_name', 'Job Work'], ['total_quantity', 'Quantity'], ['unit_code', 'Unit'], ['revenue', 'Revenue']] },
-  { key: 'report_revenue_by_process', label: 'By Process', rowKey: 'process_id', drill: 'process', cols: [['process_name', 'Process'], ['total_quantity', 'Quantity'], ['revenue', 'Revenue']] },
-  { key: 'report_revenue_by_machine', label: 'By Machine', rowKey: 'machine_id', drill: 'machine', cols: [['machine_name', 'Machine'], ['total_quantity', 'Quantity'], ['revenue', 'Revenue']] },
+  { key: 'report_revenue_by_process', label: 'By Process', rowKey: 'process_id', drill: 'process', cols: [['process_name', 'Process'], ['total_quantity', 'Quantity'], ['unit_code', 'Unit'], ['revenue', 'Revenue']] },
+  { key: 'report_revenue_by_machine', label: 'By Machine', rowKey: 'machine_id', drill: 'machine', cols: [['machine_name', 'Machine'], ['total_quantity', 'Quantity'], ['unit_code', 'Unit'], ['revenue', 'Revenue']] },
   { key: 'report_revenue_by_rate_category', label: 'By Rate Category', rowKey: 'rate_category_id', drill: 'rate_category', cols: [['rate_category_name', 'Rate Category'], ['entry_count', 'Entries'], ['revenue', 'Revenue']] },
   { key: 'report_revenue_by_date', label: 'By Date', rowKey: 'entry_date', drill: 'date', cols: [['entry_date', 'Date'], ['entry_count', 'Entries'], ['revenue', 'Revenue']] },
 ]

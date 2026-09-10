@@ -40,7 +40,7 @@ export default function JobWork() {
     <div>
       <PageHeader
         title="Job Work Catalog"
-        subtitle="What can be logged in the Daily Log, and today's rate by client type."
+        subtitle="What can be logged in the Daily Log, and today's rate by client type — shown for each item's default unit."
         actions={hasPermission('master_data') && <Link to="/masters" className="btn-secondary">Manage in Masters →</Link>}
       />
       {isLoading ? <LoadingBlock /> : !services.length ? <EmptyState title="No job-work configured yet" /> : (
@@ -73,7 +73,7 @@ export default function JobWork() {
                           <CompositeRate service={s} category={cat} components={componentSummary[s.id]} services={services} rates={rates} />
                         ) : (
                           (() => {
-                            const r = findEffectiveRate(rates, s.id, cat.id, today())
+                            const r = findEffectiveRate(rates, s.id, cat.id, s.unit_id, today())
                             return r === null ? <span className="text-ink-300">—</span> : money(r)
                           })()
                         )}
@@ -96,7 +96,7 @@ function CompositeRate({ category, components, services, rates }) {
   for (const c of components) {
     const svc = services.find((s) => s.name === c.name)
     if (!svc) return <span className="text-ink-300">—</span>
-    const r = findEffectiveRate(rates, svc.id, category.id, today())
+    const r = findEffectiveRate(rates, svc.id, category.id, svc.unit_id, today())
     if (r === null) return <span className="text-ink-300">—</span>
     total += r * c.multiplier
   }

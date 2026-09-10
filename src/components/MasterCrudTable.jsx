@@ -5,6 +5,7 @@ import { useToast } from './Toast'
 import { useConfirm } from './ConfirmDialog'
 import { useAuth } from '../context/AuthContext'
 import { Card, Badge, EmptyState, LoadingBlock } from './ui'
+import { deleteErrorMessage } from '../lib/errors'
 
 // Generic CRUD table for masters shaped like {code, name, description, active, ...extraFields}.
 // Never hard-deletes (spec: historical transactions must survive master changes) -- "delete"
@@ -79,6 +80,21 @@ export default function MasterCrudTable({
     }
   }
 
+  async function deleteRow(row) {
+    const ok = await confirm(`Delete "${row.name}" permanently?`, {
+      detail: 'Only possible if nothing references it yet. This cannot be undone.',
+      tone: 'danger',
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
+    const { error } = await supabase.from(table).delete().eq('id', row.id)
+    if (error) toast.error(deleteErrorMessage(error, `"${row.name}"`))
+    else {
+      toast.success('Deleted.')
+      qc.invalidateQueries({ queryKey })
+    }
+  }
+
   return (
     <Card
       title={title}
@@ -117,6 +133,7 @@ export default function MasterCrudTable({
                       <button className="btn-ghost text-xs px-2" onClick={() => toggleActive(row)}>
                         {row.active ? 'Deactivate' : 'Reactivate'}
                       </button>
+                      <button className="btn-ghost text-xs px-2 text-bad" onClick={() => deleteRow(row)}>Delete</button>
                     </td>
                   )}
                 </tr>

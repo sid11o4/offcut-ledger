@@ -6,8 +6,8 @@ import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import { useAuth } from '../context/AuthContext'
 import { Card, StatCard, Badge, EmptyState, LoadingBlock, PageHeader } from '../components/ui'
-import { useProjects, useJobWorkServices, useJobWorkComponents, useRates, useExpenseCategories } from '../lib/queries'
-import { previewEntry } from '../lib/calc'
+import { useProjects, useJobWorkServices, useJobWorkComponents, useRates, useExpenseCategories, useUnits } from '../lib/queries'
+import { previewEntry, availableUnitsForService } from '../lib/calc'
 import { today, displayDate } from '../lib/dates'
 import { money, qty } from '../lib/format'
 
@@ -25,6 +25,7 @@ export default function DailyLog() {
   const servicesQ = useJobWorkServices()
   const componentsQ = useJobWorkComponents()
   const ratesQ = useRates()
+  const unitsQ = useUnits()
   const expenseCategoriesQ = useExpenseCategories()
 
   const entriesQ = useQuery({
@@ -115,6 +116,7 @@ export default function DailyLog() {
             services={activeServices}
             components={componentsQ.data || []}
             rates={ratesQ.data || []}
+            units={unitsQ.data || []}
             canOverride={hasPermission('rate_override')}
             toast={toast}
             onSaved={invalidate}
@@ -171,9 +173,10 @@ export default function DailyLog() {
   )
 }
 
-function JobWorkEntryForm({ date, projects, services, components, rates, canOverride, toast, onSaved }) {
+function JobWorkEntryForm({ date, projects, services, components, rates, units, canOverride, toast, onSaved }) {
   const [projectId, setProjectId] = useState('')
   const [serviceId, setServiceId] = useState('')
+  const [unitId, setUnitId] = useState('')
   const [quantity, setQuantity] = useState('')
   const [remarks, setRemarks] = useState('')
   const [overrideOn, setOverrideOn] = useState(false)
@@ -184,13 +187,29 @@ function JobWorkEntryForm({ date, projects, services, components, rates, canOver
   const project = projects.find((p) => p.id === projectId)
   const service = services.find((s) => s.id === serviceId)
 
+  // Units this service can be logged in for the project's rate category as of the log date.
+  const unitOptions = useMemo(() => {
+    if (!service || !project) return []
+    return availableUnitsForService(service, project.rate_category_id, date, services, components, rates, units)
+  }, [service, project, date, services, components, rates, units])
+
+  // Pick a sensible default unit whenever the service (or its available units) changes.
+  function chooseService(id) {
+    setServiceId(id)
+    const svc = services.find((s) => s.id === id)
+    setUnitId(svc?.unit_id || '')
+  }
+  const effectiveUnitId = unitId || service?.unit_id || ''
+
   const preview = useMemo(() => {
-    if (!service || !project) return { lines: [], total: 0, missingRates: [] }
+    if (!service || !project || !effectiveUnitId) return { lines: [], total: 0, missingRates: [] }
     return previewEntry({
-      service, baseQuantity: quantity, rateCategoryId: project.rate_category_id, asOfDate: date,
+      service, baseQuantity: quantity, rateCategoryId: project.rate_category_id, unitId: effectiveUnitId, asOfDate: date,
       allServices: services, allComponents: components, allRates: rates,
     })
-  }, [service, project, quantity, date, services, components, rates])
+  }, [service, project, quantity, effectiveUnitId, date, services, components, rates])
+
+  const unitName = units.find((u) => u.id === effectiveUnitId)?.name
 
   async function submit(e) {
     e.preventDefault()
@@ -220,6 +239,7 @@ function JobWorkEntryForm({ date, projects, services, components, rates, canOver
     const { error } = await supabase.rpc('record_job_work_entry', {
       p_entry_date: date, p_project_id: projectId, p_service_id: serviceId,
       p_base_quantity: Number(quantity), p_remarks: remarks || null, p_rate_overrides: payloadOverrides,
+      p_unit_id: effectiveUnitId || null,
     })
     setSaving(false)
     if (error) {
@@ -227,7 +247,7 @@ function JobWorkEntryForm({ date, projects, services, components, rates, canOver
       return
     }
     toast.success('Job work logged.')
-    setServiceId(''); setQuantity(''); setRemarks(''); setOverrideOn(false); setOverrides({})
+    setServiceId(''); setUnitId(''); setQuantity(''); setRemarks(''); setOverrideOn(false); setOverrides({})
     onSaved()
   }
 
@@ -244,7 +264,7 @@ function JobWorkEntryForm({ date, projects, services, components, rates, canOver
           </div>
           <div>
             <label className="field-label">Job Work *</label>
-            <select className="field-input" required value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
+            <select className="field-input" required value={serviceId} onChange={(e) => chooseService(e.target.value)}>
               <option value="">Select…</option>
               {services.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
@@ -252,13 +272,29 @@ function JobWorkEntryForm({ date, projects, services, components, rates, canOver
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="field-label">Quantity {service && `(${service.units?.name})`} *</label>
+            <label className="field-label">Quantity{unitName ? ` (${unitName})` : ''} *</label>
             <input className="field-input" type="number" min="0.0001" step="0.0001" required value={quantity} onChange={(e) => setQuantity(e.target.value)} />
           </div>
           <div>
-            <label className="field-label">Remarks</label>
-            <input className="field-input" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+            <label className="field-label">
+              Unit *{service && unitOptions.length > 1 && <span className="text-ink-400 font-normal"> — pick if not the default</span>}
+            </label>
+            <select
+              className="field-input"
+              required
+              disabled={!service}
+              value={effectiveUnitId}
+              onChange={(e) => setUnitId(e.target.value)}
+            >
+              {(unitOptions.length ? unitOptions : (service ? units.filter((u) => u.id === service.unit_id) : [])).map((u) => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
           </div>
+        </div>
+        <div>
+          <label className="field-label">Remarks</label>
+          <input className="field-input" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
         </div>
 
         {preview.lines.length > 0 && (
@@ -266,7 +302,7 @@ function JobWorkEntryForm({ date, projects, services, components, rates, canOver
             <div className="text-xs font-semibold text-ink-500 uppercase mb-2">Calculation</div>
             {preview.lines.map((l) => (
               <div key={l.service.id} className="flex items-center justify-between py-0.5">
-                <span>{l.service.name}: {qty(l.componentQuantity)} {l.service.units?.name} ×
+                <span>{l.service.name}: {qty(l.componentQuantity)} {unitName} ×
                   {overrideOn ? (
                     <input
                       type="number" step="0.01" className="field-input inline-block w-24 mx-1 py-0.5"
