@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, StatCard, Badge, EmptyState, LoadingBlock } from '../../components/ui'
 import DateRangePicker, { presetRanges } from '../../components/DateRangePicker'
+import { useAppSettings } from '../../lib/queries'
+import { generateProjectReportPdf } from '../../lib/pdf'
 import { displayDate } from '../../lib/dates'
 import { money, qty } from '../../lib/format'
 
@@ -49,12 +51,21 @@ export default function ProjectReport() {
   const project = projectQ.data
   const rows = entriesQ.data || []
   const periodTotal = rows.filter((r) => r.status === 'active').reduce((s, r) => s + Number(r.total_amount), 0)
+  const settingsQ = useAppSettings()
+
+  function downloadPdf() {
+    if (!project) return
+    generateProjectReportPdf({
+      settings: settingsQ.data, start, end, project, financials: finQ.data, entries: rows, periodTotal,
+    })
+  }
 
   return (
     <div>
       <PageHeader
         title={project ? `${project.name} — Project Report` : 'Project Report'}
         subtitle={project ? `${project.code} · ${project.clients?.name} · ${project.rate_categories?.name}` : ''}
+        actions={<button className="btn-secondary" disabled={!project} onClick={downloadPdf}>Download PDF</button>}
       />
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">

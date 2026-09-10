@@ -62,6 +62,172 @@ function totalsBlock(doc, y, { subtotal, taxPercent, taxAmount, adjustments, gra
   return ty
 }
 
+const BRAND = [15, 76, 129]
+const TABLE = { styles: { fontSize: 9 }, headStyles: { fillColor: BRAND }, margin: { left: 14, right: 14 } }
+
+function sectionHeading(doc, y, text) {
+  doc.setFont(undefined, 'bold')
+  doc.setFontSize(11)
+  doc.text(text, 14, y)
+  doc.setFont(undefined, 'normal')
+  return y + 3
+}
+
+function pageFooter(doc) {
+  const pages = doc.getNumberOfPages()
+  for (let p = 1; p <= pages; p += 1) {
+    doc.setPage(p)
+    doc.setFontSize(8)
+    doc.setTextColor(140)
+    doc.text(`Page ${p} of ${pages}`, 196, 289, { align: 'right' })
+    doc.setTextColor(0)
+  }
+}
+
+// Income / Expense Statement (spec sections 33-34, 49): letterhead, period, income and expense
+// sections, category breakdown, and the net-profit summary -- reconciling with the on-screen
+// figures exactly.
+export function generateIncomeExpenseStatementPdf({ settings, start, end, statement, breakdown }) {
+  const doc = new jsPDF()
+  let y = documentHeader(doc, settings, 'INCOME / EXPENSE STATEMENT', [
+    ['Period', `${displayDate(start)} – ${displayDate(end)}`],
+  ])
+
+  y = sectionHeading(doc, y + 2, 'Income')
+  autoTable(doc, {
+    ...TABLE, startY: y,
+    head: [['', 'Amount']],
+    body: [['Machine job-work revenue', money(statement.job_work_income)]],
+    foot: [['Total Income', money(statement.job_work_income)]],
+    footStyles: { fontStyle: 'bold', fillColor: [240, 240, 240], textColor: 20 },
+  })
+
+  y = sectionHeading(doc, doc.lastAutoTable.finalY + 8, 'Expenses')
+  autoTable(doc, {
+    ...TABLE, startY: y,
+    head: [['', 'Amount']],
+    body: [
+      ['Variable / daily expenses', money(statement.variable_expenses)],
+      ['Fixed / recurring expenses', money(statement.recurring_expenses)],
+    ],
+    foot: [['Total Expenses', money(statement.total_expenses)]],
+    footStyles: { fontStyle: 'bold', fillColor: [240, 240, 240], textColor: 20 },
+  })
+
+  if (breakdown?.length) {
+    y = sectionHeading(doc, doc.lastAutoTable.finalY + 8, 'Expense Breakdown by Category')
+    autoTable(doc, {
+      ...TABLE, startY: y,
+      head: [['Category', 'Amount']],
+      body: breakdown.map((r) => [r.category_name, money(r.amount)]),
+    })
+  }
+
+  let ty = doc.lastAutoTable.finalY + 10
+  doc.setFontSize(9)
+  const sum = [
+    ['Total Income', money(statement.job_work_income)],
+    ['Total Expenses', `(${money(statement.total_expenses)})`],
+  ]
+  for (const [label, value] of sum) {
+    doc.text(label, 150, ty); doc.text(value, 196, ty, { align: 'right' }); ty += 5.5
+  }
+  doc.setFont(undefined, 'bold'); doc.setFontSize(11)
+  doc.text('Net Profit / Net Contribution', 150, ty + 2)
+  doc.text(money(statement.net_contribution), 196, ty + 2, { align: 'right' })
+  doc.setFont(undefined, 'normal')
+
+  pageFooter(doc)
+  doc.save(`income-expense-statement_${start}_to_${end}.pdf`)
+}
+
+// Factory Reports (spec sections 17-19, 43): every dimension in one document -- billing
+// summary, then a table per breakdown (project / job work / process / machine / rate category
+// / date).
+export function generateFactoryReportPdf({ settings, start, end, billing, sections }) {
+  const doc = new jsPDF()
+  let y = documentHeader(doc, settings, 'FACTORY REPORT', [
+    ['Period', `${displayDate(start)} – ${displayDate(end)}`],
+  ])
+
+  y = sectionHeading(doc, y + 2, 'Summary')
+  autoTable(doc, {
+    ...TABLE, startY: y,
+    head: [['', 'Amount / Count']],
+    body: [
+      ['Total revenue', money(billing?.billed_revenue != null ? Number(billing.billed_revenue) + Number(billing.unbilled_revenue) : 0)],
+      ['Billed', money(billing?.billed_revenue)],
+      ['Unbilled', money(billing?.unbilled_revenue)],
+      ['Job entries', String((Number(billing?.billed_count) || 0) + (Number(billing?.unbilled_count) || 0))],
+    ],
+  })
+  y = doc.lastAutoTable.finalY + 8
+
+  for (const sec of sections) {
+    if (y > 250) { doc.addPage(); y = 20 }
+    y = sectionHeading(doc, y, sec.title)
+    autoTable(doc, {
+      ...TABLE, startY: y,
+      head: [sec.head],
+      body: sec.body,
+      foot: sec.foot ? [sec.foot] : undefined,
+      footStyles: sec.foot ? { fontStyle: 'bold', fillColor: [240, 240, 240], textColor: 20 } : undefined,
+    })
+    y = doc.lastAutoTable.finalY + 8
+  }
+
+  pageFooter(doc)
+  doc.save(`factory-report_${start}_to_${end}.pdf`)
+}
+
+// Single-project report (spec section 18): project + client info, financial reconciliation,
+// and the date-wise work table with billing status for the chosen period.
+export function generateProjectReportPdf({ settings, start, end, project, financials, entries, periodTotal }) {
+  const doc = new jsPDF()
+  let y = documentHeader(doc, settings, 'PROJECT REPORT', [
+    ['Project', project?.code || '—'],
+    ['Period', `${displayDate(start)} – ${displayDate(end)}`],
+  ])
+
+  doc.setFontSize(9)
+  doc.text(`Project: ${project?.name || '—'}`, 14, y); y += 5
+  doc.text(`Client: ${project?.clients?.name || '—'}`, 14, y); y += 5
+  doc.text(`Rate Category: ${project?.rate_categories?.name || '—'}`, 14, y); y += 5
+  doc.text(`Status: ${String(project?.status || '').replace(/_/g, ' ')}`, 14, y); y += 8
+
+  y = sectionHeading(doc, y, 'Financial Summary (all time)')
+  autoTable(doc, {
+    ...TABLE, startY: y,
+    head: [['', 'Amount']],
+    body: [
+      ['Actual work revenue', money(financials?.actual_revenue)],
+      ['Billed', money(financials?.billed_revenue)],
+      ['Unbilled', money(financials?.unbilled_revenue)],
+      ['Project expenses', money(financials?.total_expenses)],
+      ['Estimated value', money(financials?.estimated_value)],
+    ],
+  })
+
+  y = sectionHeading(doc, doc.lastAutoTable.finalY + 8, 'Date-wise Work')
+  autoTable(doc, {
+    ...TABLE, startY: y,
+    head: [['Date', 'Job Work', 'Quantity', 'Unit', 'Amount', 'Billing']],
+    body: (entries || []).map((r) => [
+      displayDate(r.entry_date),
+      r.job_work_services?.name || '—',
+      qty(r.base_quantity),
+      r.units?.code || '—',
+      money(r.total_amount),
+      r.status === 'cancelled' ? 'Cancelled' : r.billed ? 'Billed' : 'Unbilled',
+    ]),
+    foot: [['', '', '', 'Period Total', money(periodTotal), '']],
+    footStyles: { fontStyle: 'bold', fillColor: [240, 240, 240], textColor: 20 },
+  })
+
+  pageFooter(doc)
+  doc.save(`project-report_${project?.code || 'project'}_${start}_to_${end}.pdf`)
+}
+
 export function generateEstimatePdf({ settings, estimate, client, project, rateCategory, items }) {
   const doc = new jsPDF()
   let y = documentHeader(doc, settings, 'ESTIMATE', [

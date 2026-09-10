@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabaseClient'
 import { PageHeader, Card, StatCard, EmptyState, LoadingBlock } from '../components/ui'
 import DateRangePicker, { presetRanges } from '../components/DateRangePicker'
+import { useAppSettings } from '../lib/queries'
+import { generateIncomeExpenseStatementPdf } from '../lib/pdf'
 import { money } from '../lib/format'
 
 export default function IncomeExpenseStatement() {
@@ -53,10 +55,20 @@ export default function IncomeExpenseStatement() {
   })
 
   const s = statementQ.data
+  const settingsQ = useAppSettings()
+
+  function downloadPdf() {
+    if (!s) return
+    generateIncomeExpenseStatementPdf({ settings: settingsQ.data, start, end, statement: s, breakdown: breakdownQ.data || [] })
+  }
 
   return (
     <div>
-      <PageHeader title="Income / Expense Statement" subtitle="Reconciles exactly with the underlying job-work and expense transactions for the chosen period." />
+      <PageHeader
+        title="Income / Expense Statement"
+        subtitle="Reconciles exactly with the underlying job-work and expense transactions for the chosen period."
+        actions={<button className="btn-secondary" disabled={!s} onClick={downloadPdf}>Download PDF</button>}
+      />
 
       <Card className="mb-5"><DateRangePicker start={start} end={end} onChange={(a, b) => { setStart(a); setEnd(b) }} /></Card>
 

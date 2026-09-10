@@ -5,6 +5,8 @@ import Papa from 'papaparse'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, StatCard, EmptyState, LoadingBlock } from '../../components/ui'
 import DateRangePicker, { presetRanges } from '../../components/DateRangePicker'
+import { useAppSettings } from '../../lib/queries'
+import { generateFactoryReportPdf } from '../../lib/pdf'
 import { displayDate } from '../../lib/dates'
 import { money, qty } from '../../lib/format'
 
@@ -50,6 +52,36 @@ export default function Reports() {
 
   const rows = dataQ.data || []
   const total = rows.reduce((s, r) => s + Number(r.revenue || 0), 0)
+  const settingsQ = useAppSettings()
+  const [pdfBusy, setPdfBusy] = useState(false)
+
+  function fmtCell(k, v) {
+    if (k === 'revenue') return money(v)
+    if (k === 'entry_date') return displayDate(v)
+    if (k === 'total_quantity') return qty(v)
+    return v == null ? '—' : String(v)
+  }
+
+  async function downloadPdf() {
+    setPdfBusy(true)
+    try {
+      const results = await Promise.all(DIMENSIONS.map((d) => supabase.rpc(d.key, { p_start: start, p_end: end })))
+      const sections = DIMENSIONS.map((d, i) => {
+        const drows = results[i].data || []
+        const revTotal = drows.reduce((s, r) => s + Number(r.revenue || 0), 0)
+        const foot = d.cols.map(([k], idx) => (idx === 0 ? 'Total' : k === 'revenue' ? money(revTotal) : ''))
+        return {
+          title: d.label,
+          head: d.cols.map(([, label]) => label),
+          body: drows.map((r) => d.cols.map(([k]) => fmtCell(k, r[k]))),
+          foot: drows.length ? foot : undefined,
+        }
+      })
+      generateFactoryReportPdf({ settings: settingsQ.data, start, end, billing: billingQ.data, sections })
+    } finally {
+      setPdfBusy(false)
+    }
+  }
 
   function exportCsv() {
     const csv = Papa.unparse(rows.map((r) => {
@@ -99,7 +131,12 @@ export default function Reports() {
         ))}
       </div>
 
-      <Card actions={rows.length > 0 && <button className="btn-secondary text-xs" onClick={exportCsv}>Export CSV</button>}>
+      <Card actions={
+        <div className="flex gap-2">
+          <button className="btn-secondary text-xs" disabled={pdfBusy} onClick={downloadPdf}>{pdfBusy ? 'Preparing…' : 'Download PDF'}</button>
+          {rows.length > 0 && <button className="btn-secondary text-xs" onClick={exportCsv}>Export CSV</button>}
+        </div>
+      }>
         {dataQ.isLoading ? <LoadingBlock /> : !rows.length ? <EmptyState title="No revenue in this period" /> : (
           <div className="overflow-x-auto -mx-4">
             <table className="table-base">
