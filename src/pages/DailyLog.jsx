@@ -6,6 +6,7 @@ import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import { useAuth } from '../context/AuthContext'
 import { Card, StatCard, Badge, EmptyState, LoadingBlock, PageHeader } from '../components/ui'
+import ProjectFormModal from '../components/ProjectFormModal'
 import { useProjects, useJobWorkServices, useJobWorkComponents, useRates, useExpenseCategories, useUnits } from '../lib/queries'
 import { previewEntry, availableUnitsForService } from '../lib/calc'
 import { today, displayDate } from '../lib/dates'
@@ -182,6 +183,7 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
   const [overrideOn, setOverrideOn] = useState(false)
   const [overrides, setOverrides] = useState({}) // componentServiceId -> {rate, reason}
   const [saving, setSaving] = useState(false)
+  const [showNewProject, setShowNewProject] = useState(false)
   const confirm = useConfirm()
 
   const project = projects.find((p) => p.id === projectId)
@@ -253,10 +255,20 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
 
   return (
     <Card title="Add Job Work">
+      {showNewProject && (
+        <ProjectFormModal
+          existing={null}
+          onClose={() => setShowNewProject(false)}
+          onSaved={(p) => { setShowNewProject(false); setProjectId(p.id) }}
+        />
+      )}
       <form onSubmit={submit} className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="field-label">Project *</label>
+            <div className="flex items-center justify-between">
+              <label className="field-label mb-0">Project *</label>
+              <button type="button" className="btn-ghost text-xs px-2 text-brand-700" onClick={() => setShowNewProject(true)}>+ New</button>
+            </div>
             <select className="field-input" required value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               <option value="">Select project…</option>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -398,6 +410,7 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
   const [description, setDescription] = useState('')
   const [projectId, setProjectId] = useState('')
   const [saving, setSaving] = useState(false)
+  const [showNewProject, setShowNewProject] = useState(false)
 
   async function submit(e) {
     e.preventDefault()
@@ -415,6 +428,13 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
 
   return (
     <Card title="Add Expense">
+      {showNewProject && (
+        <ProjectFormModal
+          existing={null}
+          onClose={() => setShowNewProject(false)}
+          onSaved={(p) => { setShowNewProject(false); setProjectId(p.id) }}
+        />
+      )}
       <form onSubmit={submit} className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -434,7 +454,10 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
           <input className="field-input" value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
         <div>
-          <label className="field-label">Project <span className="text-ink-400 font-normal">(optional — leave blank for factory-wide)</span></label>
+          <div className="flex items-center justify-between">
+            <label className="field-label mb-0">Project <span className="text-ink-400 font-normal">(optional — leave blank for factory-wide)</span></label>
+            <button type="button" className="btn-ghost text-xs px-2 text-brand-700" onClick={() => setShowNewProject(true)}>+ New</button>
+          </div>
           <select className="field-input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
             <option value="">Factory-wide</option>
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
