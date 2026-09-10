@@ -13,7 +13,14 @@ function documentHeader(doc, settings, docTitle, meta) {
   doc.setFont(undefined, 'normal')
   doc.setFontSize(9)
   let y = 24
-  if (settings?.company_address) { doc.text(settings.company_address, 14, y); y += 5 }
+  // company_address may hold several lines (embedded newlines) and/or a long line that needs
+  // wrapping -- splitTextToSize handles both, and y advances by the real line count so the
+  // phone / email / GSTIN lines below never overlap it.
+  if (settings?.company_address) {
+    const lines = doc.splitTextToSize(settings.company_address, 95)
+    doc.text(lines, 14, y)
+    y += lines.length * 4.6
+  }
   const contactBits = [settings?.company_phone, settings?.company_email].filter(Boolean).join('  ·  ')
   if (contactBits) { doc.text(contactBits, 14, y); y += 5 }
   if (settings?.company_gst_number) { doc.text(`GSTIN: ${settings.company_gst_number}`, 14, y); y += 5 }
