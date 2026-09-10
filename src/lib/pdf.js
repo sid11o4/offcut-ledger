@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf'
 import { autoTable } from 'jspdf-autotable'
 import { displayDate } from './dates'
 import { pdfMoney as money, qty } from './format'
+import { computeGst } from './gst'
 
 // Deterministic, reproducible document generation (spec section 49): same data always
 // produces the same PDF -- no random ids, no "generated at" timestamp affecting layout.
@@ -48,9 +49,9 @@ function billToBlock(doc, y, client, project) {
   return y + 4
 }
 
-function totalsBlock(doc, y, { subtotal, taxPercent, taxAmount, adjustments, grandTotal }) {
-  const lines = [['Subtotal', money(subtotal)]]
-  if (Number(taxPercent) > 0) lines.push([`Tax (${taxPercent}%)`, money(taxAmount)])
+// taxLines: array of [label, formattedValue] (e.g. CGST / SGST rows, or a single GST row).
+function totalsBlock(doc, y, { subtotal, taxLines = [], adjustments, grandTotal, note }) {
+  const lines = [['Subtotal', money(subtotal)], ...taxLines]
   if (Number(adjustments)) lines.push(['Adjustments', money(adjustments)])
   lines.push(['Grand Total', money(grandTotal)])
 
@@ -65,6 +66,13 @@ function totalsBlock(doc, y, { subtotal, taxPercent, taxAmount, adjustments, gra
     ty += bold ? 7 : 5.5
   }
   doc.setFont(undefined, 'normal')
+  if (note) {
+    doc.setFontSize(8)
+    doc.setTextColor(90)
+    doc.text(note, 196, ty, { align: 'right', maxWidth: 120 })
+    doc.setTextColor(0)
+    ty += 5
+  }
   return ty
 }
 
@@ -298,7 +306,8 @@ export function buildEstimateDoc({ settings, estimate, client, project, rateCate
   })
 
   const ty = totalsBlock(doc, doc.lastAutoTable.finalY + 8, {
-    subtotal: estimate.subtotal, taxPercent: estimate.tax_percent, taxAmount: estimate.tax_amount,
+    subtotal: estimate.subtotal,
+    taxLines: Number(estimate.tax_percent) > 0 ? [[`GST (${estimate.tax_percent}%)`, money(estimate.tax_amount)]] : [],
     adjustments: 0, grandTotal: estimate.grand_total,
   })
   notesBlock(doc, ty, estimate.notes)
@@ -327,9 +336,13 @@ export function buildBillDoc({ settings, bill, client, project, items }) {
     body: items.map((it) => [displayDate(it.entry_date), it.service_name, qty(it.quantity), it.unit_name, money(it.amount)]),
   })
 
+  const g = computeGst(bill.subtotal, bill.tax_percent, bill.gst_treatment || 'full')
+  const taxLines = g.effectivePct > 0
+    ? [[`CGST (${g.halfPct}%)`, money(g.cgst)], [`SGST (${g.halfPct}%)`, money(g.sgst)]]
+    : (Number(bill.tax_percent) > 0 ? [['GST', money(0)]] : [])
   const ty = totalsBlock(doc, doc.lastAutoTable.finalY + 8, {
-    subtotal: bill.subtotal, taxPercent: bill.tax_percent, taxAmount: bill.tax_amount,
-    adjustments: bill.adjustments, grandTotal: bill.grand_total,
+    subtotal: bill.subtotal, taxLines,
+    adjustments: bill.adjustments, grandTotal: bill.grand_total, note: g.note,
   })
   if (bill.payment_status) {
     doc.setFontSize(9)

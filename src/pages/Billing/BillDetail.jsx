@@ -6,6 +6,7 @@ import { useConfirm } from '../../components/ConfirmDialog'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, StatusBadge, EmptyState, LoadingBlock } from '../../components/ui'
 import { useAppSettings } from '../../lib/queries'
+import { computeGst } from '../../lib/gst'
 import { displayDate } from '../../lib/dates'
 import { money, qty } from '../../lib/format'
 import { generateBillPdf } from '../../lib/pdf'
@@ -126,9 +127,23 @@ export default function BillDetail() {
           </div>
         )}
         <div className="flex justify-end mt-4">
-          <div className="w-64 text-sm space-y-1">
+          <div className="w-72 text-sm space-y-1">
             <div className="flex justify-between"><span>Subtotal</span><span>{money(bill.subtotal)}</span></div>
-            <div className="flex justify-between"><span>Tax ({bill.tax_percent}%)</span><span>{money(bill.tax_amount)}</span></div>
+            {(() => {
+              const g = computeGst(bill.subtotal, bill.tax_percent, bill.gst_treatment || 'full')
+              if (g.effectivePct > 0) {
+                return (
+                  <>
+                    <div className="flex justify-between"><span>CGST ({g.halfPct}%)</span><span>{money(g.cgst)}</span></div>
+                    <div className="flex justify-between"><span>SGST ({g.halfPct}%)</span><span>{money(g.sgst)}</span></div>
+                    {g.note && <div className="text-xs text-ink-400">{g.note}</div>}
+                  </>
+                )
+              }
+              return Number(bill.tax_percent) > 0
+                ? <div className="flex justify-between text-ink-500"><span>GST</span><span>Waived</span></div>
+                : null
+            })()}
             <div className="flex justify-between"><span>Adjustments</span><span>{money(bill.adjustments)}</span></div>
             <div className="flex justify-between font-semibold border-t border-ink-200 pt-1"><span>Grand Total</span><span>{money(bill.grand_total)}</span></div>
           </div>
