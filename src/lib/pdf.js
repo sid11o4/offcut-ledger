@@ -38,7 +38,11 @@ function billToBlock(doc, y, client, project) {
   y += 5
   doc.text(client?.name || '—', 14, y)
   y += 5
-  if (client?.address) { doc.text(client.address, 14, y, { maxWidth: 90 }); y += 5 }
+  if (client?.address) {
+    const lines = doc.splitTextToSize(client.address, 90)
+    doc.text(lines, 14, y)
+    y += lines.length * 4.6
+  }
   if (client?.gst_number) { doc.text(`GSTIN: ${client.gst_number}`, 14, y); y += 5 }
   if (project) { doc.text(`Project: ${project.name}`, 14, y); y += 5 }
   return y + 4
@@ -53,12 +57,14 @@ function totalsBlock(doc, y, { subtotal, taxPercent, taxAmount, adjustments, gra
   let ty = y
   for (const [label, value] of lines) {
     const bold = label === 'Grand Total'
+    if (bold) { doc.setDrawColor(180); doc.line(128, ty - 3, 196, ty - 3) }
     doc.setFont(undefined, bold ? 'bold' : 'normal')
     doc.setFontSize(bold ? 11 : 9)
-    doc.text(label, 150, ty)
+    doc.text(label, 128, ty)
     doc.text(value, 196, ty, { align: 'right' })
     ty += bold ? 7 : 5.5
   }
+  doc.setFont(undefined, 'normal')
   return ty
 }
 
@@ -265,7 +271,16 @@ export function generateProjectReportPdf(args) {
   buildProjectReportDoc(args).save(`project-report_${args.project?.code || 'project'}_${args.start}_to_${args.end}.pdf`)
 }
 
-export function generateEstimatePdf({ settings, estimate, client, project, rateCategory, items }) {
+function notesBlock(doc, ty, notes) {
+  if (!notes) return
+  doc.setFontSize(9)
+  doc.setFont(undefined, 'bold')
+  doc.text('Notes', 14, ty + 8)
+  doc.setFont(undefined, 'normal')
+  doc.text(notes, 14, ty + 13, { maxWidth: 180 })
+}
+
+export function buildEstimateDoc({ settings, estimate, client, project, rateCategory, items }) {
   const doc = new jsPDF()
   let y = documentHeader(doc, settings, 'ESTIMATE', [
     ['Estimate #', estimate.estimate_number],
@@ -276,33 +291,26 @@ export function generateEstimatePdf({ settings, estimate, client, project, rateC
   y = billToBlock(doc, y, client, project)
 
   autoTable(doc, {
-    startY: y,
+    ...TABLE, startY: y,
     head: [['Job Work', 'Quantity', 'Unit', 'Rate', 'Amount']],
+    columnStyles: { 1: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right', cellWidth: 34 } },
     body: items.map((it) => [it.service_name, qty(it.quantity), it.unit_name, money(it.rate), money(it.amount)]),
-    styles: { fontSize: 9 },
-    headStyles: { fillColor: [15, 76, 129] },
-    margin: { left: 14, right: 14 },
   })
 
-  let ty = doc.lastAutoTable.finalY + 8
-  ty = totalsBlock(doc, ty, {
+  const ty = totalsBlock(doc, doc.lastAutoTable.finalY + 8, {
     subtotal: estimate.subtotal, taxPercent: estimate.tax_percent, taxAmount: estimate.tax_amount,
     adjustments: 0, grandTotal: estimate.grand_total,
   })
-
-  if (estimate.notes) {
-    ty += 8
-    doc.setFontSize(9)
-    doc.setFont(undefined, 'bold')
-    doc.text('Notes', 14, ty)
-    doc.setFont(undefined, 'normal')
-    doc.text(estimate.notes, 14, ty + 5, { maxWidth: 180 })
-  }
-
-  doc.save(`${estimate.estimate_number}.pdf`)
+  notesBlock(doc, ty, estimate.notes)
+  pageFooter(doc)
+  return doc
 }
 
-export function generateBillPdf({ settings, bill, client, project, items }) {
+export function generateEstimatePdf(args) {
+  buildEstimateDoc(args).save(`${args.estimate.estimate_number}.pdf`)
+}
+
+export function buildBillDoc({ settings, bill, client, project, items }) {
   const doc = new jsPDF()
   let y = documentHeader(doc, settings, 'BILL', [
     ['Bill #', bill.bill_number],
@@ -313,28 +321,25 @@ export function generateBillPdf({ settings, bill, client, project, items }) {
   y = billToBlock(doc, y, client, project)
 
   autoTable(doc, {
-    startY: y,
+    ...TABLE, startY: y,
     head: [['Date', 'Job Work', 'Quantity', 'Unit', 'Amount']],
+    columnStyles: { 0: { cellWidth: 24 }, 2: { halign: 'right' }, 4: { halign: 'right', cellWidth: 36 } },
     body: items.map((it) => [displayDate(it.entry_date), it.service_name, qty(it.quantity), it.unit_name, money(it.amount)]),
-    styles: { fontSize: 9 },
-    headStyles: { fillColor: [15, 76, 129] },
-    margin: { left: 14, right: 14 },
   })
 
-  let ty = doc.lastAutoTable.finalY + 8
-  ty = totalsBlock(doc, ty, {
+  const ty = totalsBlock(doc, doc.lastAutoTable.finalY + 8, {
     subtotal: bill.subtotal, taxPercent: bill.tax_percent, taxAmount: bill.tax_amount,
     adjustments: bill.adjustments, grandTotal: bill.grand_total,
   })
-
-  if (bill.notes) {
-    ty += 8
+  if (bill.payment_status) {
     doc.setFontSize(9)
-    doc.setFont(undefined, 'bold')
-    doc.text('Notes', 14, ty)
-    doc.setFont(undefined, 'normal')
-    doc.text(bill.notes, 14, ty + 5, { maxWidth: 180 })
+    doc.text(`Payment status: ${String(bill.payment_status).replace(/_/g, ' ')}`, 14, ty)
   }
+  notesBlock(doc, ty, bill.notes)
+  pageFooter(doc)
+  return doc
+}
 
-  doc.save(`${bill.bill_number}.pdf`)
+export function generateBillPdf(args) {
+  buildBillDoc(args).save(`${args.bill.bill_number}.pdf`)
 }
