@@ -4,7 +4,7 @@ import { formatInTimeZone } from 'date-fns-tz'
 // concern by construction). The one place timezone actually matters is deciding what "today"
 // is, and displaying timestamptz audit fields -- both anchored to the factory's local zone so
 // a late-night entry never silently lands under the wrong day (spec section 51).
-export const APP_TIMEZONE = import.meta.env.VITE_APP_TIMEZONE || 'Asia/Kolkata'
+export const APP_TIMEZONE = import.meta.env?.VITE_APP_TIMEZONE || 'Asia/Kolkata'
 
 export function today() {
   return formatInTimeZone(new Date(), APP_TIMEZONE, 'yyyy-MM-dd')

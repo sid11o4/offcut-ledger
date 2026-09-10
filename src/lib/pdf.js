@@ -1,7 +1,7 @@
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
+import { jsPDF } from 'jspdf'
+import { autoTable } from 'jspdf-autotable'
 import { displayDate } from './dates'
-import { money, qty } from './format'
+import { pdfMoney as money, qty } from './format'
 
 // Deterministic, reproducible document generation (spec section 49): same data always
 // produces the same PDF -- no random ids, no "generated at" timestamp affecting layout.
@@ -86,16 +86,19 @@ function pageFooter(doc) {
 
 // Income / Expense Statement (spec sections 33-34, 49): letterhead, period, income and expense
 // sections, category breakdown, and the net-profit summary -- reconciling with the on-screen
-// figures exactly.
-export function generateIncomeExpenseStatementPdf({ settings, start, end, statement, breakdown }) {
+// figures exactly. buildX returns the jsPDF doc (testable in Node); generateXPdf triggers the
+// browser download.
+export function buildIncomeExpenseStatementDoc({ settings, start, end, statement, breakdown }) {
   const doc = new jsPDF()
   let y = documentHeader(doc, settings, 'INCOME / EXPENSE STATEMENT', [
     ['Period', `${displayDate(start)} – ${displayDate(end)}`],
   ])
 
+  const amtCol = { columnStyles: { 1: { halign: 'right', cellWidth: 45 } } }
+
   y = sectionHeading(doc, y + 2, 'Income')
   autoTable(doc, {
-    ...TABLE, startY: y,
+    ...TABLE, ...amtCol, startY: y,
     head: [['', 'Amount']],
     body: [['Machine job-work revenue', money(statement.job_work_income)]],
     foot: [['Total Income', money(statement.job_work_income)]],
@@ -104,7 +107,7 @@ export function generateIncomeExpenseStatementPdf({ settings, start, end, statem
 
   y = sectionHeading(doc, doc.lastAutoTable.finalY + 8, 'Expenses')
   autoTable(doc, {
-    ...TABLE, startY: y,
+    ...TABLE, ...amtCol, startY: y,
     head: [['', 'Amount']],
     body: [
       ['Variable / daily expenses', money(statement.variable_expenses)],
@@ -118,33 +121,41 @@ export function generateIncomeExpenseStatementPdf({ settings, start, end, statem
     y = sectionHeading(doc, doc.lastAutoTable.finalY + 8, 'Expense Breakdown by Category')
     autoTable(doc, {
       ...TABLE, startY: y,
+      columnStyles: { 1: { halign: 'right', cellWidth: 45 } },
       head: [['Category', 'Amount']],
       body: breakdown.map((r) => [r.category_name, money(r.amount)]),
     })
   }
 
-  let ty = doc.lastAutoTable.finalY + 10
+  let ty = doc.lastAutoTable.finalY + 12
+  const LABEL_X = 110
   doc.setFontSize(9)
   const sum = [
     ['Total Income', money(statement.job_work_income)],
     ['Total Expenses', `(${money(statement.total_expenses)})`],
   ]
   for (const [label, value] of sum) {
-    doc.text(label, 150, ty); doc.text(value, 196, ty, { align: 'right' }); ty += 5.5
+    doc.text(label, LABEL_X, ty); doc.text(value, 196, ty, { align: 'right' }); ty += 6
   }
+  doc.setDrawColor(180)
+  doc.line(LABEL_X, ty - 1, 196, ty - 1)
   doc.setFont(undefined, 'bold'); doc.setFontSize(11)
-  doc.text('Net Profit / Net Contribution', 150, ty + 2)
-  doc.text(money(statement.net_contribution), 196, ty + 2, { align: 'right' })
+  doc.text('Net Profit / Net Contribution', LABEL_X, ty + 5)
+  doc.text(money(statement.net_contribution), 196, ty + 5, { align: 'right' })
   doc.setFont(undefined, 'normal')
 
   pageFooter(doc)
-  doc.save(`income-expense-statement_${start}_to_${end}.pdf`)
+  return doc
+}
+
+export function generateIncomeExpenseStatementPdf(args) {
+  buildIncomeExpenseStatementDoc(args).save(`income-expense-statement_${args.start}_to_${args.end}.pdf`)
 }
 
 // Factory Reports (spec sections 17-19, 43): every dimension in one document -- billing
 // summary, then a table per breakdown (project / job work / process / machine / rate category
 // / date).
-export function generateFactoryReportPdf({ settings, start, end, billing, sections }) {
+export function buildFactoryReportDoc({ settings, start, end, billing, sections }) {
   const doc = new jsPDF()
   let y = documentHeader(doc, settings, 'FACTORY REPORT', [
     ['Period', `${displayDate(start)} – ${displayDate(end)}`],
@@ -154,6 +165,7 @@ export function generateFactoryReportPdf({ settings, start, end, billing, sectio
   autoTable(doc, {
     ...TABLE, startY: y,
     head: [['', 'Amount / Count']],
+    columnStyles: { 1: { halign: 'right' } },
     body: [
       ['Total revenue', money(billing?.billed_revenue != null ? Number(billing.billed_revenue) + Number(billing.unbilled_revenue) : 0)],
       ['Billed', money(billing?.billed_revenue)],
@@ -163,26 +175,38 @@ export function generateFactoryReportPdf({ settings, start, end, billing, sectio
   })
   y = doc.lastAutoTable.finalY + 8
 
+  const RIGHT = new Set(['Entries', 'Quantity', 'Revenue', 'Amount'])
   for (const sec of sections) {
-    if (y > 250) { doc.addPage(); y = 20 }
+    if (y > 235) { doc.addPage(); y = 20 }
     y = sectionHeading(doc, y, sec.title)
+    const columnStyles = {}
+    sec.head.forEach((h, i) => { if (RIGHT.has(h)) columnStyles[i] = { halign: 'right' } })
     autoTable(doc, {
-      ...TABLE, startY: y,
+      ...TABLE, startY: y, columnStyles,
       head: [sec.head],
       body: sec.body,
       foot: sec.foot ? [sec.foot] : undefined,
       footStyles: sec.foot ? { fontStyle: 'bold', fillColor: [240, 240, 240], textColor: 20 } : undefined,
+      didParseCell: (data) => {
+        if (data.section === 'foot' && columnStyles[data.column.index]?.halign === 'right') {
+          data.cell.styles.halign = 'right'
+        }
+      },
     })
     y = doc.lastAutoTable.finalY + 8
   }
 
   pageFooter(doc)
-  doc.save(`factory-report_${start}_to_${end}.pdf`)
+  return doc
+}
+
+export function generateFactoryReportPdf(args) {
+  buildFactoryReportDoc(args).save(`factory-report_${args.start}_to_${args.end}.pdf`)
 }
 
 // Single-project report (spec section 18): project + client info, financial reconciliation,
 // and the date-wise work table with billing status for the chosen period.
-export function generateProjectReportPdf({ settings, start, end, project, financials, entries, periodTotal }) {
+export function buildProjectReportDoc({ settings, start, end, project, financials, entries, periodTotal }) {
   const doc = new jsPDF()
   let y = documentHeader(doc, settings, 'PROJECT REPORT', [
     ['Project', project?.code || '—'],
@@ -198,6 +222,7 @@ export function generateProjectReportPdf({ settings, start, end, project, financ
   y = sectionHeading(doc, y, 'Financial Summary (all time)')
   autoTable(doc, {
     ...TABLE, startY: y,
+    columnStyles: { 1: { halign: 'right', cellWidth: 45 } },
     head: [['', 'Amount']],
     body: [
       ['Actual work revenue', money(financials?.actual_revenue)],
@@ -212,6 +237,14 @@ export function generateProjectReportPdf({ settings, start, end, project, financ
   autoTable(doc, {
     ...TABLE, startY: y,
     head: [['Date', 'Job Work', 'Quantity', 'Unit', 'Amount', 'Billing']],
+    columnStyles: {
+      0: { cellWidth: 22 },
+      1: { cellWidth: 52 },
+      2: { cellWidth: 22, halign: 'right' },
+      3: { cellWidth: 14 },
+      4: { cellWidth: 34, halign: 'right' },
+      5: { cellWidth: 22 },
+    },
     body: (entries || []).map((r) => [
       displayDate(r.entry_date),
       r.job_work_services?.name || '—',
@@ -220,12 +253,16 @@ export function generateProjectReportPdf({ settings, start, end, project, financ
       money(r.total_amount),
       r.status === 'cancelled' ? 'Cancelled' : r.billed ? 'Billed' : 'Unbilled',
     ]),
-    foot: [['', '', '', 'Period Total', money(periodTotal), '']],
+    foot: [[{ content: 'Period Total', colSpan: 4, styles: { halign: 'right' } }, money(periodTotal), '']],
     footStyles: { fontStyle: 'bold', fillColor: [240, 240, 240], textColor: 20 },
   })
 
   pageFooter(doc)
-  doc.save(`project-report_${project?.code || 'project'}_${start}_to_${end}.pdf`)
+  return doc
+}
+
+export function generateProjectReportPdf(args) {
+  buildProjectReportDoc(args).save(`project-report_${args.project?.code || 'project'}_${args.start}_to_${args.end}.pdf`)
 }
 
 export function generateEstimatePdf({ settings, estimate, client, project, rateCategory, items }) {

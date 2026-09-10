@@ -8,7 +8,7 @@ import DateRangePicker, { presetRanges } from '../../components/DateRangePicker'
 import { useAppSettings } from '../../lib/queries'
 import { generateFactoryReportPdf } from '../../lib/pdf'
 import { displayDate } from '../../lib/dates'
-import { money, qty } from '../../lib/format'
+import { money, pdfMoney, qty } from '../../lib/format'
 
 // Each dimension's row key -> how to drill into its underlying transactions (spec section
 // 19/43: "Users should be able to drill down from summary figures into underlying
@@ -56,7 +56,7 @@ export default function Reports() {
   const [pdfBusy, setPdfBusy] = useState(false)
 
   function fmtCell(k, v) {
-    if (k === 'revenue') return money(v)
+    if (k === 'revenue') return pdfMoney(v)
     if (k === 'entry_date') return displayDate(v)
     if (k === 'total_quantity') return qty(v)
     return v == null ? '—' : String(v)
@@ -69,7 +69,7 @@ export default function Reports() {
       const sections = DIMENSIONS.map((d, i) => {
         const drows = results[i].data || []
         const revTotal = drows.reduce((s, r) => s + Number(r.revenue || 0), 0)
-        const foot = d.cols.map(([k], idx) => (idx === 0 ? 'Total' : k === 'revenue' ? money(revTotal) : ''))
+        const foot = d.cols.map(([k], idx) => (idx === 0 ? 'Total' : k === 'revenue' ? pdfMoney(revTotal) : ''))
         return {
           title: d.label,
           head: d.cols.map(([, label]) => label),
