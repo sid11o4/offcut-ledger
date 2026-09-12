@@ -7,6 +7,7 @@ import { useConfirm } from '../components/ConfirmDialog'
 import { useAuth } from '../context/AuthContext'
 import { Card, StatCard, Badge, EmptyState, LoadingBlock, PageHeader } from '../components/ui'
 import ProjectFormModal from '../components/ProjectFormModal'
+import ScanEdgebandLog from '../components/ScanEdgebandLog'
 import { useProjects, useJobWorkServices, useJobWorkComponents, useRates, useExpenseCategories, useUnits } from '../lib/queries'
 import { previewEntry, availableUnitsForService } from '../lib/calc'
 import { today, displayDate } from '../lib/dates'
@@ -119,6 +120,15 @@ export default function DailyLog() {
             rates={ratesQ.data || []}
             units={unitsQ.data || []}
             canOverride={hasPermission('rate_override')}
+            toast={toast}
+            onSaved={invalidate}
+          />
+          <ScanEdgebandLog
+            date={date}
+            projects={activeProjects}
+            services={activeServices}
+            units={unitsQ.data || []}
+            profile={profile}
             toast={toast}
             onSaved={invalidate}
           />
