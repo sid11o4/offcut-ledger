@@ -16,6 +16,7 @@ function Gate({ title, children }) {
 }
 
 function Login() {
+  const [mode, setMode] = useState('signin') // 'signin' | 'forgot' | 'sent'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
@@ -28,6 +29,38 @@ function Login() {
     setBusy(false)
     if (error) setErr(/invalid login/i.test(error.message) ? 'Wrong email or password.' : friendlyError(error))
   }
+  async function sendReset(e) {
+    e.preventDefault()
+    setBusy(true)
+    setErr('')
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin + '/' })
+    setBusy(false)
+    if (error) setErr(/rate limit/i.test(error.message) ? 'Too many reset emails. Wait a few minutes and try again.' : friendlyError(error))
+    else setMode('sent')
+  }
+  const toSignIn = () => { setMode('signin'); setErr('') }
+
+  if (mode === 'sent') {
+    return (
+      <Gate title="Check your email">
+        <p>If <b>{email.trim()}</b> has a login, a reset link is on its way. Open it on this device to set a new password.</p>
+        <button className="btn" type="button" onClick={toSignIn}>Back to sign in</button>
+      </Gate>
+    )
+  }
+  if (mode === 'forgot') {
+    return (
+      <Gate title="Reset your password">
+        <p>Enter your login email and we'll send you a link to set a new password.</p>
+        <form onSubmit={sendReset}>
+          <label>Email<input className="field" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+          {err && <div className="err">{err}</div>}
+          <button className="btn primary" type="submit" disabled={busy}>{busy ? 'Sending…' : 'Send reset link'}</button>
+          <button className="btn ghost" type="button" onClick={toSignIn}>Back to sign in</button>
+        </form>
+      </Gate>
+    )
+  }
   return (
     <Gate title="Sign in">
       <p>Use the login your admin created for you.</p>
@@ -36,6 +69,36 @@ function Login() {
         <label>Password<input className="field" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
         {err && <div className="err">{err}</div>}
         <button className="btn primary" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+        <button className="btn ghost" type="button" onClick={() => { setMode('forgot'); setErr('') }}>Forgot password?</button>
+      </form>
+    </Gate>
+  )
+}
+
+// Opened from a password-reset email: Supabase has signed the user in for recovery only.
+function SetNewPassword({ onDone }) {
+  const [pw, setPw] = useState('')
+  const [pw2, setPw2] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function submit(e) {
+    e.preventDefault()
+    if (pw.length < 8) return setErr('Use at least 8 characters.')
+    if (pw !== pw2) return setErr("The two passwords don't match.")
+    setBusy(true)
+    const { error } = await supabase.auth.updateUser({ password: pw })
+    setBusy(false)
+    if (error) setErr(friendlyError(error))
+    else onDone()
+  }
+  return (
+    <Gate title="Set a new password">
+      <p>Choose a new password. If you also use Formgrid Factory, it changes there too.</p>
+      <form onSubmit={submit}>
+        <label>New password<input className="field" type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} required /></label>
+        <label>Repeat it<input className="field" type="password" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} required /></label>
+        {err && <div className="err">{err}</div>}
+        <button className="btn primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save password'}</button>
       </form>
     </Gate>
   )
@@ -79,11 +142,13 @@ export default function App() {
   const [member, setMember] = useState(undefined)
   const [needsSetup, setNeedsSetup] = useState(false)
   const [err, setErr] = useState('')
+  const [recovering, setRecovering] = useState(false)
 
   useEffect(() => {
     if (!configured) return
     supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null))
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') setRecovering(true)
       // Token refreshes don't change who is signed in; avoid re-checking membership.
       if (event === 'TOKEN_REFRESHED') return
       setSession(s)
@@ -113,6 +178,7 @@ export default function App() {
   if (!configured) {
     return <Gate title="Not configured"><p>Copy <code>.env.example</code> to <code>.env</code> and set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then rebuild.</p></Gate>
   }
+  if (recovering && session) return <SetNewPassword onDone={() => setRecovering(false)} />
   if (err) {
     return (
       <Gate title="Can't load the lead desk">

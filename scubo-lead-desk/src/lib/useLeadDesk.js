@@ -106,9 +106,10 @@ export const api = {
   async createLead(fields, firstNote) {
     const res = await run(supabase.from('leads').insert(fields).select('id').single())
     if (!res.ok) return res
-    const acts = [{ lead_id: res.data.id, type: 'created', text: `Lead added · ${fields.source || 'Unknown source'}` }]
-    if (firstNote) acts.push({ lead_id: res.data.id, type: 'note', text: firstNote })
-    await run(supabase.from('activities').insert(acts))
+    // Separate inserts so the note gets a later timestamp than "Lead added" (one insert
+    // would give both the same now() and an arbitrary timeline order).
+    await run(supabase.from('activities').insert({ lead_id: res.data.id, type: 'created', text: `Lead added · ${fields.source || 'Unknown source'}` }))
+    if (firstNote) await run(supabase.from('activities').insert({ lead_id: res.data.id, type: 'note', text: firstNote }))
     return res
   },
   updateLead: (id, patch) => run(supabase.from('leads').update(patch).eq('id', id).select('id').single()),

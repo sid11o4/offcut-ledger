@@ -185,7 +185,7 @@ export default function LeadDrawer({ id, desk, isAdmin, onOpen, onClose }) {
                 </div>
               </div>
             )}
-            <label>Email <span className="opt">optional</span><input className="field" type="email" value={v.email} onChange={set('email')} /></label>
+            <label><span>Email <span className="opt">optional</span></span><input className="field" type="email" value={v.email} onChange={set('email')} /></label>
             <label>Area / city<input className="field" value={v.area} onChange={set('area')} placeholder="e.g. Karur, Thanthonimalai" /></label>
             <label>Source<select className="field" value={v.source} onChange={set('source')}><Options list={sourceOpts} blank="—" /></select></label>
             <label>Project<select className="field" value={v.project_id} onChange={set('project_id')}><Options list={projectOpts} blank="— Not decided —" /></select></label>
@@ -207,7 +207,7 @@ export default function LeadDrawer({ id, desk, isAdmin, onOpen, onClose }) {
               <label className="full">Why not qualified<input className="field" value={v.lost_reason} onChange={set('lost_reason')} placeholder="Budget mismatch, wrong location, not reachable, just browsing…" /></label>
             )}
             {isNew && (
-              <label className="full">First note <span className="opt">optional</span>
+              <label className="full"><span>First note <span className="opt">optional</span></span>
                 <textarea className="field" value={firstNote} onChange={(e) => setFirstNote(e.target.value)} placeholder="What did they ask? e.g. Wants 3 BHK ready by March, asked about car parking" />
               </label>
             )}
