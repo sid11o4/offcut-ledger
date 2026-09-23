@@ -174,6 +174,18 @@ export default function LeadDrawer({ id, desk, isAdmin, onOpen, onClose }) {
               {wa && <a className="btn small wa" href={wa} target="_blank" rel="noopener noreferrer"><WaIcon width="13" height="13" />WhatsApp</a>}
             </div>
           )}
+          {lead && (lead.meta_lead_id || lead.meta_campaign_name) && (
+            <div className="meta-box">
+              <div className="meta-head">From Meta ad{lead.meta_platform ? ' · ' + (lead.meta_platform === 'ig' ? 'Instagram' : lead.meta_platform === 'fb' ? 'Facebook' : lead.meta_platform) : ''}</div>
+              <dl>
+                {lead.meta_campaign_name && <><dt>Campaign</dt><dd>{lead.meta_campaign_name}</dd></>}
+                {lead.meta_adset_name && <><dt>Ad set</dt><dd>{lead.meta_adset_name}</dd></>}
+                {lead.meta_ad_name && <><dt>Ad</dt><dd>{lead.meta_ad_name}</dd></>}
+                {lead.meta_form_name && <><dt>Form</dt><dd>{lead.meta_form_name}</dd></>}
+                {lead.meta_lead_id && <><dt>Meta lead ID</dt><dd className="mono">{lead.meta_lead_id}</dd></>}
+              </dl>
+            </div>
+          )}
           <form className="form" onSubmit={save} noValidate>
             <label>Name<input ref={nameRef} className="field" value={v.name} onChange={set('name')} autoComplete="off" maxLength={120} /></label>
             <label>Phone<input className="field mono" inputMode="tel" value={v.phone} onChange={set('phone')} placeholder="98765 43210" autoComplete="off" /></label>

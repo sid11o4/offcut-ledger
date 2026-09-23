@@ -49,11 +49,11 @@ describe('csv', () => {
     expect(toCsv([['=HYPERLINK("x")']])).toBe('"\'=HYPERLINK(""x"")"')
   })
   it('parses tab-separated Meta exports', () => {
-    const text = 'created_time\tcampaign_name\tfull_name\tphone_number\tcity\n2026-09-01T10:00:00+0530\tDiwali\tRavi K\tp:+919876543210\tKarur\n2026-09-01\tDiwali\tNo Phone\t\tKarur\n'
+    const text = 'id\tcreated_time\tcampaign_name\tplatform\tfull_name\tphone_number\tcity\nl:777\t2026-09-01T10:00:00+0530\tDiwali\tig\tRavi K\tp:+919876543210\tKarur\nl:778\t2026-09-01\tDiwali\tfb\tNo Phone\t\tKarur\n'
     const { rows, blank } = metaCsvToLeads(text)
     expect(blank).toBe(1)
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ name: 'Ravi K', phone: '9876543210', area: 'Karur', note: 'Imported from Meta · Diwali' })
+    expect(rows[0]).toMatchObject({ name: 'Ravi K', phone: '9876543210', area: 'Karur', note: 'Imported from Meta · Diwali', meta_lead_id: '777', campaign_name: 'Diwali', platform: 'ig' })
     expect(rows[0].created_at).toMatch(/^2026-09-01T04:30/)
   })
   it('rejects files without a phone column', () => {

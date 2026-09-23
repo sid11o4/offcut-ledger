@@ -73,7 +73,7 @@ export default function Desk({ me, email }) {
   const common = { desk, f, setF, open, clearFilters: () => setF((x) => ({ ...x, ...EMPTY_F })) }
 
   let body
-  if (view === 'settings') body = <Settings desk={desk} me={me} isAdmin={isAdmin} />
+  if (view === 'settings') body = <Settings desk={desk} me={me} isAdmin={isAdmin} open={open} />
   else if (!desk.ready) body = <div className="loading">Loading leads…</div>
   else if (!desk.leads.length) {
     body = (

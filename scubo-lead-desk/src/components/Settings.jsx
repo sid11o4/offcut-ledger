@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react'
-import { supabase, friendlyError } from '../lib/supabase'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { supabase, friendlyError, intakeUrl } from '../lib/supabase'
 import { api } from '../lib/useLeadDesk'
-import { downloadText, fmtPhone, isoToYmd, metaCsvToLeads, readCsvFile, toCsv, today } from '../lib/util'
+import { downloadText, fmtPhone, fmtWhen, isoToYmd, metaCsvToLeads, readCsvFile, toCsv, today } from '../lib/util'
 import { useToast } from './Toast'
 
 function Projects({ desk, isAdmin }) {
@@ -105,6 +105,84 @@ function Team({ desk, me }) {
   )
 }
 
+const INTAKE_STATUS = {
+  created: ['New lead', 's-booked'],
+  repeat: ['Known number — note added', 's-interested'],
+  duplicate: ['Already imported', 's-contacted'],
+  rejected: ['Rejected', 's-lost'],
+  error: ['Error', 's-lost'],
+}
+
+// Admin-only: the address Pabbly Connect posts new Meta leads to, and what recently arrived.
+function MetaIntake({ open }) {
+  const toast = useToast()
+  const [info, setInfo] = useState(null)
+  const [err, setErr] = useState('')
+  const [shown, setShown] = useState(false)
+  const load = useCallback(async () => {
+    const res = await api.getIntake()
+    if (res.ok) { setInfo(res.data); setErr('') } else setErr(res.error)
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  async function copy() {
+    try { await navigator.clipboard.writeText(intakeUrl(info.token)); toast('Import address copied') } catch { setShown(true); toast('Copy failed — select the address instead') }
+  }
+  async function rotate() {
+    if (!window.confirm('Make a new import address? The old one stops working immediately, so you must paste the new one into Pabbly.')) return
+    const res = await api.rotateIntakeToken()
+    if (!res.ok) return toast(res.error)
+    toast('New import address created — update Pabbly')
+    setShown(true)
+    load()
+  }
+
+  return (
+    <div className="panel wide">
+      <h2>Meta lead import (automatic)</h2>
+      <p>New Instant Form leads from your Facebook and Instagram ads arrive here on their own, with their Meta lead ID, campaign, ad and form. Repeat enquiries from a known number are added as a note on the existing lead.</p>
+      {err ? <div className="err">{err}</div> : !info ? <div className="lead-sub">Loading…</div> : (
+        <>
+          <div className="section-t" style={{ marginTop: 4 }}>Import address — keep it private</div>
+          <div className="intake-url">
+            <code>{shown ? intakeUrl(info.token) : intakeUrl('•'.repeat(12))}</code>
+            <button className="btn small" type="button" onClick={() => setShown((s) => !s)}>{shown ? 'Hide' : 'Show'}</button>
+            <button className="btn small" type="button" onClick={copy}>Copy</button>
+            <button className="btn small ghost" type="button" onClick={rotate}>New address</button>
+          </div>
+          <details className="howto">
+            <summary>Set up in Pabbly Connect</summary>
+            <ol>
+              <li>Create a workflow. <b>Trigger:</b> Facebook Lead Ads → <i>New Lead</i>. Connect Facebook, pick the Scubo Page and the lead form(s).</li>
+              <li><b>Action:</b> API (Pabbly) → <i>Execute API Request</i>. Method <b>POST</b>, payload type <b>JSON</b>, URL = the import address above.</li>
+              <li>Map these keys from the trigger: <code>lead_id</code>, <code>created_time</code>, <code>full_name</code>, <code>phone_number</code>, <code>email</code>, <code>city</code>, <code>campaign_name</code>, <code>adset_name</code>, <code>ad_name</code>, <code>form_name</code>, <code>platform</code> (plus the IDs if offered). Add any custom questions under their own names — they're saved as form answers.</li>
+              <li>Send a test lead from Meta's <i>Lead Ads Testing Tool</i> and check it appears below.</li>
+            </ol>
+          </details>
+          <div className="section-t">Recent deliveries</div>
+          {info.log.length ? (
+            <ul className="intake-log">
+              {info.log.map((r) => {
+                const [label, cls] = INTAKE_STATUS[r.status] || [r.status, 's-contacted']
+                const who = r.payload?.full_name || r.payload?.field_data?.find?.((f) => f.name === 'full_name')?.values?.[0] || ''
+                return (
+                  <li key={r.id}>
+                    <span className="when mono">{fmtWhen(r.at)}</span>
+                    <span className={'pill ' + cls}>{label}</span>
+                    <span className="grow">{who}{r.status === 'rejected' || r.status === 'error' ? <span className="lead-sub"> — {r.message}</span> : null}</span>
+                    {r.lead_id && <button className="btn small" type="button" onClick={() => open(r.lead_id)}>Open</button>}
+                  </li>
+                )
+              })}
+            </ul>
+          ) : <div className="lead-sub">Nothing received yet.</div>}
+          <button className="btn small ghost" type="button" onClick={load} style={{ marginTop: 6 }}>Refresh</button>
+        </>
+      )}
+    </div>
+  )
+}
+
 function ImportCsv({ desk }) {
   const toast = useToast()
   const [msg, setMsg] = useState('')
@@ -145,10 +223,11 @@ function ImportCsv({ desk }) {
 function ExportCsv({ desk }) {
   const { leads, projectName, memberName } = desk
   function exportCsv() {
-    const head = ['Name', 'Phone', 'Email', 'Area', 'Source', 'Project', 'Requirement', 'Budget (Lakhs)', 'Stage', 'Priority', 'Assigned to', 'Next follow-up', 'Not qualified reason', 'Added', 'Last note']
+    const head = ['Name', 'Phone', 'Email', 'Area', 'Source', 'Project', 'Requirement', 'Budget (Lakhs)', 'Stage', 'Priority', 'Assigned to', 'Next follow-up', 'Not qualified reason', 'Added', 'Last note', 'Meta lead ID', 'Campaign', 'Ad', 'Form']
     const rows = leads.slice().sort((a, b) => a.created_at.localeCompare(b.created_at)).map((l) => [
       l.name, fmtPhone(l.phone), l.email, l.area, l.source, projectName(l.project_id), l.requirement, l.budget_lakhs ?? '',
       l.stage, l.priority, memberName(l.assigned_to), l.next_follow_up || '', l.lost_reason, isoToYmd(l.created_at), l.last_note,
+      l.meta_lead_id || '', l.meta_campaign_name, l.meta_ad_name, l.meta_form_name,
     ])
     downloadText(`scubo-leads-${today()}.csv`, '﻿' + toCsv([head, ...rows]))
   }
@@ -184,9 +263,10 @@ function Account() {
   )
 }
 
-export default function Settings({ desk, me, isAdmin }) {
+export default function Settings({ desk, me, isAdmin, open }) {
   return (
     <div className="settings">
+      {isAdmin && <MetaIntake open={open} />}
       <Projects desk={desk} isAdmin={isAdmin} />
       {isAdmin && <Team desk={desk} me={me} />}
       <ImportCsv desk={desk} />

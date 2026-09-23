@@ -4,6 +4,7 @@ const url = import.meta.env.VITE_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 export const configured = Boolean(url && key)
+export const intakeUrl = (token) => `${url}/functions/v1/leaddesk-intake?token=${token}`
 
 // All lead desk tables live in the `leaddesk` schema of the shared formgrid-factory project.
 export const supabase = configured

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase, friendlyError } from './supabase'
 
-const LEAD_COLS = 'id,name,phone,email,area,source,project_id,requirement,budget_lakhs,stage,priority,assigned_to,next_follow_up,lost_reason,booked_at,last_contact_at,last_note,created_at,updated_at'
+const LEAD_COLS = 'id,name,phone,email,area,source,project_id,requirement,budget_lakhs,stage,priority,assigned_to,next_follow_up,lost_reason,booked_at,last_contact_at,last_note,created_at,updated_at,meta_lead_id,meta_form_name,meta_campaign_name,meta_adset_name,meta_ad_name,meta_platform'
 const PAGE = 1000 // PostgREST's default max-rows
 
 async function fetchAllLeads() {
@@ -119,6 +119,15 @@ export const api = {
   importLeads: (rows) => run(supabase.rpc('import_leads', { p_rows: rows }).single()),
   addProject: (name) => run(supabase.from('projects').insert({ name })),
   setProjectActive: (id, active) => run(supabase.from('projects').update({ active }).eq('id', id)),
+  getIntake: async () => {
+    const [cfg, log] = await Promise.all([
+      supabase.from('intake_config').select('token,rotated_at').single(),
+      supabase.from('intake_log').select('id,at,status,message,lead_id,payload').order('at', { ascending: false }).limit(15),
+    ])
+    if (cfg.error) return { ok: false, error: friendlyError(cfg.error) }
+    return { ok: true, data: { ...cfg.data, log: log.data || [] } }
+  },
+  rotateIntakeToken: () => run(supabase.rpc('rotate_intake_token')),
   updateMember: (user_id, patch) => run(supabase.from('members').update(patch).eq('user_id', user_id)),
   async manageMembers(body) {
     const { data, error } = await supabase.functions.invoke('leaddesk-members', { body })

@@ -117,6 +117,13 @@ export function metaCsvToLeads(text) {
   const iCity = find('city', 'location', 'area')
   const iCamp = h.findIndex((x) => ['campaign_name', 'form_name', 'ad_name'].includes(x))
   const iDate = find('created_time', 'date')
+  const col = (...names) => h.findIndex((x) => names.includes(x))
+  const iId = col('id', 'lead_id')
+  const iCampName = col('campaign_name')
+  const iFormName = col('form_name')
+  const iAdName = col('ad_name')
+  const iPlatform = col('platform')
+  const cell = (r, i) => (i >= 0 ? (r[i] || '').trim() : '')
   if (iPhone < 0) return { error: 'Could not find a phone column. The first row should have headers like full_name, phone_number.' }
   const out = []
   let blank = 0
@@ -132,6 +139,12 @@ export function metaCsvToLeads(text) {
       area: iCity >= 0 ? (r[iCity] || '').trim() : '',
       created_at: when,
       note: iCamp >= 0 && r[iCamp] ? `Imported from Meta · ${r[iCamp].trim()}` : 'Imported from Meta CSV',
+      // Meta exports prefix IDs ("l:123"); the API and the automatic import don't.
+      meta_lead_id: cell(r, iId).replace(/^[a-z]+:/i, ''),
+      campaign_name: cell(r, iCampName),
+      form_name: cell(r, iFormName),
+      ad_name: cell(r, iAdName),
+      platform: cell(r, iPlatform),
     })
   }
   return { rows: out, blank }
@@ -167,7 +180,7 @@ export function filterLeads(leads, f, projectName) {
     if (f.assigned && l.assigned_to !== f.assigned) return false
     if (f.priority && l.priority !== f.priority) return false
     if (q) {
-      const hay = [l.name, l.area, l.requirement, l.email, projectName(l.project_id)].join(' ').toLowerCase()
+      const hay = [l.name, l.area, l.requirement, l.email, projectName(l.project_id), l.meta_campaign_name, l.meta_ad_name].join(' ').toLowerCase()
       if (!hay.includes(q) && !(qd.length >= 3 && l.phone.includes(qd))) return false
     }
     return true
