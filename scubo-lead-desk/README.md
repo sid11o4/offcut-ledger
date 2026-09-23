@@ -58,6 +58,18 @@ npm test
 npm run build           # -> scubo-lead-desk/dist
 ```
 
+## Live
+
+**https://crm.scubo.in** is a Hostinger Web App deployed from this repo. Its root directory is
+`scubo-lead-desk`, and it auto-deploys on every push to `main`. Its environment variables are
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+
+DNS for `scubo.in` is hosted at **Wix** (nameservers `ns2`/`ns3.wixdns.net`) because the main
+website is on Wix, even though the domain is registered at Hostinger. The lead desk only needs one
+record in Wix's DNS: `CNAME crm → crm.scubo.in.cdn.hstgr.net`. **Never click Hostinger's
+"Connect domain" for scubo.in.** It moves the whole domain's nameservers to Hostinger and takes
+the Wix site offline.
+
 ## Deploy (separately from Formgrid)
 
 **Vercel:** create a *new* project from the same GitHub repo and set **Root Directory =
