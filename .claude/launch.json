@@ -4,8 +4,22 @@
     {
       "name": "offcut-ledger-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 5173
+    },
+    {
+      "name": "scubo-lead-desk-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "scubo-lead-desk",
+        "run",
+        "dev"
+      ],
+      "port": 5174
     }
   ]
 }
