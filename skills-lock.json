@@ -6,6 +6,12 @@
       "sourceType": "github",
       "skillPath": "skills/taste-skill/SKILL.md",
       "computedHash": "6ac8ba6089dcbc303744a507a4587113c5d845ca2f658b3ce2b0b5eab108fb0d"
+    },
+    "emilkowalski-motion": {
+      "source": "nexu-io/open-design",
+      "sourceType": "github",
+      "skillPath": "skills/emilkowalski-motion/SKILL.md",
+      "computedHash": "1478b70162dfe62a2088c2a98d7bf8fd071439c6decf044b9b69a02a3b14753f"
     }
   }
 }
