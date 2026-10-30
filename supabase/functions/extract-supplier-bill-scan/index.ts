@@ -1,16 +1,21 @@
-// Reads a photographed "Bill / Payment Slip" and extracts its fields using Claude's vision,
-// the same pattern as extract-edgeband-scan (0026): it ONLY writes a supplier_bills row in
-// 'pending_review' plus its line items and payment allocations, for a human to audit, correct
-// and approve from the Bill Audit Queue. Nothing here ever calls approve_supplier_bill() --
-// the calculation/GST/inventory-posting logic in that RPC is completely untouched by a scan.
+// Reads a photographed "Bill / Payment Slip" and extracts its fields using Google Gemini's
+// vision + structured-output mode, the same pattern as extract-edgeband-scan (0026): it ONLY
+// writes a supplier_bills row in 'pending_review' plus its line items and payment allocations,
+// for a human to audit, correct and approve from the Bill Audit Queue. Nothing here ever calls
+// approve_supplier_bill() -- the calculation/GST/inventory-posting logic in that RPC is
+// completely untouched by a scan.
 //
 // Also does the AI material/supplier correlation the spec calls for: a supplier or inventory
 // item name read off the slip is matched against the known list, with a confidence score.
 // >=95% confidence auto-applies the match (still logged to material_match_suggestions, so the
 // decision stays visible and reversible); anything less is left for the auditor to confirm.
 //
+// Runs on Gemini (gemini-2.5-flash), not Anthropic, by request -- it has a genuinely free API
+// tier (console.anthropic.com requires billing for every call; aistudio.google.com does not).
+// Get a free key at aistudio.google.com/apikey and set it as the GEMINI_API_KEY secret on this
+// project (Supabase dashboard -> Edge Functions -> Secrets).
+//
 // POST body: { bill_id }
-// Requires the ANTHROPIC_API_KEY secret (already configured on this project).
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { encodeBase64 } from 'jsr:@std/encoding@1/base64'
 
@@ -29,64 +34,87 @@ const COST_HEADS = [
   'laminate_veneer', 'fevicol_adhesives', 'employee_salary', 'other',
 ]
 
-const EXTRACT_TOOL = {
-  name: 'extract_bill_slip',
-  description: 'Report every field found on the photographed Bill / Payment Slip.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      bill_number: { type: ['string', 'null'], description: 'The handwritten/printed "Bill No." field.' },
-      bill_number_confidence: { type: 'number', description: '0-1 confidence in the bill number reading.' },
-      bill_date: { type: ['string', 'null'], description: 'The date field, as an ISO YYYY-MM-DD date.' },
-      bill_date_confidence: { type: 'number' },
-      supplier_text: { type: ['string', 'null'], description: 'The supplier name exactly as written.' },
-      supplier_match: { type: ['string', 'null'], description: 'The EXACT name (character-for-character) from the known supplier list, only if confident this is the same supplier. Otherwise null.' },
-      supplier_confidence: { type: 'number', description: '0-1 confidence that supplier_match is correct (0 if supplier_match is null).' },
-      project_text: { type: ['string', 'null'], description: 'The Project Name/Code field exactly as written.' },
-      project_match: { type: ['string', 'null'], description: 'The EXACT name (character-for-character) from the known Design Build project list, only if confident. Otherwise null.' },
-      project_confidence: { type: 'number' },
-      expense_nature: { type: 'string', enum: ['material', 'labour', 'both'], description: 'Which "Type of Expense" box(es) are ticked.' },
-      cost_heads: {
-        type: 'array', items: { type: 'string', enum: COST_HEADS },
-        description: 'Every "Cost Head" box that is ticked, mapped to these keys: Factory Labour=factory_labour, Factory Consumables=factory_consumables, Site Labour=site_labour, Raw Boards=raw_boards, Laminate and Veneer=laminate_veneer, Fevicol/Adhesives=fevicol_adhesives, Employee Salary=employee_salary, Other=other.',
-      },
-      line_items: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            description: { type: 'string', description: 'The Description of Goods/Services, verbatim.' },
-            item_type: { type: 'string', enum: ['material', 'labour'] },
-            unit_text: { type: ['string', 'null'] },
-            quantity: { type: 'number' },
-            rate_inclusive: { type: 'number', description: 'The GST-inclusive rate for this line.' },
-            gst_percent: { type: 'number', description: 'The GST % for this line (0, 5, 12, 18, or whatever is written).' },
-            material_match: { type: ['string', 'null'], description: 'For a material line: the EXACT name (character-for-character) from the known inventory item list, only if confident this is the same product under a different term. Otherwise null.' },
-            material_confidence: { type: 'number', description: '0-1 confidence that material_match is the same product (0 if material_match is null).' },
-          },
-          required: ['description', 'item_type', 'quantity', 'rate_inclusive', 'gst_percent'],
-        },
-      },
-      payments: {
-        type: 'array',
-        description: 'Each non-blank row of the Payment Details table.',
-        items: {
-          type: 'object',
-          properties: {
-            mode: { type: 'string', enum: ['cash', 'rtgs_neft', 'credit'] },
-            amount: { type: 'number' },
-            utr_reference: { type: ['string', 'null'] },
-            received_by: { type: ['string', 'null'], description: 'Only for the Cash Payment Received section.' },
-          },
-          required: ['mode', 'amount'],
-        },
-      },
-      amount_in_words: { type: ['string', 'null'] },
-      grand_total: { type: ['number', 'null'] },
-      remarks: { type: ['string', 'null'] },
+// Written once in plain JSON Schema (the same shape every other part of this codebase already
+// reads), then converted to Gemini's OpenAPI-subset responseSchema at call time -- see
+// toGeminiSchema() below. Keeps this declaration provider-agnostic if the backing model ever
+// changes again.
+const EXTRACT_SCHEMA = {
+  type: 'object',
+  properties: {
+    bill_number: { type: ['string', 'null'], description: 'The handwritten/printed "Bill No." field.' },
+    bill_number_confidence: { type: 'number', description: '0-1 confidence in the bill number reading.' },
+    bill_date: { type: ['string', 'null'], description: 'The date field, as an ISO YYYY-MM-DD date.' },
+    bill_date_confidence: { type: 'number' },
+    supplier_text: { type: ['string', 'null'], description: 'The supplier name exactly as written.' },
+    supplier_match: { type: ['string', 'null'], description: 'The EXACT name (character-for-character) from the known supplier list, only if confident this is the same supplier. Otherwise null.' },
+    supplier_confidence: { type: 'number', description: '0-1 confidence that supplier_match is correct (0 if supplier_match is null).' },
+    project_text: { type: ['string', 'null'], description: 'The Project Name/Code field exactly as written.' },
+    project_match: { type: ['string', 'null'], description: 'The EXACT name (character-for-character) from the known Design Build project list, only if confident. Otherwise null.' },
+    project_confidence: { type: 'number' },
+    expense_nature: { type: 'string', enum: ['material', 'labour', 'both'], description: 'Which "Type of Expense" box(es) are ticked.' },
+    cost_heads: {
+      type: 'array', items: { type: 'string', enum: COST_HEADS },
+      description: 'Every "Cost Head" box that is ticked, mapped to these keys: Factory Labour=factory_labour, Factory Consumables=factory_consumables, Site Labour=site_labour, Raw Boards=raw_boards, Laminate and Veneer=laminate_veneer, Fevicol/Adhesives=fevicol_adhesives, Employee Salary=employee_salary, Other=other.',
     },
-    required: ['line_items', 'payments'],
+    line_items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          description: { type: 'string', description: 'The Description of Goods/Services, verbatim.' },
+          item_type: { type: 'string', enum: ['material', 'labour'] },
+          unit_text: { type: ['string', 'null'] },
+          quantity: { type: 'number' },
+          rate_inclusive: { type: 'number', description: 'The GST-inclusive rate for this line.' },
+          gst_percent: { type: 'number', description: 'The GST % for this line (0, 5, 12, 18, or whatever is written).' },
+          material_match: { type: ['string', 'null'], description: 'For a material line: the EXACT name (character-for-character) from the known inventory item list, only if confident this is the same product under a different term. Otherwise null.' },
+          material_confidence: { type: 'number', description: '0-1 confidence that material_match is the same product (0 if material_match is null).' },
+        },
+        required: ['description', 'item_type', 'quantity', 'rate_inclusive', 'gst_percent'],
+      },
+    },
+    payments: {
+      type: 'array',
+      description: 'Each non-blank row of the Payment Details table.',
+      items: {
+        type: 'object',
+        properties: {
+          mode: { type: 'string', enum: ['cash', 'rtgs_neft', 'credit'] },
+          amount: { type: 'number' },
+          utr_reference: { type: ['string', 'null'] },
+          received_by: { type: ['string', 'null'], description: 'Only for the Cash Payment Received section.' },
+        },
+        required: ['mode', 'amount'],
+      },
+    },
+    amount_in_words: { type: ['string', 'null'] },
+    grand_total: { type: ['number', 'null'] },
+    remarks: { type: ['string', 'null'] },
   },
+  required: ['line_items', 'payments'],
+}
+
+// Translates plain JSON Schema (lowercase types, `type: ['string', 'null']` unions) into
+// Gemini's responseSchema dialect: uppercase type names and a separate `nullable: true` flag
+// instead of a type union -- https://ai.google.dev/gemini-api/docs/structured-output.
+// deno-lint-ignore no-explicit-any
+function toGeminiSchema(schema: any): any {
+  if (schema == null || typeof schema !== 'object') return schema
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type]
+  const nonNull = types.find((t: string) => t && t !== 'null')
+  // deno-lint-ignore no-explicit-any
+  const out: any = {}
+  if (nonNull) out.type = String(nonNull).toUpperCase()
+  if (types.includes('null')) out.nullable = true
+  if (schema.description) out.description = schema.description
+  if (schema.enum) out.enum = schema.enum
+  if (schema.required) out.required = schema.required
+  if (schema.properties) {
+    out.properties = {}
+    for (const [k, v] of Object.entries(schema.properties)) out.properties[k] = toGeminiSchema(v)
+  }
+  if (schema.items) out.items = toGeminiSchema(schema.items)
+  return out
 }
 
 Deno.serve(async (req) => {
@@ -96,7 +124,7 @@ Deno.serve(async (req) => {
   const url = Deno.env.get('SUPABASE_URL')!
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-  const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+  const geminiKey = Deno.env.get('GEMINI_API_KEY')
   const authHeader = req.headers.get('Authorization') ?? ''
 
   const asCaller = createClient(url, anonKey, { global: { headers: { Authorization: authHeader } } })
@@ -105,8 +133,8 @@ Deno.serve(async (req) => {
   const { data: active } = await asCaller.rpc('is_active_user')
   if (!active) return json({ error: 'Your account is not active.' }, 403)
 
-  console.log('extract-supplier-bill-scan: anthropicKey present =', !!anthropicKey, 'length =', anthropicKey?.length ?? 0)
-  if (!anthropicKey) return json({ error: 'ANTHROPIC_API_KEY is not configured on this project. Ask an admin to add it via `supabase secrets set`.' }, 500)
+  console.log('extract-supplier-bill-scan: geminiKey present =', !!geminiKey, 'length =', geminiKey?.length ?? 0)
+  if (!geminiKey) return json({ error: 'GEMINI_API_KEY is not configured on this project. Get a free key at aistudio.google.com/apikey and add it via the Supabase dashboard (Edge Functions -> Secrets).' }, 500)
 
   let body: { bill_id?: string }
   try { body = await req.json() } catch { return json({ error: 'Invalid JSON body.' }, 400) }
@@ -126,16 +154,10 @@ Deno.serve(async (req) => {
     const bytes = new Uint8Array(await fileBlob.arrayBuffer())
     const fileBase64 = encodeBase64(bytes)
     const isPdf = /\.pdf$/i.test(bill.scan_image_path)
-    const mediaType = isPdf ? 'application/pdf'
+    const mimeType = isPdf ? 'application/pdf'
       : /\.png$/i.test(bill.scan_image_path) ? 'image/png'
       : /\.webp$/i.test(bill.scan_image_path) ? 'image/webp'
       : 'image/jpeg'
-    // A PDF goes in as a 'document' block rather than 'image' -- Claude reads every page of a
-    // multi-page PDF this way (a front+back slip, or a scan of several pages for one bill),
-    // where an 'image' block would only ever see a single flat picture.
-    const fileContentBlock = isPdf
-      ? { type: 'document', source: { type: 'base64', media_type: mediaType, data: fileBase64 } }
-      : { type: 'image', source: { type: 'base64', media_type: mediaType, data: fileBase64 } }
 
     const [{ data: suppliers }, { data: projects }, { data: items }] = await Promise.all([
       admin.from('suppliers').select('id, name').eq('active', true),
@@ -152,7 +174,7 @@ A line-item table: S.No, Description of Goods/Services, Type, Unit, Quantity, Ra
 Payment Details: a table of Payment Mode (Cash Paid / Account Transfer RTGS-NEFT / Added to Credit Account), Amount, Remarks -- and a separate Cash Payment Received section (amount, received by name) when a cash seal/stamp is present.
 Amount in Words, Grand Total, Remarks, Prepared By.
 
-Extract every field. Rates and totals are GST-inclusive as printed -- report rate_inclusive exactly as written, do not compute anything yourself.
+Extract every field into the given JSON schema. Rates and totals are GST-inclusive as printed -- report rate_inclusive exactly as written, do not compute anything yourself. Use null for any field that is blank or illegible.
 
 Known suppliers (match supplier_text against this list; supplier_match must be an exact copy from here or null):
 ${[...supplierIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}
@@ -161,33 +183,43 @@ Known Design Build projects (match project_text against this list; project_match
 ${[...projectIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}
 
 Known inventory items (for each MATERIAL line, match its description against this list even when the wording differs -- e.g. "18mm MR Ply" and "Century Ply 18mm Marine Grade" can be the same product. material_match must be an exact copy from this list or null, with your genuine confidence 0-1 that it's the same product, not just a similar one):
-${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}
+${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
 
-Call extract_bill_slip with everything found on the slip.`
-
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-5-5',
-        max_tokens: 4000,
-        tools: [EXTRACT_TOOL],
-        tool_choice: { type: 'tool', name: 'extract_bill_slip' },
-        messages: [{
-          role: 'user',
-          content: [
-            fileContentBlock,
-            { type: 'text', text: prompt },
-          ],
-        }],
-      }),
-    })
-    if (!resp.ok) throw new Error(`Claude API error (${resp.status}): ${await resp.text()}`)
+    const resp = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': geminiKey },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [
+              { inlineData: { mimeType, data: fileBase64 } },
+              { text: prompt },
+            ],
+          }],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            responseSchema: toGeminiSchema(EXTRACT_SCHEMA),
+          },
+        }),
+      },
+    )
+    if (!resp.ok) throw new Error(`Gemini API error (${resp.status}): ${await resp.text()}`)
     const result = await resp.json()
-    const toolUse = (result.content || []).find((c: { type: string }) => c.type === 'tool_use')
-    if (!toolUse) throw new Error('Claude did not return structured extraction output.')
+    if (result.promptFeedback?.blockReason) {
+      throw new Error(`Gemini blocked this request: ${result.promptFeedback.blockReason}`)
+    }
     // deno-lint-ignore no-explicit-any
-    const extracted: any = toolUse.input || {}
+    const textPart = (result.candidates?.[0]?.content?.parts || []).find((p: any) => typeof p.text === 'string')
+    if (!textPart) throw new Error(`Gemini did not return structured extraction output. Response: ${JSON.stringify(result).slice(0, 500)}`)
+    // deno-lint-ignore no-explicit-any
+    let extracted: any
+    try {
+      extracted = JSON.parse(textPart.text)
+    } catch {
+      throw new Error(`Gemini returned non-JSON output: ${textPart.text.slice(0, 500)}`)
+    }
 
     const supplierId = extracted.supplier_match ? supplierIdMap.get(extracted.supplier_match) ?? null : null
     const designProjectId = extracted.project_match ? projectIdMap.get(extracted.project_match) ?? null : null
