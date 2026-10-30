@@ -5,7 +5,7 @@
 // which then calls the same record_job_work_entry() RPC the manual form uses. The calculation
 // engine, rates and billing are completely untouched by this function.
 //
-// Runs on Gemini (gemini-2.5-flash), not Anthropic, by request -- it has a genuinely free API
+// Runs on Gemini (gemini-3.8-flash), not Anthropic, by request -- it has a genuinely free API
 // tier (console.anthropic.com requires billing for every call; aistudio.google.com does not).
 // Get a free key at aistudio.google.com/apikey and set it as the GEMINI_API_KEY secret on this
 // project (Supabase dashboard -> Edge Functions -> Secrets).
@@ -130,28 +130,40 @@ ${projectNames.length ? projectNames.map((n) => `- ${n}`).join('\n') : '(none on
 Known edgeband job-work items (match edgeband_text against this list; edgeband_match must be an exact copy from here or null):
 ${edgebandNames.map((n) => `- ${n}`).join('\n')}`
 
-    const resp = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-goog-api-key': geminiKey },
-        body: JSON.stringify({
-          contents: [{
-            role: 'user',
-            parts: [
-              { inlineData: { mimeType, data: imageBase64 } },
-              { text: prompt },
-            ],
-          }],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            responseSchema: toGeminiSchema(EXTRACT_SCHEMA),
-          },
-        }),
-      },
-    )
-    if (!resp.ok) throw new Error(`Gemini API error (${resp.status}): ${await resp.text()}`)
-    const result = await resp.json()
+    // The free tier is explicitly best-effort: a 503 "high demand" is Google's own retry-later
+    // signal, not a real failure, so retry it a couple of times with backoff before giving up.
+    // Any other status fails immediately.
+    let resp: Response
+    const maxAttempts = 3
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      resp = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-goog-api-key': geminiKey },
+          body: JSON.stringify({
+            contents: [{
+              role: 'user',
+              parts: [
+                { inlineData: { mimeType, data: imageBase64 } },
+                { text: prompt },
+              ],
+            }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              responseSchema: toGeminiSchema(EXTRACT_SCHEMA),
+            },
+          }),
+        },
+      )
+      if (resp.ok) break
+      if (resp.status !== 503 || attempt === maxAttempts) {
+        throw new Error(`Gemini API error (${resp.status}): ${await resp.text()}`)
+      }
+      console.log(`extract-edgeband-scan: Gemini 503 (high demand), retrying attempt ${attempt + 1}/${maxAttempts}`)
+      await new Promise((r) => setTimeout(r, attempt * 2000))
+    }
+    const result = await resp!.json()
     if (result.promptFeedback?.blockReason) {
       throw new Error(`Gemini blocked this request: ${result.promptFeedback.blockReason}`)
     }

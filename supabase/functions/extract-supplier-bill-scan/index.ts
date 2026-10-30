@@ -10,7 +10,7 @@
 // >=95% confidence auto-applies the match (still logged to material_match_suggestions, so the
 // decision stays visible and reversible); anything less is left for the auditor to confirm.
 //
-// Runs on Gemini (gemini-2.5-flash), not Anthropic, by request -- it has a genuinely free API
+// Runs on Gemini (gemini-3.8-flash), not Anthropic, by request -- it has a genuinely free API
 // tier (console.anthropic.com requires billing for every call; aistudio.google.com does not).
 // Get a free key at aistudio.google.com/apikey and set it as the GEMINI_API_KEY secret on this
 // project (Supabase dashboard -> Edge Functions -> Secrets).
@@ -185,28 +185,40 @@ ${[...projectIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}
 Known inventory items (for each MATERIAL line, match its description against this list even when the wording differs -- e.g. "18mm MR Ply" and "Century Ply 18mm Marine Grade" can be the same product. material_match must be an exact copy from this list or null, with your genuine confidence 0-1 that it's the same product, not just a similar one):
 ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
 
-    const resp = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-goog-api-key': geminiKey },
-        body: JSON.stringify({
-          contents: [{
-            role: 'user',
-            parts: [
-              { inlineData: { mimeType, data: fileBase64 } },
-              { text: prompt },
-            ],
-          }],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            responseSchema: toGeminiSchema(EXTRACT_SCHEMA),
-          },
-        }),
-      },
-    )
-    if (!resp.ok) throw new Error(`Gemini API error (${resp.status}): ${await resp.text()}`)
-    const result = await resp.json()
+    // The free tier is explicitly best-effort: a 503 "high demand" is Google's own retry-later
+    // signal, not a real failure, so retry it a couple of times with backoff before surfacing
+    // anything to the auditor. Any other status fails immediately.
+    let resp: Response
+    const maxAttempts = 3
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      resp = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-goog-api-key': geminiKey },
+          body: JSON.stringify({
+            contents: [{
+              role: 'user',
+              parts: [
+                { inlineData: { mimeType, data: fileBase64 } },
+                { text: prompt },
+              ],
+            }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              responseSchema: toGeminiSchema(EXTRACT_SCHEMA),
+            },
+          }),
+        },
+      )
+      if (resp.ok) break
+      if (resp.status !== 503 || attempt === maxAttempts) {
+        throw new Error(`Gemini API error (${resp.status}): ${await resp.text()}`)
+      }
+      console.log(`extract-supplier-bill-scan: Gemini 503 (high demand), retrying attempt ${attempt + 1}/${maxAttempts}`)
+      await new Promise((r) => setTimeout(r, attempt * 2000))
+    }
+    const result = await resp!.json()
     if (result.promptFeedback?.blockReason) {
       throw new Error(`Gemini blocked this request: ${result.promptFeedback.blockReason}`)
     }
