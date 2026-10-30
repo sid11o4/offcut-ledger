@@ -1,5 +1,5 @@
-// Reads a photographed "Bill / Payment Slip" and extracts its fields using Google Gemini's
-// vision + structured-output mode, the same pattern as extract-edgeband-scan (0026): it ONLY
+// Reads a photographed "Bill / Payment Slip" and extracts its fields using a vision model with
+// structured output, the same pattern as extract-edgeband-scan (0026): it ONLY
 // writes a supplier_bills row in 'pending_review' plus its line items and payment allocations,
 // for a human to audit, correct and approve from the Bill Audit Queue. Nothing here ever calls
 // approve_supplier_bill() -- the calculation/GST/inventory-posting logic in that RPC is
@@ -10,10 +10,11 @@
 // >=95% confidence auto-applies the match (still logged to material_match_suggestions, so the
 // decision stays visible and reversible); anything less is left for the auditor to confirm.
 //
-// Runs on Gemini (gemini-3.8-flash), not Anthropic, by request -- it has a genuinely free API
-// tier (console.anthropic.com requires billing for every call; aistudio.google.com does not).
-// Get a free key at aistudio.google.com/apikey and set it as the GEMINI_API_KEY secret on this
-// project (Supabase dashboard -> Edge Functions -> Secrets).
+// Model: Claude Haiku 5.5 when the ANTHROPIC_API_KEY secret is set (a small, cheap model is
+// plenty for reading a standardized form into a schema -- roughly $0.001 per bill), otherwise
+// Gemini (gemini-3.8-flash) on GEMINI_API_KEY, which has a free tier but is best-effort and
+// returns 503s under load. Either way the result lands in the same `extracted` shape, so
+// everything downstream of the model call is provider-agnostic.
 //
 // POST body: { bill_id }
 import { createClient } from 'jsr:@supabase/supabase-js@2'
@@ -117,6 +118,87 @@ function toGeminiSchema(schema: any): any {
   return out
 }
 
+// Both providers answer a transient overload with a retry-later status (Gemini 503, Anthropic
+// 529/503) -- retry those twice with backoff; any other failure surfaces immediately.
+async function fetchWithRetry(label: string, url: string, init: RequestInit): Promise<Response> {
+  const maxAttempts = 3
+  for (let attempt = 1; ; attempt++) {
+    const resp = await fetch(url, init)
+    if (resp.ok) return resp
+    if (![503, 529].includes(resp.status) || attempt === maxAttempts) {
+      throw new Error(`${label} API error (${resp.status}): ${await resp.text()}`)
+    }
+    console.log(`extract-supplier-bill-scan: ${label} ${resp.status} (overloaded), retrying attempt ${attempt + 1}/${maxAttempts}`)
+    await new Promise((r) => setTimeout(r, attempt * 2000))
+  }
+}
+
+// deno-lint-ignore no-explicit-any
+async function extractWithAnthropic(apiKey: string, mimeType: string, fileBase64: string, prompt: string): Promise<any> {
+  // A PDF goes in as a 'document' block so every page of a multi-page scan is read; an
+  // 'image' block would only ever see one flat picture.
+  const fileBlock = mimeType === 'application/pdf'
+    ? { type: 'document', source: { type: 'base64', media_type: mimeType, data: fileBase64 } }
+    : { type: 'image', source: { type: 'base64', media_type: mimeType, data: fileBase64 } }
+  const resp = await fetchWithRetry('Anthropic', 'https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({
+      model: 'claude-haiku-5-5',
+      max_tokens: 4000,
+      tools: [{
+        name: 'extract_bill_slip',
+        description: 'Report every field found on the photographed Bill / Payment Slip.',
+        input_schema: EXTRACT_SCHEMA,
+      }],
+      tool_choice: { type: 'tool', name: 'extract_bill_slip' },
+      messages: [{
+        role: 'user',
+        content: [fileBlock, { type: 'text', text: `${prompt}\n\nCall extract_bill_slip with everything found on the slip.` }],
+      }],
+    }),
+  })
+  const result = await resp.json()
+  // deno-lint-ignore no-explicit-any
+  const toolUse = (result.content || []).find((c: any) => c.type === 'tool_use')
+  if (!toolUse) throw new Error(`Claude did not return structured extraction output. Response: ${JSON.stringify(result).slice(0, 500)}`)
+  return toolUse.input || {}
+}
+
+// deno-lint-ignore no-explicit-any
+async function extractWithGemini(apiKey: string, mimeType: string, fileBase64: string, prompt: string): Promise<any> {
+  const resp = await fetchWithRetry(
+    'Gemini',
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify({
+        contents: [{
+          role: 'user',
+          parts: [{ inlineData: { mimeType, data: fileBase64 } }, { text: prompt }],
+        }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: toGeminiSchema(EXTRACT_SCHEMA),
+        },
+      }),
+    },
+  )
+  const result = await resp.json()
+  if (result.promptFeedback?.blockReason) {
+    throw new Error(`Gemini blocked this request: ${result.promptFeedback.blockReason}`)
+  }
+  // deno-lint-ignore no-explicit-any
+  const textPart = (result.candidates?.[0]?.content?.parts || []).find((p: any) => typeof p.text === 'string')
+  if (!textPart) throw new Error(`Gemini did not return structured extraction output. Response: ${JSON.stringify(result).slice(0, 500)}`)
+  try {
+    return JSON.parse(textPart.text)
+  } catch {
+    throw new Error(`Gemini returned non-JSON output: ${textPart.text.slice(0, 500)}`)
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -124,6 +206,7 @@ Deno.serve(async (req) => {
   const url = Deno.env.get('SUPABASE_URL')!
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
   const geminiKey = Deno.env.get('GEMINI_API_KEY')
   const authHeader = req.headers.get('Authorization') ?? ''
 
@@ -133,8 +216,10 @@ Deno.serve(async (req) => {
   const { data: active } = await asCaller.rpc('is_active_user')
   if (!active) return json({ error: 'Your account is not active.' }, 403)
 
-  console.log('extract-supplier-bill-scan: geminiKey present =', !!geminiKey, 'length =', geminiKey?.length ?? 0)
-  if (!geminiKey) return json({ error: 'GEMINI_API_KEY is not configured on this project. Get a free key at aistudio.google.com/apikey and add it via the Supabase dashboard (Edge Functions -> Secrets).' }, 500)
+  console.log('extract-supplier-bill-scan: anthropicKey present =', !!anthropicKey, '| geminiKey present =', !!geminiKey)
+  if (!anthropicKey && !geminiKey) {
+    return json({ error: 'No AI key is configured on this project. Add ANTHROPIC_API_KEY (Claude Haiku, paid) or GEMINI_API_KEY (free, aistudio.google.com/apikey) under Supabase dashboard -> Edge Functions -> Secrets.' }, 500)
+  }
 
   let body: { bill_id?: string }
   try { body = await req.json() } catch { return json({ error: 'Invalid JSON body.' }, 400) }
@@ -185,53 +270,12 @@ ${[...projectIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}
 Known inventory items (for each MATERIAL line, match its description against this list even when the wording differs -- e.g. "18mm MR Ply" and "Century Ply 18mm Marine Grade" can be the same product. material_match must be an exact copy from this list or null, with your genuine confidence 0-1 that it's the same product, not just a similar one):
 ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
 
-    // The free tier is explicitly best-effort: a 503 "high demand" is Google's own retry-later
-    // signal, not a real failure, so retry it a couple of times with backoff before surfacing
-    // anything to the auditor. Any other status fails immediately.
-    let resp: Response
-    const maxAttempts = 3
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      resp = await fetch(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-goog-api-key': geminiKey },
-          body: JSON.stringify({
-            contents: [{
-              role: 'user',
-              parts: [
-                { inlineData: { mimeType, data: fileBase64 } },
-                { text: prompt },
-              ],
-            }],
-            generationConfig: {
-              responseMimeType: 'application/json',
-              responseSchema: toGeminiSchema(EXTRACT_SCHEMA),
-            },
-          }),
-        },
-      )
-      if (resp.ok) break
-      if (resp.status !== 503 || attempt === maxAttempts) {
-        throw new Error(`Gemini API error (${resp.status}): ${await resp.text()}`)
-      }
-      console.log(`extract-supplier-bill-scan: Gemini 503 (high demand), retrying attempt ${attempt + 1}/${maxAttempts}`)
-      await new Promise((r) => setTimeout(r, attempt * 2000))
-    }
-    const result = await resp!.json()
-    if (result.promptFeedback?.blockReason) {
-      throw new Error(`Gemini blocked this request: ${result.promptFeedback.blockReason}`)
-    }
+    const provider = anthropicKey ? 'anthropic' : 'gemini'
+    console.log('extract-supplier-bill-scan: extracting with', provider === 'anthropic' ? 'claude-haiku-5-5' : 'gemini-3.8-flash')
     // deno-lint-ignore no-explicit-any
-    const textPart = (result.candidates?.[0]?.content?.parts || []).find((p: any) => typeof p.text === 'string')
-    if (!textPart) throw new Error(`Gemini did not return structured extraction output. Response: ${JSON.stringify(result).slice(0, 500)}`)
-    // deno-lint-ignore no-explicit-any
-    let extracted: any
-    try {
-      extracted = JSON.parse(textPart.text)
-    } catch {
-      throw new Error(`Gemini returned non-JSON output: ${textPart.text.slice(0, 500)}`)
-    }
+    const extracted: any = provider === 'anthropic'
+      ? await extractWithAnthropic(anthropicKey!, mimeType, fileBase64, prompt)
+      : await extractWithGemini(geminiKey!, mimeType, fileBase64, prompt)
 
     const supplierId = extracted.supplier_match ? supplierIdMap.get(extracted.supplier_match) ?? null : null
     const designProjectId = extracted.project_match ? projectIdMap.get(extracted.project_match) ?? null : null
