@@ -22,6 +22,14 @@ import IncomeExpenseStatement from './pages/IncomeExpenseStatement'
 import Masters from './pages/Masters/Masters'
 import UsersPermissions from './pages/UsersPermissions'
 import AuditLog from './pages/AuditLog'
+import DesignProjectsList from './pages/DesignBuild/ProjectsList'
+import DesignProjectDashboard from './pages/DesignBuild/ProjectDashboard'
+import CompanyInventory from './pages/DesignBuild/CompanyInventory'
+import ManualSlip from './pages/DesignBuild/ManualSlip'
+import AccountsOverview from './pages/Accounts/AccountsOverview'
+import BillAuditQueue from './pages/Accounts/BillAuditQueue'
+import BankReconciliation from './pages/Accounts/BankReconciliation'
+import GstFollowUp from './pages/Accounts/GstFollowUp'
 
 export default function App() {
   const { session } = useAuth()
@@ -69,6 +77,16 @@ export default function App() {
           path="audit-log"
           element={<RequirePermission perm="financial_reports"><AuditLog /></RequirePermission>}
         />
+
+        <Route path="design-build/projects" element={<RequirePermission perm="design_build_manage"><DesignProjectsList /></RequirePermission>} />
+        <Route path="design-build/projects/:id" element={<RequirePermission perm="design_build_manage"><DesignProjectDashboard /></RequirePermission>} />
+        <Route path="design-build/inventory" element={<RequirePermission perm="inventory_operate"><CompanyInventory /></RequirePermission>} />
+        <Route path="design-build/slip" element={<RequirePermission perm="inventory_operate"><ManualSlip /></RequirePermission>} />
+
+        <Route path="accounts" element={<RequirePermission perm="supplier_bills_manage"><AccountsOverview /></RequirePermission>} />
+        <Route path="accounts/bills" element={<RequirePermission perm="supplier_bills_manage"><BillAuditQueue /></RequirePermission>} />
+        <Route path="accounts/bank" element={<RequirePermission perm="bank_reconciliation"><BankReconciliation /></RequirePermission>} />
+        <Route path="accounts/gst" element={<RequirePermission perm="gst_compliance"><GstFollowUp /></RequirePermission>} />
       </Route>
     </Routes>
   )

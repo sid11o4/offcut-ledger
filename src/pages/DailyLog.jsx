@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext'
 import { Card, StatCard, Badge, EmptyState, LoadingBlock, PageHeader } from '../components/ui'
 import ProjectFormModal from '../components/ProjectFormModal'
 import ScanEdgebandLog from '../components/ScanEdgebandLog'
-import { useProjects, useJobWorkServices, useJobWorkComponents, useRates, useExpenseCategories, useUnits } from '../lib/queries'
+import { useProjects, useJobWorkServices, useJobWorkComponents, useRates, useExpenseCategories, useUnits, useInventoryItems } from '../lib/queries'
 import { previewEntry, availableUnitsForService } from '../lib/calc'
 import { today, displayDate } from '../lib/dates'
 import { money, qty } from '../lib/format'
@@ -194,10 +194,15 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
   const [overrides, setOverrides] = useState({}) // componentServiceId -> {rate, reason}
   const [saving, setSaving] = useState(false)
   const [showNewProject, setShowNewProject] = useState(false)
+  const [materials, setMaterials] = useState({ raw_material_item_id: '', raw_material_qty: '', skin1_item_id: '', skin1_qty: '', skin2_item_id: '', skin2_qty: '' })
   const confirm = useConfirm()
+  const inventoryItemsQ = useInventoryItems()
 
   const project = projects.find((p) => p.id === projectId)
   const service = services.find((s) => s.id === serviceId)
+  // Internal Order (spec): billing for this rate category captures Raw Material/Skin1/Skin2,
+  // and that quantity is added to the linked Design Build project's consumption automatically.
+  const isInternalOrder = project?.rate_categories?.code === 'INTERNAL'
 
   // Units this service can be logged in for the project's rate category as of the log date.
   const unitOptions = useMemo(() => {
@@ -252,6 +257,12 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
       p_entry_date: date, p_project_id: projectId, p_service_id: serviceId,
       p_base_quantity: Number(quantity), p_remarks: remarks || null, p_rate_overrides: payloadOverrides,
       p_unit_id: effectiveUnitId || null,
+      p_raw_material_item_id: isInternalOrder ? (materials.raw_material_item_id || null) : null,
+      p_raw_material_qty: isInternalOrder && materials.raw_material_qty ? Number(materials.raw_material_qty) : null,
+      p_skin1_item_id: isInternalOrder ? (materials.skin1_item_id || null) : null,
+      p_skin1_qty: isInternalOrder && materials.skin1_qty ? Number(materials.skin1_qty) : null,
+      p_skin2_item_id: isInternalOrder ? (materials.skin2_item_id || null) : null,
+      p_skin2_qty: isInternalOrder && materials.skin2_qty ? Number(materials.skin2_qty) : null,
     })
     setSaving(false)
     if (error) {
@@ -260,6 +271,7 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
     }
     toast.success('Job work logged.')
     setServiceId(''); setUnitId(''); setQuantity(''); setRemarks(''); setOverrideOn(false); setOverrides({})
+    setMaterials({ raw_material_item_id: '', raw_material_qty: '', skin1_item_id: '', skin1_qty: '', skin2_item_id: '', skin2_qty: '' })
     onSaved()
   }
 
@@ -318,6 +330,33 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
           <label className="field-label">Remarks</label>
           <input className="field-input" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
         </div>
+
+        {isInternalOrder && (
+          <div className="rounded-md border border-ink-200 p-3 space-y-2">
+            <div className="text-xs font-medium text-ink-700 flex items-center gap-1.5">
+              <Badge tone="brand">Internal Order</Badge> Material used (posts to the linked Design Build project when billed)
+            </div>
+            {[
+              ['raw_material', 'Raw Material'],
+              ['skin1', 'Skin 1'],
+              ['skin2', 'Skin 2 (double-side)'],
+            ].map(([key, label]) => (
+              <div key={key} className="grid grid-cols-[1fr_100px] gap-2 items-end">
+                <div>
+                  <label className="field-label">{label}</label>
+                  <select className="field-input" value={materials[`${key}_item_id`]} onChange={(e) => setMaterials({ ...materials, [`${key}_item_id`]: e.target.value })}>
+                    <option value="">— none —</option>
+                    {(inventoryItemsQ.data || []).map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+                  </select>
+                </div>
+                <input
+                  className="field-input" type="number" min="0" step="0.0001" placeholder="Qty"
+                  value={materials[`${key}_qty`]} onChange={(e) => setMaterials({ ...materials, [`${key}_qty`]: e.target.value })}
+                />
+              </div>
+            ))}
+          </div>
+        )}
 
         {preview.lines.length > 0 && (
           <div className="rounded-md bg-ink-50 border border-ink-200 p-3 text-sm">

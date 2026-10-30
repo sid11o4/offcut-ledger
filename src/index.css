@@ -2,10 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Achromatic ledger: the chrome holds no colour at all. One near-black primary action, 1px
+   borders instead of shadows, no header fill bands, no zebra rows, tabular figures everywhere
+   a number appears. See design-taste-frontend's references/app-screens.md for the full rules
+   this was dealt from. */
+
 @layer base {
   html, body, #root { height: 100%; }
-  body { @apply bg-ink-50 text-ink-900 antialiased; }
+  body { @apply bg-ink-50 text-ink-950 antialiased; }
   input, select, textarea { @apply bg-white; }
+  h1, h2, h3 { text-wrap: balance; }
 }
 
 @layer components {
@@ -13,31 +19,45 @@
     @apply inline-flex items-center justify-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium
       transition-colors disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap;
   }
-  .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-700; }
-  .btn-secondary { @apply btn border border-ink-300 bg-white text-ink-800 hover:bg-ink-100; }
+  /* The one primary action is near-black -- no brand colour in the chrome. */
+  .btn-primary { @apply btn bg-ink-900 text-white hover:bg-ink-950; }
+  .btn-secondary { @apply btn bg-ink-100 text-ink-900 hover:bg-ink-200; }
   .btn-danger { @apply btn bg-bad text-white hover:opacity-90; }
   .btn-ghost { @apply btn text-ink-600 hover:bg-ink-100; }
 
   .field-label { @apply block text-xs font-medium text-ink-600 mb-1; }
   .field-input {
-    @apply w-full rounded-md border border-ink-300 px-3 py-2 text-sm text-ink-900
-      focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500;
+    @apply w-full rounded-md border border-ink-200 px-3 py-2 text-sm text-ink-950 bg-white
+      focus:outline-none focus:ring-2 focus:ring-ink-900/20 focus:border-ink-400;
   }
 
-  .card { @apply bg-white rounded-lg border border-ink-200 shadow-sm; }
+  /* A border, never a shadow, on a surface at rest. */
+  .card { @apply bg-white rounded-lg border border-ink-200; }
+  .panel { @apply bg-ink-50 rounded-lg p-4; }
 
   .table-base { @apply w-full text-sm border-collapse; }
   .table-base th {
-    @apply text-left text-xs font-semibold text-ink-500 uppercase tracking-wide
-      px-3 py-2 border-b border-ink-200 bg-ink-50 sticky top-0;
+    @apply text-left text-xs font-normal text-ink-500 px-3 py-2 border-b border-ink-200;
   }
-  .table-base td { @apply px-3 py-2 border-b border-ink-100 align-top; }
-  .table-base tbody tr:hover { @apply bg-brand-100/40; }
+  .table-base th.num, .table-base td.num { @apply text-right tabular-nums; }
+  .table-base td { @apply px-3 py-2 border-b border-ink-100 align-top tabular-nums; }
+  .table-base tbody tr:hover { @apply bg-ink-50; }
 
   .badge { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium; }
-  .badge-neutral { @apply badge bg-ink-100 text-ink-700; }
-  .badge-ok { @apply badge bg-green-100 text-ok; }
-  .badge-warn { @apply badge bg-amber-100 text-warn; }
-  .badge-bad { @apply badge bg-red-100 text-bad; }
+  .badge-neutral { @apply badge bg-pill-neutral-bg text-pill-neutral-ink; }
+  .badge-ok { @apply badge bg-pill-ok-bg text-pill-ok-ink; }
+  .badge-warn { @apply badge bg-pill-warn-bg text-pill-warn-ink; }
+  .badge-bad { @apply badge bg-pill-bad-bg text-pill-bad-ink; }
   .badge-brand { @apply badge bg-brand-100 text-brand-700; }
+
+  /* Icon-rail nav item (Layout.jsx): a plain colour change on the active icon, no tinted pill. */
+  .rail-item {
+    @apply flex items-center justify-center w-9 h-9 rounded-md text-ink-500 transition-colors;
+  }
+  .rail-item:hover { @apply text-ink-900 bg-ink-100; }
+  .rail-item.active { @apply text-ink-950 bg-ink-100; }
+}
+
+@layer utilities {
+  .tnum { font-variant-numeric: tabular-nums; }
 }

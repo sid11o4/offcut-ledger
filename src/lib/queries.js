@@ -45,7 +45,7 @@ export function useClients() {
 export function useProjects() {
   return useQuery({
     queryKey: ['projects'],
-    queryFn: list('projects', { select: '*, clients(name, code), rate_categories(name)' }),
+    queryFn: list('projects', { select: '*, clients(name, code), rate_categories(name, code)' }),
   })
 }
 export function useRates() {
@@ -62,6 +62,44 @@ export function useAppSettings() {
     queryKey: ['app_settings'],
     queryFn: async () => {
       const { data, error } = await supabase.from('app_settings').select('*').single()
+      if (error) throw error
+      return data
+    },
+  })
+}
+
+// --- Design Build + Accounts (Oct 2026 integration) ---
+
+export function useSuppliers() {
+  return useQuery({ queryKey: ['suppliers'], queryFn: list('suppliers') })
+}
+export function useDesignProjects() {
+  return useQuery({
+    queryKey: ['design_projects'],
+    queryFn: list('design_projects', { select: '*, clients(name, code), projects:factory_project_id(name, code)', order: 'created_at', ascending: false }),
+  })
+}
+export function useInventoryItems() {
+  return useQuery({ queryKey: ['inventory_items'], queryFn: list('inventory_items', { select: '*, units(name, code)' }) })
+}
+export function useInventoryLocations() {
+  return useQuery({ queryKey: ['inventory_locations'], queryFn: list('inventory_locations', { order: 'name' }) })
+}
+export function useDesignProjectsSummary() {
+  return useQuery({
+    queryKey: ['design_projects_summary'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('report_design_projects_summary')
+      if (error) throw error
+      return data
+    },
+  })
+}
+export function useCompanyInventoryValue() {
+  return useQuery({
+    queryKey: ['company_inventory_value'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('report_company_inventory_value')
       if (error) throw error
       return data
     },

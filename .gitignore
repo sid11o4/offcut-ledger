@@ -18,6 +18,9 @@ dist-ssr
 # Local Claude Code session permissions — machine/session specific, not project config
 .claude/settings.local.json
 
+# design-taste-frontend skill scratch output (screenshots, dealt direction cache)
+.taste-skill/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

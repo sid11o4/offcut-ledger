@@ -82,7 +82,7 @@ export default function Dashboard() {
 
   return (
     <div>
-      <PageHeader title={`Welcome, ${profile?.full_name || ''}`} subtitle="Factory dashboard" />
+      <PageHeader title="Dashboard" subtitle={profile?.full_name ? `Signed in as ${profile.full_name}` : 'Factory overview'} />
 
       <Card title="Today's Overview" className="mb-5">
         {todayQ.isLoading ? <LoadingBlock /> : (
