@@ -117,7 +117,7 @@ Call extract_log with one entry per non-blank row. Skip rows that are entirely e
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         max_tokens: 4000,
         tools: [EXTRACT_TOOL],
         tool_choice: { type: 'tool', name: 'extract_log' },

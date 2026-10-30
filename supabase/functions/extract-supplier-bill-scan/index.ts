@@ -105,6 +105,7 @@ Deno.serve(async (req) => {
   const { data: active } = await asCaller.rpc('is_active_user')
   if (!active) return json({ error: 'Your account is not active.' }, 403)
 
+  console.log('extract-supplier-bill-scan: anthropicKey present =', !!anthropicKey, 'length =', anthropicKey?.length ?? 0)
   if (!anthropicKey) return json({ error: 'ANTHROPIC_API_KEY is not configured on this project. Ask an admin to add it via `supabase secrets set`.' }, 500)
 
   let body: { bill_id?: string }
@@ -168,7 +169,7 @@ Call extract_bill_slip with everything found on the slip.`
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-5-5',
         max_tokens: 4000,
         tools: [EXTRACT_TOOL],
         tool_choice: { type: 'tool', name: 'extract_bill_slip' },
@@ -265,6 +266,7 @@ Call extract_bill_slip with everything found on the slip.`
     return json({ ok: true, line_items: lineItems.length, payments: payments.length, grand_total: extracted.grand_total ?? null })
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
+    console.error('extract-supplier-bill-scan failed for bill', billId, ':', message)
     return json({ error: message }, 500)
   }
 })
