@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, StatCard, EmptyState, LoadingBlock, Field, Input, Select, Badge } from '../../components/ui'
-import { useCompanyInventoryValue, useInventoryItems } from '../../lib/queries'
+import { useCompanyInventoryValue, useInventoryItems, invalidateInventory } from '../../lib/queries'
 import { money, qty } from '../../lib/format'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
@@ -11,6 +11,7 @@ import TransferModal from '../../components/TransferModal'
 export default function CompanyInventory() {
   const valueQ = useCompanyInventoryValue()
   const { hasPermission } = useAuth()
+  const qc = useQueryClient()
   const [transferOpen, setTransferOpen] = useState(false)
   const [purchaseOpen, setPurchaseOpen] = useState(false)
   const canOperate = hasPermission('inventory_operate')
@@ -62,7 +63,7 @@ export default function CompanyInventory() {
       {transferOpen && (
         <TransferModal
           onClose={() => setTransferOpen(false)}
-          onSaved={() => { setTransferOpen(false) }}
+          onSaved={() => { invalidateInventory(qc); setTransferOpen(false) }}
         />
       )}
       {purchaseOpen && <PurchaseModal onClose={() => setPurchaseOpen(false)} />}

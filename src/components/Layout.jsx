@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from './Toast'
 import { supabase } from '../lib/supabaseClient'
@@ -10,49 +10,95 @@ import Icon from './icons'
 // 20px hairlines, the active item marked by a plain tint -- no coloured pills, no left bar.
 // More destinations than the study ever tested, so the rail scrolls; each icon still carries a
 // tooltip and an accessible name per the house rule.
-const GROUPS = [
-  { items: [{ to: '/', label: 'Dashboard', icon: 'dashboard', end: true }] },
-  {
-    label: 'Factory',
-    items: [
-      { to: '/daily-log', label: 'Daily Log', icon: 'log' },
-      { to: '/job-work', label: 'Job Work Catalog', icon: 'tool' },
-      { to: '/projects', label: 'Projects', icon: 'project' },
-      { to: '/clients', label: 'Clients', icon: 'client' },
-      { to: '/estimates', label: 'Estimates', icon: 'estimate' },
-      { to: '/billing', label: 'Billing', icon: 'bill', perm: 'billing' },
-      { to: '/expenses', label: 'Expenses', icon: 'wallet' },
-      { to: '/recurring-expenses', label: 'Recurring Expenses', icon: 'recur', perm: 'expense_manage' },
-      { to: '/reports', label: 'Reports', icon: 'report' },
-      { to: '/statement', label: 'Income / Expense', icon: 'statement', perm: 'financial_reports' },
-    ],
-  },
-  {
-    label: 'Design Build',
-    items: [
-      { to: '/design-build/projects', label: 'Design Build Projects', icon: 'layers', perm: 'design_build_manage' },
-      { to: '/design-build/inventory', label: 'Company Inventory', icon: 'inventory', perm: 'inventory_operate' },
-      { to: '/design-build/slip', label: 'Consumption / Transfer Slip', icon: 'transfer', perm: 'inventory_operate' },
-    ],
-  },
-  {
-    label: 'Accounts',
-    items: [
-      { to: '/accounts', label: 'Accounts Overview', icon: 'queue', perm: 'supplier_bills_manage' },
-      { to: '/accounts/bills', label: 'Bill Audit Queue', icon: 'bill', perm: 'supplier_bills_manage' },
-      { to: '/accounts/bank', label: 'Bank Reconciliation', icon: 'bank', perm: 'bank_reconciliation' },
-      { to: '/accounts/gst', label: 'GST Follow-up', icon: 'compliance', perm: 'gst_compliance' },
-    ],
-  },
-  {
-    label: 'Admin',
-    items: [
-      { to: '/masters', label: 'Masters / Settings', icon: 'settings', perm: 'master_data' },
-      { to: '/users', label: 'Users & Permissions', icon: 'users', perm: 'user_manage' },
-      { to: '/audit-log', label: 'Audit Log', icon: 'history', perm: 'financial_reports' },
-    ],
-  },
+//
+// Factory and Design Build are two different businesses sharing one app (owner's framing) --
+// their menus stay visually separate behind a workspace switch rather than one long merged
+// list, even though the data underneath (clients, inventory, the Internal Order bridge) is
+// already shared. Dashboard and Admin sit outside the switch: Dashboard reads across both
+// businesses at once, and Masters/Users/Audit Log are shared back-office regardless of which
+// workspace is active.
+const PINNED = { to: '/', label: 'Dashboard', icon: 'dashboard', end: true }
+
+const WORKSPACES = [
+  { key: 'factory', label: 'Factory', icon: 'project' },
+  { key: 'design_build', label: 'Design Build', icon: 'layers' },
 ]
+
+const WORKSPACE_GROUPS = {
+  factory: [
+    {
+      label: 'Factory',
+      items: [
+        { to: '/daily-log', label: 'Daily Log', icon: 'log' },
+        { to: '/job-work', label: 'Job Work Catalog', icon: 'tool' },
+        { to: '/projects', label: 'Projects', icon: 'project' },
+        { to: '/clients', label: 'Clients', icon: 'client' },
+        { to: '/estimates', label: 'Estimates', icon: 'estimate' },
+        { to: '/billing', label: 'Billing', icon: 'bill', perm: 'billing' },
+        { to: '/expenses', label: 'Expenses', icon: 'wallet' },
+        { to: '/recurring-expenses', label: 'Recurring Expenses', icon: 'recur', perm: 'expense_manage' },
+      ],
+    },
+    {
+      label: 'Reports',
+      items: [
+        { to: '/reports', label: 'Reports', icon: 'report' },
+        { to: '/ledger', label: 'Ledger', icon: 'ledger', perm: 'financial_reports' },
+        { to: '/statement', label: 'Income / Expense', icon: 'statement', perm: 'financial_reports' },
+      ],
+    },
+  ],
+  design_build: [
+    {
+      label: 'Design Build',
+      items: [
+        { to: '/design-build/projects', label: 'Projects', icon: 'layers', perm: 'design_build_manage' },
+        { to: '/design-build/inventory', label: 'Company Inventory', icon: 'inventory', perm: 'inventory_operate' },
+        { to: '/design-build/slip', label: 'Consumption / Transfer Slip', icon: 'transfer', perm: 'inventory_operate' },
+      ],
+    },
+    {
+      label: 'Accounts',
+      items: [
+        { to: '/accounts', label: 'Accounts Overview', icon: 'queue', perm: 'supplier_bills_manage', end: true },
+        { to: '/accounts/bills', label: 'Bill Audit Queue', icon: 'bill', perm: 'supplier_bills_manage' },
+        { to: '/accounts/bank', label: 'Bank Reconciliation', icon: 'bank', perm: 'bank_reconciliation' },
+        { to: '/accounts/gst', label: 'GST Follow-up', icon: 'compliance', perm: 'gst_compliance' },
+      ],
+    },
+  ],
+}
+
+const ADMIN_GROUP = {
+  label: 'Admin',
+  items: [
+    { to: '/masters', label: 'Masters / Settings', icon: 'settings', perm: 'master_data' },
+    { to: '/users', label: 'Users & Permissions', icon: 'users', perm: 'user_manage' },
+    { to: '/audit-log', label: 'Audit Log', icon: 'history', perm: 'financial_reports' },
+  ],
+}
+
+function workspaceForPath(pathname) {
+  for (const [key, groups] of Object.entries(WORKSPACE_GROUPS)) {
+    for (const g of groups) {
+      if (g.items.some((item) => pathname === item.to || pathname.startsWith(item.to + '/'))) return key
+    }
+  }
+  return null
+}
+
+function readStored(key, fallback) {
+  try {
+    return localStorage.getItem(key) || fallback
+  } catch {
+    return fallback
+  }
+}
+function writeStored(key, value) {
+  try {
+    localStorage.setItem(key, value)
+  } catch { /* private browsing or storage disabled -- just don't persist */ }
+}
 
 function RailLink({ item, onNavigate, labelled }) {
   return (
@@ -70,15 +116,15 @@ function RailLink({ item, onNavigate, labelled }) {
   )
 }
 
-function RailGroups({ onNavigate, labelled }) {
+function RailGroups({ groups, onNavigate, labelled, firstBordered = false }) {
   const { hasPermission } = useAuth()
   return (
     <>
-      {GROUPS.map((g, i) => {
+      {groups.map((g, i) => {
         const visible = g.items.filter((n) => !n.perm || hasPermission(n.perm))
         if (!visible.length) return null
         return (
-          <div key={i} className={`flex flex-col items-center gap-1 ${labelled ? 'items-stretch' : ''} ${i > 0 ? 'mt-2 pt-2 border-t border-ink-800' : ''}`}>
+          <div key={g.label || i} className={`flex flex-col items-center gap-1 ${labelled ? 'items-stretch' : ''} ${i > 0 || firstBordered ? 'mt-2 pt-2 border-t border-ink-800' : ''}`}>
             {labelled && g.label && <div className="px-3 pb-1 text-xs text-ink-500">{g.label}</div>}
             {visible.map((item) => <RailLink key={item.to} item={item} onNavigate={onNavigate} labelled={labelled} />)}
           </div>
@@ -88,22 +134,83 @@ function RailGroups({ onNavigate, labelled }) {
   )
 }
 
+// Segmented control between the two businesses -- icon rail. Plain tint for the active one,
+// same as every other rail item, never a coloured pill.
+function WorkspaceSwitcher({ workspace, onChange, labelled }) {
+  return (
+    <div className={`flex flex-col items-center gap-1 ${labelled ? 'items-stretch' : ''} pb-2 mb-1 border-b border-ink-800`}>
+      {WORKSPACES.map((w) => (
+        <button
+          key={w.key}
+          type="button"
+          onClick={() => onChange(w.key)}
+          title={w.label}
+          className={`rail-item ${workspace === w.key ? 'active' : ''} ${labelled ? '!w-full !justify-start gap-2.5 px-3' : ''}`}
+        >
+          <Icon name={w.icon} />
+          {labelled && <span className="text-sm font-medium">{w.label}</span>}
+          <span className="sr-only">{w.label}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function Layout() {
   const { profile, roleName, signOut } = useAuth()
   const toast = useToast()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [pwOpen, setPwOpen] = useState(false)
+  const [workspace, setWorkspace] = useState(() => readStored('formgrid_workspace', 'factory'))
+  const [railExpanded, setRailExpanded] = useState(() => readStored('formgrid_rail_expanded', '') === '1')
+  const location = useLocation()
+
+  // A direct link or browser-back into a page that belongs to the other workspace should show
+  // that page's own nav item highlighted, not leave the rail stuck on whichever workspace was
+  // last picked by hand -- otherwise the active route silently disappears from the visible
+  // menu. Derived from WORKSPACE_GROUPS itself so the two stay in sync automatically.
+  useEffect(() => {
+    const match = workspaceForPath(location.pathname)
+    if (match) setWorkspace((w) => (w === match ? w : match))
+  }, [location.pathname])
+
+  function changeWorkspace(key) {
+    setWorkspace(key)
+    writeStored('formgrid_workspace', key)
+  }
+  function toggleRail() {
+    setRailExpanded((v) => {
+      writeStored('formgrid_rail_expanded', v ? '' : '1')
+      return !v
+    })
+  }
+
+  const activeGroups = WORKSPACE_GROUPS[workspace]
 
   return (
     <div className="min-h-screen flex bg-ink-50">
-      <aside className="hidden md:flex md:flex-col w-14 shrink-0 bg-ink-950 h-screen sticky top-0 overflow-y-auto py-3">
-        <div className="flex justify-center mb-2">
-          <div className="w-8 h-8 rounded-md bg-brand-600 text-white flex items-center justify-center font-semibold text-sm">F</div>
+      <aside className={`hidden md:flex md:flex-col ${railExpanded ? 'w-56' : 'w-14'} shrink-0 bg-ink-950 h-screen sticky top-0 overflow-y-auto py-3 transition-[width] duration-150`}>
+        <div className={`flex mb-2 ${railExpanded ? 'px-3 items-center gap-2' : 'justify-center'}`}>
+          <div className="w-8 h-8 shrink-0 rounded-md bg-brand-600 text-white flex items-center justify-center font-semibold text-sm">F</div>
+          {railExpanded && <span className="font-medium text-white text-sm">Formgrid</span>}
         </div>
         <nav className="flex-1 flex flex-col items-center [&_.rail-item]:text-ink-400 [&_.rail-item:hover]:text-white [&_.rail-item:hover]:bg-white/10 [&_.rail-item.active]:text-white [&_.rail-item.active]:bg-white/10">
-          <RailGroups />
+          <RailGroups groups={[{ items: [PINNED] }]} labelled={railExpanded} />
+          <WorkspaceSwitcher workspace={workspace} onChange={changeWorkspace} labelled={railExpanded} />
+          <RailGroups groups={activeGroups} labelled={railExpanded} />
+          <RailGroups groups={[ADMIN_GROUP]} labelled={railExpanded} firstBordered />
         </nav>
+        <button
+          type="button"
+          onClick={toggleRail}
+          title={railExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+          className={`rail-item text-ink-400 hover:text-white hover:bg-white/10 mt-2 ${railExpanded ? '!w-full !justify-start gap-2.5 px-3' : ''}`}
+        >
+          <Icon name="chevron" className={railExpanded ? 'rotate-180' : ''} />
+          {railExpanded && <span className="text-sm font-medium">Collapse</span>}
+          <span className="sr-only">{railExpanded ? 'Collapse sidebar' : 'Expand sidebar'}</span>
+        </button>
       </aside>
 
       {mobileOpen && (
@@ -123,7 +230,10 @@ export default function Layout() {
               <GlobalSearch />
             </div>
             <nav className="[&_.rail-item]:text-ink-300 [&_.rail-item:hover]:text-white [&_.rail-item:hover]:bg-white/10 [&_.rail-item.active]:text-white [&_.rail-item.active]:bg-white/10">
-              <RailGroups onNavigate={() => setMobileOpen(false)} labelled />
+              <RailGroups groups={[{ items: [PINNED] }]} onNavigate={() => setMobileOpen(false)} labelled />
+              <WorkspaceSwitcher workspace={workspace} onChange={changeWorkspace} labelled />
+              <RailGroups groups={activeGroups} onNavigate={() => setMobileOpen(false)} labelled />
+              <RailGroups groups={[ADMIN_GROUP]} onNavigate={() => setMobileOpen(false)} labelled firstBordered />
             </nav>
           </div>
         </div>

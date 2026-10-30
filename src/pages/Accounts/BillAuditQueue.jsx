@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Badge, ConfidencePill, EmptyState, LoadingBlock, Field, Input, Select } from '../../components/ui'
-import { useSuppliers, useDesignProjects } from '../../lib/queries'
+import { useSuppliers, useDesignProjects, invalidateInventory } from '../../lib/queries'
 import { money } from '../../lib/format'
 
 const COST_HEADS = [
@@ -40,32 +40,47 @@ export default function BillAuditQueue() {
     if (!selectedId && queueQ.data?.length) setSelectedId(queueQ.data[0].id)
   }, [queueQ.data, selectedId])
 
+  // One uploaded file = one bill, whether it's a PNG/JPG photo or a PDF (a multi-page PDF is
+  // read in full by the extraction function below -- a scanned slip with a back page, or a
+  // front+back pair, is still one bill). Selecting several files at once queues each as its
+  // own bill and extracts them one at a time; one bad file doesn't stop the rest.
+  async function uploadOne(file) {
+    const path = `supplier-bills/${profile.id}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+    const { error: upErr } = await supabase.storage.from('scan-uploads').upload(path, file)
+    if (upErr) throw upErr
+    const { data: bill, error: billErr } = await supabase.from('supplier_bills').insert({
+      internal_bill_number: `PENDING-${Date.now().toString().slice(-6)}`,
+      bill_date: new Date().toISOString().slice(0, 10),
+      expense_nature: 'material', scan_image_path: path, created_by: profile.id,
+    }).select().single()
+    if (billErr) throw billErr
+    const { data: fnResult, error: fnErr } = await supabase.functions.invoke('extract-supplier-bill-scan', { body: { bill_id: bill.id } })
+    if (fnErr) throw new Error(fnResult?.error || fnErr.message)
+    if (fnResult?.error) throw new Error(fnResult.error)
+    return bill
+  }
+
   async function handleUpload(e) {
-    const file = e.target.files?.[0]
+    const files = Array.from(e.target.files || [])
     e.target.value = ''
-    if (!file) return
+    if (!files.length) return
     setUploading(true)
-    try {
-      const path = `supplier-bills/${profile.id}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
-      const { error: upErr } = await supabase.storage.from('scan-uploads').upload(path, file)
-      if (upErr) throw upErr
-      const { data: bill, error: billErr } = await supabase.from('supplier_bills').insert({
-        internal_bill_number: `PENDING-${Date.now().toString().slice(-6)}`,
-        bill_date: new Date().toISOString().slice(0, 10),
-        expense_nature: 'material', scan_image_path: path, created_by: profile.id,
-      }).select().single()
-      if (billErr) throw billErr
-      const { data: fnResult, error: fnErr } = await supabase.functions.invoke('extract-supplier-bill-scan', { body: { bill_id: bill.id } })
-      if (fnErr) throw new Error(fnResult?.error || fnErr.message)
-      if (fnResult?.error) throw new Error(fnResult.error)
-      toast.success('Bill scanned — review below.')
-      qc.invalidateQueries({ queryKey: ['supplier_bills_queue'] })
-      setSelectedId(bill.id)
-    } catch (err) {
-      toast.error(err.message || String(err))
-    } finally {
-      setUploading(false)
+    let lastGoodId = null
+    let failed = 0
+    for (const file of files) {
+      try {
+        const bill = await uploadOne(file)
+        lastGoodId = bill.id
+      } catch (err) {
+        failed += 1
+        toast.error(`${file.name}: ${err.message || err}`)
+      }
     }
+    setUploading(false)
+    qc.invalidateQueries({ queryKey: ['supplier_bills_queue'] })
+    const ok = files.length - failed
+    if (ok) toast.success(ok === 1 ? 'Bill scanned — review below.' : `${ok} bills scanned — review below.`)
+    if (lastGoodId) setSelectedId(lastGoodId)
   }
 
   function goNext(fromId) {
@@ -82,7 +97,15 @@ export default function BillAuditQueue() {
         actions={
           <label className="btn-primary cursor-pointer">
             {uploading ? 'Uploading…' : '+ Scan bill'}
-            <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" disabled={uploading} onChange={handleUpload} />
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,application/pdf"
+              multiple
+              className="hidden"
+              disabled={uploading}
+              onChange={handleUpload}
+            />
           </label>
         }
       />
@@ -186,9 +209,14 @@ function AuditPanel({ billId, onDone }) {
     const { error } = await supabase.rpc('approve_supplier_bill', { p_bill_id: billId })
     setSaving(false)
     if (error) return toast.error(error.message)
+    // Approval posts a stock purchase into the bill's project (or company pool) when its
+    // lines are matched to tracked inventory items -- without this, Company Inventory, the
+    // project's own dashboard, and the projects list summary all kept showing pre-approval
+    // numbers until something else happened to invalidate their queries.
+    invalidateInventory(qc)
     toast.success('Bill approved.')
     onDone()
-  }, [billId, toast, onDone])
+  }, [billId, toast, onDone, qc])
 
   const flag = useCallback(async () => {
     const note = window.prompt('Flag this bill — what needs attention?')
@@ -216,7 +244,10 @@ function AuditPanel({ billId, onDone }) {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4">
       <Card className="p-0 overflow-hidden bg-ink-100 flex items-center justify-center min-h-[320px] lg:h-[calc(100vh-180px)]">
-        {imageUrl ? <img src={imageUrl} alt="Scanned bill" className="max-h-full max-w-full object-contain" /> : <div className="text-ink-400 text-sm">No scan attached</div>}
+        {!imageUrl ? <div className="text-ink-400 text-sm">No scan attached</div>
+          : /\.pdf($|\?)/i.test(b.scan_image_path)
+            ? <iframe src={imageUrl} title="Scanned bill" className="w-full h-full min-h-[320px] lg:min-h-0" />
+            : <img src={imageUrl} alt="Scanned bill" className="max-h-full max-w-full object-contain" />}
       </Card>
 
       <div className="space-y-4 lg:h-[calc(100vh-180px)] lg:overflow-y-auto lg:pr-1">

@@ -123,8 +123,18 @@ Deno.serve(async (req) => {
     const { data: fileBlob, error: dlErr } = await admin.storage.from('scan-uploads').download(bill.scan_image_path)
     if (dlErr || !fileBlob) throw new Error('Could not read the uploaded image.')
     const bytes = new Uint8Array(await fileBlob.arrayBuffer())
-    const imageBase64 = encodeBase64(bytes)
-    const mediaType = /\.png$/i.test(bill.scan_image_path) ? 'image/png' : /\.webp$/i.test(bill.scan_image_path) ? 'image/webp' : 'image/jpeg'
+    const fileBase64 = encodeBase64(bytes)
+    const isPdf = /\.pdf$/i.test(bill.scan_image_path)
+    const mediaType = isPdf ? 'application/pdf'
+      : /\.png$/i.test(bill.scan_image_path) ? 'image/png'
+      : /\.webp$/i.test(bill.scan_image_path) ? 'image/webp'
+      : 'image/jpeg'
+    // A PDF goes in as a 'document' block rather than 'image' -- Claude reads every page of a
+    // multi-page PDF this way (a front+back slip, or a scan of several pages for one bill),
+    // where an 'image' block would only ever see a single flat picture.
+    const fileContentBlock = isPdf
+      ? { type: 'document', source: { type: 'base64', media_type: mediaType, data: fileBase64 } }
+      : { type: 'image', source: { type: 'base64', media_type: mediaType, data: fileBase64 } }
 
     const [{ data: suppliers }, { data: projects }, { data: items }] = await Promise.all([
       admin.from('suppliers').select('id, name').eq('active', true),
@@ -135,7 +145,7 @@ Deno.serve(async (req) => {
     const projectIdMap = new Map((projects || []).map((p: { id: string; name: string }) => [p.name, p.id]))
     const itemIdMap = new Map((items || []).map((i: { id: string; name: string }) => [i.name, i.id]))
 
-    const prompt = `This is a photo of a FORMGRID "Bill / Payment Slip" -- an internal record of a supplier purchase. It has:
+    const prompt = `This is ${isPdf ? 'a scanned PDF (it may have more than one page -- read all of them; a front+back slip or a multi-page scan is still one bill)' : 'a photo'} of a FORMGRID "Bill / Payment Slip" -- an internal record of a supplier purchase. It has:
 Header: Bill No., Date, Supplier Name, Project Name, Project Code, Type of Expense (checkboxes), Cost Head (checkboxes: Factory Labour, Site Labour, Laminate and Veneer, Employee Salary, Factory Consumables, Raw Boards, Fevicol/Adhesives, Other).
 A line-item table: S.No, Description of Goods/Services, Type, Unit, Quantity, Rate (inclusive of GST), Total Amount (inclusive of GST), GST %.
 Payment Details: a table of Payment Mode (Cash Paid / Account Transfer RTGS-NEFT / Added to Credit Account), Amount, Remarks -- and a separate Cash Payment Received section (amount, received by name) when a cash seal/stamp is present.
@@ -165,7 +175,7 @@ Call extract_bill_slip with everything found on the slip.`
         messages: [{
           role: 'user',
           content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
+            fileContentBlock,
             { type: 'text', text: prompt },
           ],
         }],

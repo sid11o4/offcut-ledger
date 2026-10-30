@@ -1,14 +1,16 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import { PageHeader, Card, Field, Input, Select } from '../../components/ui'
-import { useInventoryItems, useInventoryLocations, useDesignProjects } from '../../lib/queries'
+import { useInventoryItems, useInventoryLocations, useDesignProjects, invalidateInventory } from '../../lib/queries'
 
 // The manual reporting mode for consumption/transfer (spec): a header plus line items, posted
 // as real inventory movements by post_inventory_slip() -- the same rules (project-stock-first,
 // cost-follows-transfer) as every other inventory path.
 export default function ManualSlip() {
   const toast = useToast()
+  const qc = useQueryClient()
   const itemsQ = useInventoryItems()
   const locationsQ = useInventoryLocations()
   const projectsQ = useDesignProjects()
@@ -55,6 +57,7 @@ export default function ManualSlip() {
     setSaving(false)
     if (postErr) return toast.error(postErr.message)
 
+    invalidateInventory(qc)
     toast.success(`${slip.slip_number} posted.`)
     setLastSlip(slip.slip_number)
     setLines([{ item_id: '', quantity: '', from_location_id: '', to_location_id: '' }])

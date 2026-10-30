@@ -6,6 +6,7 @@ import { money, qty } from '../../lib/format'
 import { displayDate } from '../../lib/dates'
 import { useToast } from '../../components/Toast'
 import TransferModal from '../../components/TransferModal'
+import { invalidateInventory } from '../../lib/queries'
 import { useState } from 'react'
 
 export default function ProjectDashboard() {
@@ -140,9 +141,7 @@ export default function ProjectDashboard() {
           onClose={() => setTransferOpen(false)}
           onSaved={() => {
             toast.success('Transfer recorded.')
-            qc.invalidateQueries({ queryKey: ['design_project_stock', id] })
-            qc.invalidateQueries({ queryKey: ['design_project_txns', id] })
-            qc.invalidateQueries({ queryKey: ['design_project_financials', id] })
+            invalidateInventory(qc)
             setTransferOpen(false)
           }}
         />

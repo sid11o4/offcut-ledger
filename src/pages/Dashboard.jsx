@@ -80,6 +80,34 @@ export default function Dashboard() {
     },
   })
 
+  // One figure for both businesses at once (owner's request: "let the dashboard be
+  // integrated") even though the sidebar now keeps their menus apart -- a Design Build
+  // summary alongside Factory's, not a separate dashboard behind the workspace switch.
+  const canSeeDesignBuild = hasPermission('design_build_manage') || hasPermission('inventory_operate') || hasPermission('supplier_bills_manage')
+  const designBuildQ = useQuery({
+    queryKey: ['dash-design-build'],
+    enabled: canSeeDesignBuild,
+    queryFn: async () => {
+      const [projects, companyStock, pendingBills] = await Promise.all([
+        supabase.rpc('report_design_projects_summary'),
+        supabase.rpc('report_company_inventory_value'),
+        supabase.from('supplier_bills').select('id, grand_total').eq('status', 'pending_review'),
+      ])
+      if (projects.error) throw projects.error
+      if (companyStock.error) throw companyStock.error
+      if (pendingBills.error) throw pendingBills.error
+      const projectInventory = (projects.data || []).reduce((s, p) => s + Number(p.current_inventory_value || 0), 0)
+      const companyInventory = (companyStock.data || []).reduce((s, r) => s + Number(r.value || 0), 0)
+      return {
+        activeProjects: (projects.data || []).filter((p) => p.status === 'active').length,
+        totalInventoryValue: projectInventory + companyInventory,
+        pendingBillsCount: pendingBills.data?.length || 0,
+        pendingBillsTotal: (pendingBills.data || []).reduce((s, b) => s + Number(b.grand_total), 0),
+        topProjects: (projects.data || []).slice(0, 5),
+      }
+    },
+  })
+
   return (
     <div>
       <PageHeader title="Dashboard" subtitle={profile?.full_name ? `Signed in as ${profile.full_name}` : 'Factory overview'} />
@@ -105,6 +133,33 @@ export default function Dashboard() {
           </div>
         )}
       </Card>
+
+      {canSeeDesignBuild && (
+        <Card title="Design Build" className="mb-5">
+          {designBuildQ.isLoading ? <LoadingBlock /> : (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <StatCard label="Active projects" value={designBuildQ.data?.activeProjects ?? 0} />
+              <StatCard label="Inventory on hand (company + projects)" value={money(designBuildQ.data?.totalInventoryValue)} money />
+              <StatCard
+                label="Bills awaiting approval"
+                value={designBuildQ.data?.pendingBillsCount ?? 0}
+                sub={designBuildQ.data?.pendingBillsCount ? money(designBuildQ.data.pendingBillsTotal) : undefined}
+                tone={designBuildQ.data?.pendingBillsCount ? 'warn' : 'neutral'}
+              />
+            </div>
+          )}
+          {!!designBuildQ.data?.topProjects?.length && (
+            <ul className="mt-4 pt-3 border-t border-ink-100 space-y-1.5">
+              {designBuildQ.data.topProjects.map((p) => (
+                <li key={p.id} className="flex justify-between text-sm">
+                  <Link to={`/design-build/projects/${p.id}`} className="hover:underline">{p.name}</Link>
+                  <span className="font-medium">{money(p.current_inventory_value)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-5 mb-5">
         <Card title="Revenue by Project (this month)">

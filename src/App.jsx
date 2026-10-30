@@ -17,6 +17,7 @@ import BillDetail from './pages/Billing/BillDetail'
 import ExpensesList from './pages/Expenses/ExpensesList'
 import RecurringExpenses from './pages/Expenses/RecurringExpenses'
 import Reports from './pages/Reports/Reports'
+import Ledger from './pages/Reports/Ledger'
 import ProjectReport from './pages/Reports/ProjectReport'
 import IncomeExpenseStatement from './pages/IncomeExpenseStatement'
 import Masters from './pages/Masters/Masters'
@@ -67,6 +68,7 @@ export default function App() {
         />
         <Route path="reports" element={<Reports />} />
         <Route path="reports/projects/:id" element={<ProjectReport />} />
+        <Route path="ledger" element={<RequirePermission perm="financial_reports"><Ledger /></RequirePermission>} />
         <Route
           path="statement"
           element={<RequirePermission perm="financial_reports"><IncomeExpenseStatement /></RequirePermission>}
