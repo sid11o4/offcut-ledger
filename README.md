@@ -5,6 +5,16 @@ logging, automatic revenue calculation, project-wise reporting, estimates, billi
 (including recurring fixed costs), and an income/expense statement — all derived from the same
 underlying transaction records (a single source of truth), never from manually-entered totals.
 
+## Before building any design/website work
+
+Before building, designing, redesigning, restyling, or reviewing any landing page, marketing
+site, portfolio page, or app screen (dashboards, admin/analytics views, settings, inboxes) in
+this repo — Formgrid Factory at the root or `scubo-lead-desk` — use the **`design-taste-frontend`**
+Claude Code skill first (`.claude/skills/design-taste-frontend`, aka "tasteskill"). It deals a
+researched design direction from a library of 247 curated gallery sites, enforces a strict
+no-slop house style with a real-browser inspector, and runs a look-and-fix loop on screenshots.
+Do not hand-roll page design/layout decisions without going through it first.
+
 ## Stack
 
 - **React 19 + Vite**, React Router, TanStack Query
