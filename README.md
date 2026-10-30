@@ -15,6 +15,24 @@ researched design direction from a library of 247 curated gallery sites, enforce
 no-slop house style with a real-browser inspector, and runs a look-and-fix loop on screenshots.
 Do not hand-roll page design/layout decisions without going through it first.
 
+For motion/animation and broader UI craft, the full `emilkowalski/skill` set is also installed
+under `.claude/skills/` and should be reached for by name rather than hand-rolled:
+`animate` / `animate-expo` (build an animation or transition, web or Expo),
+`animation-performance` (diagnose janky/dropped-frame motion),
+`animation-vocabulary` (name an effect you can only describe),
+`apple-design` (Apple-style gesture/spring/physical-motion interfaces),
+`ask-sonner` (the Sonner toast library),
+`break-ui` (stress-test a component with worst-case data),
+`emil-design-eng` (general UI-polish/component-design philosophy),
+`find-animation-opportunities` / `improve-animations` / `review-animations` /
+`remove-animations` (find, audit, critique, or strip back motion in existing code),
+`mobile-native` (make a web app feel native on a phone),
+`pick-ui-library` and `prototype` (opinionated library picks; multiple UI variants behind a
+picker — both invoke-only, not automatic), and `write-swift` (native iOS work, if this repo
+ever grows one). `emilkowalski-motion` (from `nexu-io/open-design`) is a smaller, independent
+follow-up skill with the same idea — restrained micro-interactions on an interface that already
+exists.
+
 ## Stack
 
 - **React 19 + Vite**, React Router, TanStack Query
