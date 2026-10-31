@@ -4,8 +4,9 @@ import { supabase } from '../lib/supabaseClient'
 
 // One input for the whole app: ask a question, attach a bill or photo, or ask for a change.
 // Answers come back as a summary, supporting tables with links, and follow-ups. Requests to
-// create, change or delete a supplier bill come back as a proposal; nothing is saved until the
-// user approves it here, and assistant-execute re-checks the caller's permissions.
+// create, change or delete a supplier bill come back as a review screen: where the change lands,
+// what it changes from and to, and Enter to approve. Nothing is saved until the user approves,
+// and assistant-execute re-checks the caller's permissions.
 
 const MAX_BYTES = 4 * 1024 * 1024
 const ACCEPT = 'image/png,image/jpeg,image/webp,application/pdf'
@@ -31,6 +32,15 @@ function Icon({ name, className = '' }) {
   )
 }
 
+const ACTION = {
+  create_bill: { label: 'Create', tone: 'badge-brand', title: 'Review the new bill', approve: 'Approve and save' },
+  update_bill: { label: 'Change', tone: 'badge-warn', title: 'Review the change', approve: 'Approve and change' },
+  delete_bill: { label: 'Delete', tone: 'badge-bad', title: 'Review the deletion', approve: 'Approve and delete' },
+}
+
+const MODE_LABEL = { cash: 'Cash', rtgs_neft: 'RTGS / NEFT', credit: 'Credit' }
+const CHANGE_LABEL = { bill_date: 'Bill date', grand_total: 'Total', remarks: 'Remarks', supplier_name: 'Supplier', project_name: 'Project' }
+
 // supabase-js reports any non-2xx as "Edge Function returned a non-2xx status code" and keeps the
 // real JSON error on fnError.context; read it so the user sees the actual reason.
 async function invokeError(fnError) {
@@ -54,6 +64,10 @@ function formatBytes(n) {
   return n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`
 }
 
+function money(v) {
+  return `₹${Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+}
+
 // Amounts, counts and dates line up right and use tabular figures; prose stays left.
 function isNumeric(v) {
   const s = String(v ?? '').trim()
@@ -69,6 +83,54 @@ function isTyping(target) {
   return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable
 }
 
+// The bill as it is now, so the review can show "now" next to "after". Read through the caller's
+// own session, so a bill they cannot see simply has no current values.
+async function loadCurrent(p) {
+  if (p.action_type === 'create_bill' || !p.bill_number) return null
+  const { data } = await supabase.from('supplier_bills')
+    .select('internal_bill_number, bill_date, grand_total, remarks, supplier_text, status')
+    .eq('internal_bill_number', p.bill_number).maybeSingle()
+  return data
+}
+
+// Rows for the review table: field, now, after.
+function reviewRows(p) {
+  const cur = p.current
+  if (p.action_type === 'create_bill') {
+    const rows = [
+      ['Supplier', '—', `${p.supplier_name}${p.create_supplier ? ' (new supplier)' : ''}`],
+      ['Project', '—', p.project_name || 'Factory expense'],
+      ['Bill date', '—', p.bill_date || 'Today'],
+      ['Total', '—', p.grand_total != null ? money(p.grand_total) : '—'],
+    ]
+    if (p.remarks) rows.push(['Remarks', '—', p.remarks])
+    const payRows = (p.payments || []).map((pay, i) => [
+      `Payment ${i + 1}`,
+      '—',
+      `${MODE_LABEL[pay.mode] ?? pay.mode} · ${money(pay.amount)}${pay.utr_reference ? ` · UTR ${pay.utr_reference}` : ''}`,
+    ])
+    return [...rows, ...payRows]
+  }
+  if (p.action_type === 'delete_bill') {
+    return [
+      ['Supplier', cur?.supplier_text || '—', 'Removed'],
+      ['Bill date', cur?.bill_date || '—', 'Removed'],
+      ['Total', cur ? money(cur.grand_total) : '—', 'Removed'],
+    ]
+  }
+  const before = {
+    bill_date: cur?.bill_date,
+    grand_total: cur ? money(cur.grand_total) : undefined,
+    remarks: cur?.remarks,
+    supplier_name: cur?.supplier_text,
+  }
+  return Object.entries(p.changes || {}).map(([k, v]) => [
+    CHANGE_LABEL[k] ?? labelFor(k),
+    before[k] || '—',
+    k === 'grand_total' ? money(v) : String(v),
+  ])
+}
+
 export default function AskBar() {
   const [question, setQuestion] = useState('')
   const [file, setFile] = useState(null)
@@ -82,11 +144,12 @@ export default function AskBar() {
   const fileRef = useRef(null)
   const inputRef = useRef(null)
   const wrapRef = useRef(null)
+  const cardRef = useRef(null)
   const lastQuestion = useRef('')
 
   const panelOpen = Boolean(busy || result || error || proposal || outcome)
   const canSubmit = !busy && Boolean(question.trim() || file)
-  const isDelete = proposal?.action_type === 'delete_bill'
+  const meta = proposal ? ACTION[proposal.action_type] : null
 
   const close = useCallback(() => {
     setResult(null)
@@ -103,7 +166,14 @@ export default function AskBar() {
     return () => URL.revokeObjectURL(url)
   }, [file])
 
-  // "/" focuses the bar from anywhere; Escape closes the panel. Neither animates.
+  // When a review opens, move focus onto it so Enter approves it, and the question field is left alone.
+  useEffect(() => {
+    if (!proposal) return
+    inputRef.current?.blur()
+    cardRef.current?.focus()
+  }, [proposal])
+
+  // "/" focuses the bar from anywhere; Escape closes the panel (never mid-save).
   useEffect(() => {
     function onKey(e) {
       if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTyping(e.target)) {
@@ -116,7 +186,20 @@ export default function AskBar() {
     return () => window.removeEventListener('keydown', onKey)
   }, [panelOpen, busy, close])
 
-  // Clicking away closes a plain answer, but never a proposal the user has not decided on.
+  // Enter approves while the review has focus. A focused button keeps its own Enter behaviour.
+  useEffect(() => {
+    if (!proposal) return
+    function onEnter(e) {
+      if (e.key !== 'Enter' || busy) return
+      if (e.target !== cardRef.current && e.target !== document.body) return
+      e.preventDefault()
+      approve()
+    }
+    window.addEventListener('keydown', onEnter)
+    return () => window.removeEventListener('keydown', onEnter)
+  }, [proposal, busy])
+
+  // Clicking away closes a plain answer, but never a review the user has not decided on.
   useEffect(() => {
     function onDown(e) {
       if (!wrapRef.current?.contains(e.target) && !busy && !proposal) close()
@@ -150,7 +233,7 @@ export default function AskBar() {
       const { data, error: fnError } = await supabase.functions.invoke('assistant-query', { body })
       if (fnError) throw new Error(await invokeError(fnError))
       if (data?.error) throw new Error(data.error)
-      if (data.proposal) setProposal(data.proposal)
+      if (data.proposal) setProposal({ ...data.proposal, current: await loadCurrent(data.proposal) })
       else setResult(data.answer)
     } catch (err) {
       setError(err.message || 'Could not get an answer.')
@@ -160,6 +243,7 @@ export default function AskBar() {
   }
 
   async function approve() {
+    if (busy || !proposal) return
     setBusy(true)
     setError(null)
     try {
@@ -180,20 +264,6 @@ export default function AskBar() {
     setQuestion(text)
     ask(null, text)
   }
-
-  const proposalRows = proposal
-    ? [
-        ...(proposal.create_supplier ? [['New supplier', 'Will be added to the supplier list']] : []),
-        ...Object.entries(proposal)
-          .filter(([k, v]) => v !== null && v !== undefined && v !== '' && !['summary', 'action_type', 'changes', 'type', 'create_supplier', 'payments'].includes(k))
-          .map(([k, v]) => [labelFor(k), v]),
-        ...(proposal.payments || []).map((p, i) => [
-          `Payment ${i + 1}`,
-          `${p.mode === 'rtgs_neft' ? 'RTGS / NEFT' : labelFor(p.mode)} · ₹${Number(p.amount).toLocaleString('en-IN')}${p.utr_reference ? ` · UTR ${p.utr_reference}` : ''}`,
-        ]),
-        ...Object.entries(proposal.changes || {}).map(([k, v]) => [`New ${k.replace(/_/g, ' ')}`, v]),
-      ]
-    : []
 
   return (
     <div ref={wrapRef} className="relative w-full">
@@ -284,7 +354,7 @@ export default function AskBar() {
                 <div className="h-3.5 w-8/12 animate-pulse rounded bg-ink-100" />
                 <div className="h-3.5 w-6/12 animate-pulse rounded bg-ink-100" />
               </div>
-              <p className="mt-3 text-sm text-ink-500">Checking the books…</p>
+              <p className="mt-3 text-sm text-ink-500">{proposal ? 'Saving…' : 'Checking the books…'}</p>
             </div>
           )}
 
@@ -307,26 +377,70 @@ export default function AskBar() {
             </div>
           )}
 
-          {!busy && proposal && (
-            <div>
-              <h3 className="text-base font-semibold text-ink-950">
-                {isDelete ? 'Review before deleting' : 'Review before saving'}
-              </h3>
+          {!busy && proposal && meta && (
+            <div ref={cardRef} tabIndex={-1} className="outline-none">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-base font-semibold text-ink-950">{meta.title}</h3>
+                <span className={meta.tone}>{meta.label}</span>
+              </div>
               <p className="mt-1.5 leading-relaxed text-ink-800">{proposal.summary}</p>
-              <dl className="mt-4 divide-y divide-ink-100 rounded-md border border-ink-200">
-                {proposalRows.map(([label, value]) => (
-                  <div key={label} className="grid grid-cols-[9rem_1fr] gap-3 px-3 py-2">
-                    <dt className="text-ink-500">{label}</dt>
-                    <dd className={`break-words text-ink-950 ${isNumeric(value) ? 'tnum' : ''}`}>{String(value)}</dd>
-                  </div>
-                ))}
+
+              <dl className="mt-4 grid grid-cols-3 divide-x divide-ink-100 rounded-md border border-ink-200">
+                <div className="px-3 py-2">
+                  <dt className="text-xs text-ink-500">Screen</dt>
+                  <dd className="mt-0.5">
+                    <Link to="/accounts/bills" onClick={close} className="text-brand-700 hover:underline">Bill Audit Queue</Link>
+                  </dd>
+                </div>
+                <div className="min-w-0 px-3 py-2">
+                  <dt className="text-xs text-ink-500">Record</dt>
+                  <dd className="tnum mt-0.5 truncate text-ink-950">
+                    {proposal.action_type === 'create_bill' ? 'New bill' : `Bill ${proposal.bill_number}`}
+                  </dd>
+                </div>
+                <div className="px-3 py-2">
+                  <dt className="text-xs text-ink-500">Status</dt>
+                  <dd className="mt-0.5 text-ink-950">
+                    {proposal.action_type === 'create_bill' ? 'Pending review'
+                      : proposal.action_type === 'delete_bill' ? 'Removed'
+                      : proposal.current?.status ?? '—'}
+                  </dd>
+                </div>
               </dl>
-              <p className="mt-3 text-xs text-ink-500">Nothing changes until you approve.</p>
-              <div className="mt-4 flex gap-2">
-                <button type="button" className={isDelete ? 'btn-danger' : 'btn-primary'} onClick={approve} disabled={busy}>
-                  {isDelete ? 'Approve and delete' : 'Approve and save'}
-                </button>
-                <button type="button" className="btn-secondary" onClick={close} disabled={busy}>Cancel</button>
+
+              <div className="mt-4 overflow-x-auto rounded-md border border-ink-200">
+                <table className="table-base">
+                  <thead>
+                    <tr>
+                      <th>Field</th>
+                      <th>Now</th>
+                      <th>After</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reviewRows(proposal).map(([field, now, after], i) => (
+                      <tr key={i}>
+                        <td className="text-ink-600">{field}</td>
+                        <td className={isNumeric(now) ? 'num text-ink-500' : 'text-ink-500'}>{now}</td>
+                        <td className={`font-medium text-ink-950 ${isNumeric(after) ? 'num' : ''}`}>{after}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <p className="flex items-center gap-2 text-xs text-ink-500">
+                  <kbd className="rounded border border-ink-200 px-1.5 py-0.5 font-mono text-[11px] text-ink-700">Enter</kbd> to approve
+                  <span aria-hidden="true">·</span>
+                  <kbd className="rounded border border-ink-200 px-1.5 py-0.5 font-mono text-[11px] text-ink-700">Esc</kbd> to cancel
+                </p>
+                <div className="flex gap-2">
+                  <button type="button" className="btn-secondary" onClick={close}>Cancel</button>
+                  <button type="button" className={proposal.action_type === 'delete_bill' ? 'btn-danger' : 'btn-primary'} onClick={approve}>
+                    {meta.approve}
+                  </button>
+                </div>
               </div>
             </div>
           )}
