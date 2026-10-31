@@ -1,14 +1,35 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 
-// One input: type a question, or attach a photo/PDF of a bill and ask about it. Answers come
-// back as a summary, supporting tables with links into the app, and suggested follow-ups.
-// Requests to create, change or delete a supplier bill come back as a proposal. Nothing is saved
-// until the user approves it here; assistant-execute then re-checks the caller's permissions.
+// One input for the whole app: ask a question, attach a bill or photo, or ask for a change.
+// Answers come back as a summary, supporting tables with links, and follow-ups. Requests to
+// create, change or delete a supplier bill come back as a proposal; nothing is saved until the
+// user approves it here, and assistant-execute re-checks the caller's permissions.
 
 const MAX_BYTES = 4 * 1024 * 1024
 const ACCEPT = 'image/png,image/jpeg,image/webp,application/pdf'
+
+const PATHS = {
+  search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35',
+  clip: 'M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48',
+  up: 'M12 19V5M5 12l7-7 7 7',
+  x: 'M18 6L6 18M6 6l12 12',
+  check: 'M20 6L9 17l-5-5',
+  alert: 'M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z',
+  file: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6',
+  arrow: 'M5 12h14M12 5l7 7-7 7',
+  retry: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5',
+}
+
+function Icon({ name, className = '' }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`shrink-0 ${className}`}>
+      <path d={PATHS[name]} />
+    </svg>
+  )
+}
 
 // supabase-js reports any non-2xx as "Edge Function returned a non-2xx status code" and keeps the
 // real JSON error on fnError.context; read it so the user sees the actual reason.
@@ -29,15 +50,80 @@ function readAsBase64(file) {
   })
 }
 
+function formatBytes(n) {
+  return n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`
+}
+
+// Amounts, counts and dates line up right and use tabular figures; prose stays left.
+function isNumeric(v) {
+  const s = String(v ?? '').trim()
+  return /\d/.test(s) && /^[\s₹+\-()\d.,%/]+$/.test(s)
+}
+
+function labelFor(key) {
+  const text = key.replace(/_/g, ' ')
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+function isTyping(target) {
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable
+}
+
 export default function AskBar() {
   const [question, setQuestion] = useState('')
   const [file, setFile] = useState(null)
+  const [preview, setPreview] = useState(null)
+  const [asked, setAsked] = useState('')
   const [result, setResult] = useState(null)
   const [proposal, setProposal] = useState(null)
   const [outcome, setOutcome] = useState(null)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const fileRef = useRef(null)
+  const inputRef = useRef(null)
+  const wrapRef = useRef(null)
+  const lastQuestion = useRef('')
+
+  const panelOpen = Boolean(busy || result || error || proposal || outcome)
+  const canSubmit = !busy && Boolean(question.trim() || file)
+  const isDelete = proposal?.action_type === 'delete_bill'
+
+  const close = useCallback(() => {
+    setResult(null)
+    setError(null)
+    setProposal(null)
+    setOutcome(null)
+  }, [])
+
+  // Image thumbnail for the attachment; the object URL is released when the file changes.
+  useEffect(() => {
+    if (!file?.type.startsWith('image/')) { setPreview(null); return }
+    const url = URL.createObjectURL(file)
+    setPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file])
+
+  // "/" focuses the bar from anywhere; Escape closes the panel. Neither animates.
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTyping(e.target)) {
+        e.preventDefault()
+        inputRef.current?.focus()
+      }
+      if (e.key === 'Escape' && panelOpen && !busy) close()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [panelOpen, busy, close])
+
+  // Clicking away closes a plain answer, but never a proposal the user has not decided on.
+  useEffect(() => {
+    function onDown(e) {
+      if (!wrapRef.current?.contains(e.target) && !busy && !proposal) close()
+    }
+    window.addEventListener('mousedown', onDown)
+    return () => window.removeEventListener('mousedown', onDown)
+  }, [busy, proposal, close])
 
   function pickFile(e) {
     const f = e.target.files?.[0]
@@ -45,14 +131,15 @@ export default function AskBar() {
     if (!f) return
     if (f.size > MAX_BYTES) { setError('That file is over 4 MB. Attach a smaller photo or PDF.'); return }
     setFile(f)
-    setError(null)
   }
 
   async function ask(e, overrideQuestion) {
     e?.preventDefault()
     const q = (overrideQuestion ?? question).trim()
     if (!q && !file) return
+    lastQuestion.current = q
     setBusy(true)
+    setAsked(q || file?.name || '')
     setError(null)
     setResult(null)
     setProposal(null)
@@ -89,120 +176,212 @@ export default function AskBar() {
     }
   }
 
-  function cancelProposal() {
-    setProposal(null)
-    setError(null)
-  }
-
   function followUp(text) {
     setQuestion(text)
     ask(null, text)
   }
 
-  function close() {
-    setResult(null)
-    setError(null)
-    setProposal(null)
-    setOutcome(null)
-  }
-
-  const showPanel = busy || result || error || proposal || outcome
+  const proposalRows = proposal
+    ? [
+        ...Object.entries(proposal)
+          .filter(([k, v]) => v !== null && v !== undefined && v !== '' && !['summary', 'action_type', 'changes', 'type'].includes(k))
+          .map(([k, v]) => [labelFor(k), v]),
+        ...Object.entries(proposal.changes || {}).map(([k, v]) => [`New ${k.replace(/_/g, ' ')}`, v]),
+      ]
+    : []
 
   return (
-    <div className="relative w-full">
-      <form onSubmit={ask} className="flex items-center gap-2">
+    <div ref={wrapRef} className="relative w-full">
+      <form
+        onSubmit={ask}
+        className="flex items-center gap-2 rounded-lg border border-ink-200 bg-white px-3 transition-colors focus-within:border-ink-400 focus-within:ring-2 focus-within:ring-ink-900/15"
+      >
+        <Icon name="search" className="text-ink-400" />
         <input
+          ref={inputRef}
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder={file ? 'Ask about this file, or press Enter' : 'Ask anything, or attach a bill'}
-          className="field-input flex-1 min-w-0"
+          placeholder={file ? 'Ask about this file, or press Enter' : 'Ask about the business, or attach a bill'}
           aria-label="Ask the assistant"
+          className="min-w-0 flex-1 bg-transparent py-2.5 text-sm text-ink-950 placeholder:text-ink-400 focus:outline-none"
         />
-        <button type="button" className="btn-ghost px-2 shrink-0" onClick={() => fileRef.current?.click()} aria-label="Attach a bill or photo" title="Attach a bill or photo">
-          ⌗
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          aria-label="Attach a bill or photo"
+          title="Attach a bill or photo (PNG, JPG, WEBP or PDF, up to 4 MB)"
+          className="btn-ghost h-8 w-8 p-0 active:scale-[0.97] transition-transform"
+        >
+          <Icon name="clip" />
+        </button>
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          aria-label="Ask"
+          className="btn-primary h-8 w-8 p-0 active:scale-[0.97] transition-transform"
+        >
+          <Icon name="up" />
         </button>
         <input ref={fileRef} type="file" accept={ACCEPT} className="hidden" onChange={pickFile} />
       </form>
+
       {file && (
-        <div className="mt-1 text-xs text-ink-600 flex items-center gap-2">
-          <span className="truncate">Attached: {file.name}</span>
-          <button className="text-ink-500 hover:underline" onClick={() => setFile(null)}>Remove</button>
+        <div className="mt-2 flex items-center gap-3 rounded-md border border-ink-200 bg-white p-2 text-sm">
+          {preview ? (
+            <img src={preview} alt="" className="h-10 w-10 shrink-0 rounded border border-ink-200 object-cover" />
+          ) : (
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-ink-100 text-ink-600">
+              <Icon name="file" />
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-ink-950">{file.name}</div>
+            <div className="tnum text-xs text-ink-500">
+              {file.type === 'application/pdf' ? 'PDF' : 'Image'} · {formatBytes(file.size)}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFile(null)}
+            aria-label="Remove attachment"
+            className="btn-ghost h-8 w-8 p-0"
+          >
+            <Icon name="x" />
+          </button>
         </div>
       )}
 
-      {showPanel && (
-        <div className="absolute left-0 right-0 mt-2 card p-4 text-sm text-ink-800 z-40 max-h-[70vh] overflow-y-auto shadow-none">
-          {busy && <div className="text-ink-500">Working on it…</div>}
-          {error && <div className="text-bad">{error}</div>}
-          {outcome && (
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-ink-950">{outcome}</p>
-              <button className="text-xs text-ink-500 hover:underline shrink-0" onClick={close}>Close</button>
+      {!panelOpen && !file && (
+        <p className="mt-1.5 hidden px-1 text-xs text-ink-400 sm:block">
+          Press <kbd className="rounded border border-ink-200 px-1 font-mono text-[11px]">/</kbd> to focus,
+          {' '}<kbd className="rounded border border-ink-200 px-1 font-mono text-[11px]">Enter</kbd> to ask,
+          {' '}<kbd className="rounded border border-ink-200 px-1 font-mono text-[11px]">Esc</kbd> to close
+        </p>
+      )}
+
+      {panelOpen && (
+        <div
+          role="region"
+          aria-live="polite"
+          className="ask-in absolute left-0 right-0 z-40 mt-2 max-h-[70vh] overflow-y-auto rounded-lg border border-ink-200 bg-white p-4 text-sm text-ink-800 shadow-[0_16px_40px_-16px_rgba(10,10,10,0.22)]"
+        >
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <p className="min-w-0 truncate text-xs text-ink-500">{asked}</p>
+            <button type="button" onClick={close} aria-label="Close" className="btn-ghost h-7 w-7 shrink-0 p-0">
+              <Icon name="x" />
+            </button>
+          </div>
+
+          {busy && (
+            <div>
+              <div className="space-y-2.5" aria-hidden="true">
+                <div className="h-3.5 w-11/12 animate-pulse rounded bg-ink-100" />
+                <div className="h-3.5 w-8/12 animate-pulse rounded bg-ink-100" />
+                <div className="h-3.5 w-6/12 animate-pulse rounded bg-ink-100" />
+              </div>
+              <p className="mt-3 text-sm text-ink-500">Checking the books…</p>
             </div>
           )}
-          {proposal && !busy && (
+
+          {!busy && error && (
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2 text-bad">
+                <Icon name="alert" className="mt-0.5" />
+                <p className="text-ink-950">{error}</p>
+              </div>
+              <button type="button" onClick={() => ask(null, lastQuestion.current)} className="btn-secondary shrink-0 px-2.5 py-1.5 text-xs">
+                <Icon name="retry" /> Retry
+              </button>
+            </div>
+          )}
+
+          {!busy && outcome && (
+            <div className="flex items-start gap-2 text-ink-950">
+              <Icon name="check" className="mt-0.5 text-ok" />
+              <p>{outcome}</p>
+            </div>
+          )}
+
+          {!busy && proposal && (
             <div>
-              <div className="text-xs font-medium text-ink-600 uppercase tracking-wide">Proposed change, not saved yet</div>
-              <p className="mt-2 text-base text-ink-950 leading-relaxed">{proposal.summary}</p>
-              <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-ink-700">
-                {Object.entries(proposal)
-                  .filter(([k, v]) => v !== null && v !== undefined && v !== '' && !['summary', 'action_type', 'changes'].includes(k))
-                  .map(([k, v]) => (
-                    <div key={k} className="contents">
-                      <dt className="text-ink-500">{k.replace(/_/g, ' ')}</dt>
-                      <dd className="tnum">{String(v)}</dd>
-                    </div>
-                  ))}
-                {proposal.changes && Object.entries(proposal.changes).map(([k, v]) => (
-                  <div key={`c-${k}`} className="contents">
-                    <dt className="text-ink-500">change {k.replace(/_/g, ' ')}</dt>
-                    <dd className="tnum">{String(v)}</dd>
+              <h3 className="text-base font-semibold text-ink-950">
+                {isDelete ? 'Review before deleting' : 'Review before saving'}
+              </h3>
+              <p className="mt-1.5 leading-relaxed text-ink-800">{proposal.summary}</p>
+              <dl className="mt-4 divide-y divide-ink-100 rounded-md border border-ink-200">
+                {proposalRows.map(([label, value]) => (
+                  <div key={label} className="grid grid-cols-[9rem_1fr] gap-3 px-3 py-2">
+                    <dt className="text-ink-500">{label}</dt>
+                    <dd className={`break-words text-ink-950 ${isNumeric(value) ? 'tnum' : ''}`}>{String(value)}</dd>
                   </div>
                 ))}
               </dl>
+              <p className="mt-3 text-xs text-ink-500">Nothing changes until you approve.</p>
               <div className="mt-4 flex gap-2">
-                <button className="btn-primary" onClick={approve}>
-                  {proposal.action_type === 'delete_bill' ? 'Approve and delete' : 'Approve and save'}
+                <button type="button" className={isDelete ? 'btn-danger' : 'btn-primary'} onClick={approve} disabled={busy}>
+                  {isDelete ? 'Approve and delete' : 'Approve and save'}
                 </button>
-                <button className="btn-secondary" onClick={cancelProposal}>Cancel</button>
+                <button type="button" className="btn-secondary" onClick={close} disabled={busy}>Cancel</button>
               </div>
             </div>
           )}
-          {result && (
-            <>
-              <p className="text-base text-ink-950 leading-relaxed">{result.summary}</p>
+
+          {!busy && result && (
+            <div>
+              <p className="text-base leading-relaxed text-ink-950">{result.summary}</p>
               {result.not_permitted && (
-                <p className="mt-2 text-xs text-warn">Part of this answer is hidden because your account does not have access to it.</p>
+                <p className="mt-3 flex items-start gap-2 text-xs text-warn">
+                  <Icon name="alert" className="mt-px" />
+                  Part of this answer is hidden because your account does not have access to it.
+                </p>
               )}
               {(result.sections || []).map((s, i) => (
-                <div key={i} className="mt-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs font-medium text-ink-600 uppercase tracking-wide">{s.title}</div>
-                    {s.link && <Link to={s.link} onClick={close} className="text-xs text-brand-700 hover:underline">Open →</Link>}
+                <section key={i} className="mt-5">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <h4 className="text-sm font-medium text-ink-950">{s.title}</h4>
+                    {s.link && (
+                      <Link to={s.link} onClick={close} className="inline-flex items-center gap-1 text-xs text-brand-700 hover:underline">
+                        Open <Icon name="arrow" className="h-3 w-3" />
+                      </Link>
+                    )}
                   </div>
-                  <div className="overflow-x-auto mt-1">
+                  <div className="overflow-x-auto rounded-md border border-ink-200">
                     <table className="table-base">
-                      <thead><tr>{s.columns.map((c, j) => <th key={j}>{c}</th>)}</tr></thead>
+                      <thead>
+                        <tr>
+                          {s.columns.map((c, j) => (
+                            <th key={j} className={j > 0 && s.rows.length && s.rows.every((r) => isNumeric(r[j])) ? 'num' : ''}>{c}</th>
+                          ))}
+                        </tr>
+                      </thead>
                       <tbody>
                         {s.rows.map((row, r) => (
-                          <tr key={r}>{row.map((cell, c) => <td key={c}>{cell}</td>)}</tr>
+                          <tr key={r}>
+                            {row.map((cell, c) => (
+                              <td key={c} className={isNumeric(cell) ? 'num' : ''}>{cell}</td>
+                            ))}
+                          </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                </div>
+                </section>
               ))}
               {result.follow_ups?.length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-5 flex flex-wrap gap-2">
                   {result.follow_ups.map((f, i) => (
-                    <button key={i} className="btn-ghost text-xs border border-ink-200 rounded-full px-3 py-1" onClick={() => followUp(f)}>{f}</button>
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => followUp(f)}
+                      className="rounded-full border border-ink-200 px-3 py-1 text-xs text-ink-700 transition-colors hover:bg-ink-100 active:scale-[0.97]"
+                    >
+                      {f}
+                    </button>
                   ))}
                 </div>
               )}
-            </>
-          )}
-          {!busy && (result || error) && (
-            <button className="block text-xs text-ink-500 mt-4 hover:underline" onClick={close}>Close</button>
+            </div>
           )}
         </div>
       )}

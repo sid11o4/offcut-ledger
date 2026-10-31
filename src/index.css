@@ -12,6 +12,22 @@
   body { @apply bg-ink-50 text-ink-950 antialiased; }
   input, select, textarea { @apply bg-white; }
   h1, h2, h3 { text-wrap: balance; }
+  /* Browser selection takes the one accent, not the system blue. */
+  ::selection { background-color: #e4ecf9; color: #0b0b0b; }
+}
+
+/* Search bar panel: enters from its trigger edge in 160ms; opacity only when motion is reduced. */
+@keyframes ask-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes ask-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.ask-in { transform-origin: top center; animation: ask-in 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .ask-in { animation: ask-fade 160ms ease-out; }
 }
 
 @layer components {
