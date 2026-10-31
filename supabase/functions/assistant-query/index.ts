@@ -55,6 +55,34 @@ const ANSWER_TOOL = {
   },
 }
 
+// Proposes a change. Nothing is written here; the browser shows the proposal and only runs it
+// through assistant-execute after the user approves.
+const PROPOSE_TOOL = {
+  name: 'propose_action',
+  description: 'Use ONLY when the user asks to create, change or delete a supplier bill. Describe the change; do not execute it.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      action_type: { type: 'string', enum: ['create_bill', 'update_bill', 'delete_bill'] },
+      summary: { type: 'string', description: 'One sentence describing exactly what will happen, in plain words.' },
+      bill_number: { type: ['string', 'null'], description: 'For update_bill and delete_bill: the internal bill number, e.g. FG-2587.' },
+      supplier_name: { type: ['string', 'null'], description: 'For create_bill.' },
+      project_name: { type: ['string', 'null'], description: 'Design Build project name, or null for company-level.' },
+      bill_date: { type: ['string', 'null'], description: 'YYYY-MM-DD' },
+      grand_total: { type: ['number', 'null'] },
+      remarks: { type: ['string', 'null'] },
+      payment_mode: { type: ['string', 'null'], enum: ['cash', 'rtgs_neft', 'credit', null] },
+      payment_amount: { type: ['number', 'null'] },
+      utr_reference: { type: ['string', 'null'] },
+      changes: {
+        type: ['object', 'null'],
+        description: 'For update_bill: only the fields to change. Keys: bill_date, grand_total, remarks, supplier_name, project_name.',
+      },
+    },
+    required: ['action_type', 'summary'],
+  },
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -107,7 +135,8 @@ Deno.serve(async (req) => {
 Two businesses exist: Factory (job-work, billing, expenses) and Design Build (projects, supplier bills, inventory, ledger).
 Amounts are Indian rupees, formatted with commas (e.g. ₹40,180). Give the direct answer in summary, back it with tables in sections, and link to the matching in-app page when one exists (/design-build/ledger, /design-build/inventory, /accounts/bills, /statement, /reports, /billing/<id>).
 If an attached file is a bill or slip, describe what it contains in a table and say that it has not been saved.
-If a needed section says NOT PERMITTED, set not_permitted to true and say the user lacks access. Never guess numbers that are not in the context.`
+If a needed section says NOT PERMITTED, set not_permitted to true and say the user lacks access. Never guess numbers that are not in the context.
+If the user asks to create, change or delete a supplier bill, call propose_action instead of answer. Fill only the fields the user stated, and never invent a number, date or supplier. Dates are YYYY-MM-DD. The change is not made until the user approves it.`
 
   const userContent: unknown[] = []
   if (attachment?.mime && attachment.base64) {
@@ -127,8 +156,8 @@ If a needed section says NOT PERMITTED, set not_permitted to true and say the us
       model: MODEL,
       max_tokens: 1500,
       system,
-      tools: [ANSWER_TOOL],
-      tool_choice: { type: 'tool', name: 'answer' },
+      tools: [ANSWER_TOOL, PROPOSE_TOOL],
+      tool_choice: { type: 'any' },
       messages: [{ role: 'user', content: userContent }],
     }),
   })
@@ -137,5 +166,6 @@ If a needed section says NOT PERMITTED, set not_permitted to true and say the us
   // deno-lint-ignore no-explicit-any
   const toolUse = (result.content || []).find((c: any) => c.type === 'tool_use')
   if (!toolUse) return json({ error: 'The assistant did not return an answer.' }, 500)
+  if (toolUse.name === 'propose_action') return json({ proposal: toolUse.input })
   return json({ answer: toolUse.input })
 })
