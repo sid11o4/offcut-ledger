@@ -218,11 +218,17 @@ Deno.serve(async (req) => {
       return json({ ok: true, message: `Deleted bill ${a.bill_number}.` })
     }
 
-    if (a.type === 'run_sql') {
-      // Runs the approved statement as the caller. ai_run_write enforces the guardrails and logs it.
-      const { data, error } = await db.rpc('ai_run_write', { p_sql: String(a.sql ?? '') })
+    if (a.type === 'change') {
+      // Runs the approved change as the caller. ai_apply_change builds the statement from these parts,
+      // applies its guardrails, and logs it.
+      const { data, error } = await db.rpc('ai_apply_change', {
+        p_op: String(a.operation ?? ''),
+        p_table: String(a.table ?? ''),
+        p_values: a.values ?? {},
+        p_match: a.match ?? {},
+      })
       if (error) return json({ error: error.message }, 400)
-      return json({ ok: true, message: `Done. ${data} row${data === 1 ? '' : 's'} changed.` })
+      return json({ ok: true, message: `Done. ${data} record${data === 1 ? '' : 's'} changed.` })
     }
 
     return json({ error: `Unknown action "${a.type}".` }, 400)

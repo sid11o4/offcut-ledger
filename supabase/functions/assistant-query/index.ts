@@ -77,12 +77,15 @@ const RUN_SQL_TOOL = {
 // through assistant-execute after the user approves.
 const PROPOSE_TOOL = {
   name: 'propose_action',
-  description: 'Use when the user asks to create, change or delete data: a supplier bill (create_bill, update_bill, delete_bill) or any other change (run_sql). Describe the change; do not execute it.',
+  description: 'Use when the user asks to create, change or delete data: a supplier bill (create_bill, update_bill, delete_bill) or any other record (change). Describe the change; do not execute it.',
   input_schema: {
     type: 'object',
     properties: {
-      action_type: { type: 'string', enum: ['create_bill', 'update_bill', 'delete_bill', 'run_sql'] },
-      sql: { type: ['string', 'null'], description: 'For run_sql: one INSERT, UPDATE or DELETE statement. UPDATE and DELETE need a WHERE clause. The user reviews and approves it before it runs.' },
+      action_type: { type: 'string', enum: ['create_bill', 'update_bill', 'delete_bill', 'change'] },
+      operation: { type: ['string', 'null'], enum: ['insert', 'update', 'delete', null], description: 'For change: insert adds a record, update changes records, delete removes records.' },
+      table: { type: ['string', 'null'], description: 'For change: the database table name, e.g. recurring_expenses, expenses, suppliers.' },
+      values: { type: ['object', 'null'], description: 'For change insert and update: field name to new value. For a linked record such as a category, give its name, not an id.' },
+      match: { type: ['object', 'null'], description: 'For change update and delete: field name to value identifying the records it applies to, e.g. {"name": "Rent"}.' },
       summary: { type: 'string', description: 'One sentence describing exactly what will happen, in plain words.' },
       bill_number: { type: ['string', 'null'], description: 'For update_bill and delete_bill: the internal bill number, e.g. FG-2587.' },
       supplier_name: { type: ['string', 'null'], description: 'For create_bill.' },
@@ -183,7 +186,7 @@ If an attached file is a bill or slip, describe what it contains in a table and 
 If a needed section says NOT PERMITTED, set not_permitted to true and say the user lacks access. Never guess numbers that are not in the context.
 Use run_sql to look up any figure you need, several times if needed; query information_schema.columns to find table and column names. Amounts in run_sql results are rupees. Answer only from the query results.
 If the user asks to create, change or delete a supplier bill, call propose_action instead of answer.
-If the user asks to change any other data, call propose_action with action_type run_sql and the single INSERT, UPDATE or DELETE statement in sql, with a one-sentence summary. Use it only for a change the user has asked for. Fill only the fields the user stated, and never invent a number, date or supplier. Dates are YYYY-MM-DD. For create_bill, put every payment row in payments. Set create_supplier or create_project to true when the named supplier or project is not on file; the review will show it as a new record. The bar does not save line items; say so in the summary when the user's bill has them, and point to the Bill Audit Queue. The change is not made until the user approves it.`
+If the user asks to add, change or remove any other record, call propose_action with action_type change: operation (insert, update or delete), table (the database table name), values (field name to new value; give linked records by name, e.g. the category name), and match for update or delete (the field and value that identify the records). Write the summary in plain English for a finance user, saying what will be added, changed or removed and where. Use it only for a change the user has asked for. Fill only the fields the user stated, and never invent a number, date or supplier. Dates are YYYY-MM-DD. For create_bill, put every payment row in payments. Set create_supplier or create_project to true when the named supplier or project is not on file; the review will show it as a new record. The bar does not save line items; say so in the summary when the user's bill has them, and point to the Bill Audit Queue. The change is not made until the user approves it.`
 
   const userContent: unknown[] = []
   if (attachment?.mime && attachment.base64) {
