@@ -226,6 +226,15 @@ function AuditPanel({ billId, onDone }) {
     onDone()
   }, [billId, billQ.data, toast, onDone])
 
+  async function deleteBill() {
+    if (!window.confirm('Permanently delete this bill and its line items and payments? This cannot be undone.')) return
+    const { error } = await supabase.rpc('delete_supplier_bill', { p_bill_id: billId })
+    if (error) return toast.error(error.message)
+    toast.success('Bill deleted.')
+    qc.invalidateQueries({ queryKey: ['supplier_bills_queue'] })
+    onDone()
+  }
+
   const handleKey = useCallback((e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return
     if (e.key === 'Enter') { e.preventDefault(); approve() }
@@ -321,6 +330,7 @@ function AuditPanel({ billId, onDone }) {
 
         <div className="flex items-center gap-2 pt-1">
           <button className="btn-secondary" onClick={flag}>Flag issue <kbd className="ml-1 text-[10px] opacity-60">F</kbd></button>
+          <button className="btn-secondary text-bad" onClick={deleteBill}>Delete bill</button>
           <button className="btn-primary flex-1" disabled={saving} onClick={approve}>
             {saving ? 'Approving…' : 'Approve & next'} <kbd className="ml-1 text-[10px] opacity-60">⏎</kbd>
           </button>
