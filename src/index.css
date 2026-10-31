@@ -146,6 +146,13 @@ a.card:hover, .card-interactive:hover {
 }
 .rail-item:active { transform: scale(0.94); }
 
+/* Dialog overlays: centred when the dialog fits, and scrollable from the top when it does not, so
+   the top fields of a tall form are never cut off above the window. */
+.fixed.inset-0.z-50.flex.items-center {
+  align-items: safe center;
+  overflow-y: auto;
+}
+
 /* Keyboard focus is always visible and drawn in the ink colour, not the browser's blue. */
 :focus-visible {
   outline: 2px solid rgba(10, 10, 10, 0.35);
