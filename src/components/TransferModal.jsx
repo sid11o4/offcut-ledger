@@ -7,13 +7,19 @@ import { useInventoryItems, useInventoryLocations } from '../lib/queries'
 // Any-location-to-any-location transfer (record_inventory_transfer): cost follows the stock,
 // per spec. designProjectId pre-selects that project's own location as the default source or
 // destination, but any pair of locations can be chosen.
-export default function TransferModal({ designProjectId, onClose, onSaved }) {
+export default function TransferModal({ designProjectId, initial = {}, title = 'Transfer inventory', onClose, onSaved }) {
   const toast = useToast()
   const itemsQ = useInventoryItems()
   const locationsQ = useInventoryLocations()
   const defaultLocation = (locationsQ.data || []).find((l) => l.design_project_id === designProjectId)?.id || ''
   const companyLocation = (locationsQ.data || []).find((l) => l.kind === 'company')?.id || ''
-  const [form, setForm] = useState({ item_id: '', from: companyLocation, to: defaultLocation || companyLocation, quantity: '', notes: '' })
+  const [form, setForm] = useState({
+    item_id: initial.item_id || '',
+    from: initial.from || companyLocation,
+    to: initial.to || defaultLocation || companyLocation,
+    quantity: initial.quantity ? String(initial.quantity) : '',
+    notes: initial.notes || '',
+  })
   const [saving, setSaving] = useState(false)
 
   async function submit(e) {
@@ -33,7 +39,7 @@ export default function TransferModal({ designProjectId, onClose, onSaved }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <form onSubmit={submit} className="card p-5 w-full max-w-md space-y-3">
-        <div className="text-sm font-semibold text-ink-950">Transfer inventory</div>
+        <div className="text-sm font-semibold text-ink-950">{title}</div>
         <Field label="Material">
           <Select required value={form.item_id} onChange={(e) => setForm({ ...form, item_id: e.target.value })}>
             <option value="">Select…</option>
@@ -57,7 +63,7 @@ export default function TransferModal({ designProjectId, onClose, onSaved }) {
         <p className="text-xs text-ink-500">The cost moves with the stock at the source location's current average cost.</p>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Transferring…' : 'Transfer'}</button>
+          <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : title === 'Transfer inventory' ? 'Transfer' : 'Return'}</button>
         </div>
       </form>
     </div>

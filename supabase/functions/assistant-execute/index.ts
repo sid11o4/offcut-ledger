@@ -28,6 +28,20 @@ function json(body: unknown, status = 200) {
 // deno-lint-ignore no-explicit-any
 type Action = any
 
+// The user id from the caller's JWT. The database has already checked the token when the RPC below
+// runs with it, so reading the id here only needs the payload.
+function userIdFromToken(authHeader: string): string | null {
+  const part = authHeader.replace(/^Bearer\s+/i, '').split('.')[1]
+  if (!part) return null
+  try {
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/')
+    const payload = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)))
+    return typeof payload.sub === 'string' ? payload.sub : null
+  } catch {
+    return null
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -37,10 +51,12 @@ Deno.serve(async (req) => {
   const authHeader = req.headers.get('Authorization') ?? ''
 
   const db = createClient(url, anonKey, { global: { headers: { Authorization: authHeader } } })
-  const { data: { user } } = await db.auth.getUser()
-  if (!user) return json({ error: 'Not signed in.' }, 401)
-  const { data: active } = await db.rpc('is_active_user')
+  const userId = userIdFromToken(authHeader)
+  if (!userId) return json({ error: 'Not signed in.' }, 401)
+  const { data: active, error: activeError } = await db.rpc('is_active_user')
+  if (activeError) return json({ error: 'Not signed in.' }, 401)
   if (!active) return json({ error: 'Your account is not active.' }, 403)
+  const user = { id: userId }
 
   let body: { action?: Action }
   try { body = await req.json() } catch { return json({ error: 'Invalid JSON body.' }, 400) }
@@ -200,6 +216,19 @@ Deno.serve(async (req) => {
       const { error } = await db.rpc('delete_supplier_bill', { p_bill_id: found.bill.id })
       if (error) return json({ error: error.message }, 403)
       return json({ ok: true, message: `Deleted bill ${a.bill_number}.` })
+    }
+
+    if (a.type === 'change') {
+      // Runs the approved change as the caller. ai_apply_change builds the statement from these parts,
+      // applies its guardrails, and logs it.
+      const { data, error } = await db.rpc('ai_apply_change', {
+        p_op: String(a.operation ?? ''),
+        p_table: String(a.table ?? ''),
+        p_values: a.values ?? {},
+        p_match: a.match ?? {},
+      })
+      if (error) return json({ error: error.message }, 400)
+      return json({ ok: true, message: `Done. ${data} record${data === 1 ? '' : 's'} changed.` })
     }
 
     return json({ error: `Unknown action "${a.type}".` }, 400)

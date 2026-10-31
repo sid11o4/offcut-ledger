@@ -6,7 +6,7 @@ import { money, qty } from '../../lib/format'
 import { displayDate } from '../../lib/dates'
 import { useToast } from '../../components/Toast'
 import TransferModal from '../../components/TransferModal'
-import { invalidateInventory } from '../../lib/queries'
+import { invalidateInventory, useInventoryLocations } from '../../lib/queries'
 import { useState } from 'react'
 
 export default function ProjectDashboard() {
@@ -14,6 +14,9 @@ export default function ProjectDashboard() {
   const toast = useToast()
   const qc = useQueryClient()
   const [transferOpen, setTransferOpen] = useState(false)
+  const [returning, setReturning] = useState(null)
+  const companyLocationsQ = useInventoryLocations()
+  const companyLocationId = (companyLocationsQ.data || []).find((l) => l.kind === 'company')?.id
   const navigate = useNavigate()
 
   // Leftover stock moves to Company inventory and the project leaves the active lists. The database
@@ -129,7 +132,7 @@ export default function ProjectDashboard() {
         <Card title="Project inventory on hand">
           {!stockQ.data?.length ? <EmptyState title="No stock at this project" hint="Purchase directly into this project, or transfer from company inventory." /> : (
             <table className="table-base">
-              <thead><tr><th>Material</th><th className="num">Qty</th><th className="num">Avg cost</th><th className="num">Value</th></tr></thead>
+              <thead><tr><th>Material</th><th className="num">Qty</th><th className="num">Avg cost</th><th className="num">Value</th><th /></tr></thead>
               <tbody>
                 {stockQ.data.map((s) => (
                   <tr key={s.item_id}>
@@ -137,6 +140,7 @@ export default function ProjectDashboard() {
                     <td className="num">{qty(s.quantity)} {s.inventory_items?.units?.code}</td>
                     <td className="num">{money(s.avg_unit_cost)}</td>
                     <td className="num font-medium">{money(s.quantity * s.avg_unit_cost)}</td>
+                    <td className="text-right whitespace-nowrap"><button className="btn-ghost text-xs px-2" onClick={() => setReturning(s)}>Move to company</button><button className="btn-ghost text-xs px-2" onClick={() => navigate(`/design-build/returns?location=${locationQ.data?.id ?? ''}&item=${s.item_id}&qty=${s.quantity}`)}>Return to vendor</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -163,6 +167,19 @@ export default function ProjectDashboard() {
         </Card>
       </div>
 
+      {returning && (
+        <TransferModal
+          title="Move to company inventory"
+          designProjectId={id}
+          initial={{ item_id: returning.item_id, from: locationQ.data?.id, to: companyLocationId, quantity: returning.quantity }}
+          onClose={() => setReturning(null)}
+          onSaved={() => {
+            toast.success(`${returning.inventory_items?.name} returned to company inventory.`)
+            invalidateInventory(qc)
+            setReturning(null)
+          }}
+        />
+      )}
       {transferOpen && (
         <TransferModal
           designProjectId={id}

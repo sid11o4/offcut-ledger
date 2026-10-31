@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
 
   // 1. Verify the caller is an active admin, using THEIR token.
   const asCaller = createClient(url, anonKey, { global: { headers: { Authorization: authHeader } } })
-  const { data: { user: caller } } = await asCaller.auth.getUser()
+  const { data: { user: caller } } = await asCaller.auth.getUser(authHeader.replace(/^Bearer\s+/i, ""))
   if (!caller) return json({ error: 'Not signed in.' }, 401)
   const { data: allowed, error: permErr } = await asCaller.rpc('has_permission', { perm_key: 'user_manage' })
   if (permErr) return json({ error: permErr.message }, 500)

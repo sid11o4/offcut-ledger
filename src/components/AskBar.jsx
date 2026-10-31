@@ -36,6 +36,65 @@ const ACTION = {
   create_bill: { label: 'Create', tone: 'badge-brand', title: 'Review the new bill', approve: 'Approve and save' },
   update_bill: { label: 'Change', tone: 'badge-warn', title: 'Review the change', approve: 'Approve and change' },
   delete_bill: { label: 'Delete', tone: 'badge-bad', title: 'Review the deletion', approve: 'Approve and delete' },
+  change: { label: 'Change', tone: 'badge-warn', title: 'Review the change', approve: 'Approve and save' },
+}
+
+// Plain names for the places a change can go. Anything not listed is shown as a readable version of its table name.
+const TABLE_LABEL = {
+  recurring_expenses: 'Recurring expenses',
+  expenses: 'Expenses',
+  expense_categories: 'Expense categories',
+  design_build_expenses: 'Design Build expenses',
+  design_build_recurring_expenses: 'Design Build recurring expenses',
+  design_projects: 'Design Build projects',
+  projects: 'Projects',
+  clients: 'Clients',
+  suppliers: 'Suppliers',
+  supplier_bills: 'Supplier bills',
+  inventory_items: 'Inventory items',
+}
+const CHANGE_APPROVE = { insert: 'Approve and add', update: 'Approve and change', delete: 'Approve and remove' }
+
+function readable(name) {
+  const t = String(name ?? '').replace(/_id$/, '').replace(/_/g, ' ')
+  return t.charAt(0).toUpperCase() + t.slice(1)
+}
+
+// The review for a change: where it goes, which records it touches, and the values, in plain words.
+function ChangeDetails({ p }) {
+  const where = TABLE_LABEL[p.table] ?? readable(p.table)
+  const records = Object.entries(p.match ?? {})
+  const values = Object.entries(p.values ?? {})
+  const Row = ({ label, value }) => (
+    <div className="flex items-baseline justify-between gap-4 border-b border-ink-100 py-2 last:border-b-0">
+      <dt className="text-ink-500">{label}</dt>
+      <dd className="min-w-0 truncate text-right font-medium text-ink-950">{String(value ?? '—')}</dd>
+    </div>
+  )
+  return (
+    <div className="mt-4 space-y-4">
+      <dl className="rounded-md border border-ink-200 px-3 text-sm">
+        <div className="flex items-baseline justify-between gap-4 border-b border-ink-100 py-2">
+          <dt className="text-ink-500">Goes to</dt>
+          <dd className="font-medium text-ink-950">{where}</dd>
+        </div>
+        {p.operation !== 'insert' && records.length > 0 && (
+          <div className="py-2">
+            <dt className="mb-1 text-ink-500">Records</dt>
+            <dd className="space-y-0.5">{records.map(([k, v]) => <Row key={k} label={readable(k)} value={v} />)}</dd>
+          </div>
+        )}
+      </dl>
+      {p.operation !== 'delete' && values.length > 0 && (
+        <dl className="rounded-md border border-ink-200 px-3 text-sm">
+          <div className="py-2">
+            <dt className="mb-1 text-ink-500">{p.operation === 'insert' ? 'New record' : 'Changed to'}</dt>
+            <dd className="space-y-0.5">{values.map(([k, v]) => <Row key={k} label={readable(k)} value={v} />)}</dd>
+          </div>
+        </dl>
+      )}
+    </div>
+  )
 }
 
 const SCOPE = {
@@ -426,6 +485,9 @@ export default function AskBar() {
               </div>
               <p className="mt-1.5 leading-relaxed text-ink-800">{proposal.summary}</p>
 
+              {proposal.action_type === 'change' ? (
+                <ChangeDetails p={proposal} />
+              ) : (<>
               <dl className="mt-4 grid grid-cols-3 divide-x divide-ink-100 rounded-md border border-ink-200">
                 <div className="px-3 py-2">
                   <dt className="text-xs text-ink-500">Screen</dt>
@@ -470,6 +532,8 @@ export default function AskBar() {
                 </table>
               </div>
 
+              </>)}
+
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                 <p className="flex items-center gap-2 text-xs text-ink-500">
                   <kbd className="rounded border border-ink-200 px-1.5 py-0.5 font-mono text-[11px] text-ink-700">Enter</kbd> to approve
@@ -478,8 +542,8 @@ export default function AskBar() {
                 </p>
                 <div className="flex gap-2">
                   <button type="button" className="btn-secondary" onClick={close}>Cancel</button>
-                  <button type="button" className={proposal.action_type === 'delete_bill' ? 'btn-danger' : 'btn-primary'} onClick={approve}>
-                    {meta.approve}
+                  <button type="button" className={proposal.action_type === 'delete_bill' || (proposal.action_type === 'change' && proposal.operation === 'delete') ? 'btn-danger' : 'btn-primary'} onClick={approve}>
+                    {proposal.action_type === 'change' ? CHANGE_APPROVE[proposal.operation] ?? meta.approve : meta.approve}
                   </button>
                 </div>
               </div>

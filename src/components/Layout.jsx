@@ -64,6 +64,7 @@ const WORKSPACE_GROUPS = {
         { to: '/design-build/recurring-expenses', label: 'Recurring Expenses', icon: 'recur', perm: 'design_build_manage' },
         { to: '/design-build/inventory', label: 'Company Inventory', icon: 'inventory', perm: 'inventory_operate' },
         { to: '/design-build/slip', label: 'Consumption / Transfer Slip', icon: 'transfer', perm: 'inventory_operate' },
+        { to: '/design-build/returns', label: 'Returns & voids', icon: 'transfer', perm: 'inventory_operate' },
       ],
     },
     // Each subheader is its own group, so the expanded rail shows it as a heading over its reports.
@@ -210,7 +211,8 @@ export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [pwOpen, setPwOpen] = useState(false)
   const [workspace, setWorkspace] = useState(() => readStored('formgrid_workspace', 'factory'))
-  const [railExpanded, setRailExpanded] = useState(() => readStored('formgrid_rail_expanded', '') === '1')
+  // The icon rail opens into the full menu while the cursor is over it, and closes when the cursor leaves.
+  const [railHover, setRailHover] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -232,39 +234,42 @@ export default function Layout() {
     writeStored('formgrid_workspace', key)
     navigate(WORKSPACES.find((w) => w.key === key).home)
   }
-  function toggleRail() {
-    setRailExpanded((v) => {
-      writeStored('formgrid_rail_expanded', v ? '' : '1')
-      return !v
-    })
-  }
 
   const activeGroups = WORKSPACE_GROUPS[workspace]
 
   return (
     <div className="min-h-screen flex bg-ink-50">
-      <aside className={`hidden md:flex md:flex-col ${railExpanded ? 'w-56' : 'w-14'} shrink-0 bg-ink-950 h-screen sticky top-0 overflow-y-auto py-3 transition-[width] duration-150`}>
-        <div className={`flex mb-2 ${railExpanded ? 'px-3 items-center gap-2' : 'justify-center'}`}>
-          <div className="w-8 h-8 shrink-0 rounded-md bg-brand-600 text-white flex items-center justify-center font-semibold text-sm">F</div>
-          {railExpanded && <span className="font-medium text-white text-sm">Formgrid</span>}
-        </div>
-        {/* The toggle sits at the top, above the menu, so it stays in view however long the menu grows. */}
-        <button
-          type="button"
-          onClick={toggleRail}
-          title={railExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-          className={`rail-item text-ink-400 hover:text-white hover:bg-white/10 mb-2 ${railExpanded ? '!w-full !justify-start gap-2.5 px-3' : ''}`}
-        >
-          <Icon name="chevron" className={railExpanded ? 'rotate-180' : ''} />
-          {railExpanded && <span className="text-sm font-medium">Collapse</span>}
-          <span className="sr-only">{railExpanded ? 'Collapse sidebar' : 'Expand sidebar'}</span>
-        </button>
-        <nav className="flex-1 flex flex-col items-center [&_.rail-item]:text-ink-400 [&_.rail-item:hover]:text-white [&_.rail-item:hover]:bg-white/10 [&_.rail-item.active]:text-white [&_.rail-item.active]:bg-white/10">
-          <WorkspaceSwitcher workspace={workspace} onChange={changeWorkspace} labelled={railExpanded} />
-          <RailGroups groups={activeGroups} labelled={railExpanded} />
-          <RailGroups groups={[ADMIN_GROUP]} labelled={railExpanded} firstBordered />
-        </nav>
-      </aside>
+      {/* Desktop sidebar: a narrow icon strip that opens into the full menu as an overlay while the cursor
+          is over it. The overlay floats above the page, so the content never shifts. */}
+      <div
+        className="hidden md:block relative shrink-0 w-14 h-screen sticky top-0 z-50"
+        onMouseEnter={() => setRailHover(true)}
+        onMouseLeave={() => setRailHover(false)}
+      >
+        <aside className="flex flex-col h-full w-14 bg-ink-950 overflow-y-auto py-3">
+          <div className="flex mb-2 justify-center">
+            <div className="w-8 h-8 shrink-0 rounded-md bg-brand-600 text-white flex items-center justify-center font-semibold text-sm">F</div>
+          </div>
+          <nav className="flex-1 flex flex-col items-center [&_.rail-item]:text-ink-400 [&_.rail-item:hover]:text-white [&_.rail-item:hover]:bg-white/10 [&_.rail-item.active]:text-white [&_.rail-item.active]:bg-white/10">
+            <WorkspaceSwitcher workspace={workspace} onChange={changeWorkspace} labelled={false} />
+            <RailGroups groups={activeGroups} labelled={false} />
+            <RailGroups groups={[ADMIN_GROUP]} labelled={false} firstBordered />
+          </nav>
+        </aside>
+        {railHover && (
+          <aside className="absolute inset-y-0 left-0 flex flex-col w-56 bg-ink-950 overflow-y-auto py-3 shadow-2xl">
+            <div className="flex mb-2 px-3 items-center gap-2">
+              <div className="w-8 h-8 shrink-0 rounded-md bg-brand-600 text-white flex items-center justify-center font-semibold text-sm">F</div>
+              <span className="font-medium text-white text-sm">Formgrid</span>
+            </div>
+            <nav className="flex-1 flex flex-col items-stretch [&_.rail-item]:text-ink-400 [&_.rail-item:hover]:text-white [&_.rail-item:hover]:bg-white/10 [&_.rail-item.active]:text-white [&_.rail-item.active]:bg-white/10">
+              <WorkspaceSwitcher workspace={workspace} onChange={changeWorkspace} labelled />
+              <RailGroups groups={activeGroups} labelled />
+              <RailGroups groups={[ADMIN_GROUP]} labelled firstBordered />
+            </nav>
+          </aside>
+        )}
+      </div>
 
       {mobileOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
