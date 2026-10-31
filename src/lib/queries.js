@@ -45,7 +45,7 @@ export function useClients() {
 export function useProjects() {
   return useQuery({
     queryKey: ['projects'],
-    queryFn: list('projects', { select: '*, clients(name, code), rate_categories(name)' }),
+    queryFn: list('projects', { select: '*, clients(name, code), rate_categories(name, code)' }),
   })
 }
 export function useRates() {
@@ -65,5 +65,57 @@ export function useAppSettings() {
       if (error) throw error
       return data
     },
+  })
+}
+
+// --- Design Build + Accounts (Oct 2026 integration) ---
+
+export function useSuppliers() {
+  return useQuery({ queryKey: ['suppliers'], queryFn: list('suppliers') })
+}
+export function useDesignProjects() {
+  return useQuery({
+    queryKey: ['design_projects'],
+    queryFn: list('design_projects', { select: '*, clients(name, code), projects:factory_project_id(name, code)', order: 'created_at', ascending: false }),
+  })
+}
+export function useInventoryItems() {
+  return useQuery({ queryKey: ['inventory_items'], queryFn: list('inventory_items', { select: '*, units(name, code)' }) })
+}
+export function useInventoryLocations() {
+  return useQuery({ queryKey: ['inventory_locations'], queryFn: list('inventory_locations', { order: 'name' }) })
+}
+export function useDesignProjectsSummary() {
+  return useQuery({
+    queryKey: ['design_projects_summary'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('report_design_projects_summary')
+      if (error) throw error
+      return data
+    },
+  })
+}
+export function useCompanyInventoryValue() {
+  return useQuery({
+    queryKey: ['company_inventory_value'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('report_company_inventory_value')
+      if (error) throw error
+      return data
+    },
+  })
+}
+
+// Any inventory-moving action (purchase, transfer, consumption, slip, supplier-bill approval)
+// can touch the company pool and/or any Design Build project's pool, and the page that just
+// caused it is rarely the only place displaying that data. Call this after every one of them
+// so Company Inventory, every Project Dashboard, and the projects list summary all go stale
+// and refetch -- instead of each caller hand-picking which specific project query keys to
+// invalidate (easy to get wrong, and the actual bug this fixes: none of them were).
+export function invalidateInventory(qc) {
+  qc.invalidateQueries({ queryKey: ['company_inventory_value'] })
+  qc.invalidateQueries({ queryKey: ['design_projects_summary'] })
+  qc.invalidateQueries({
+    predicate: (q) => ['design_project_stock', 'design_project_txns', 'design_project_financials'].includes(q.queryKey[0]),
   })
 }

@@ -5,7 +5,7 @@ import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, StatCard, Badge, EmptyState, LoadingBlock } from '../../components/ui'
 import DateRangePicker, { presetRanges } from '../../components/DateRangePicker'
 import { useAppSettings } from '../../lib/queries'
-import { generateProjectReportPdf } from '../../lib/pdf'
+import { generateProjectReportPdf } from '../../lib/factoryReportPdf'
 import { displayDate } from '../../lib/dates'
 import { money, qty } from '../../lib/format'
 

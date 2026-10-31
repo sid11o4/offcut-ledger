@@ -2,10 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Achromatic ledger: the chrome holds no colour at all. One near-black primary action, 1px
+   borders instead of shadows, no header fill bands, no zebra rows, tabular figures everywhere
+   a number appears. See design-taste-frontend's references/app-screens.md for the full rules
+   this was dealt from. */
+
 @layer base {
   html, body, #root { height: 100%; }
-  body { @apply bg-ink-50 text-ink-900 antialiased; }
+  body { @apply bg-ink-50 text-ink-950 antialiased; }
   input, select, textarea { @apply bg-white; }
+  h1, h2, h3 { text-wrap: balance; }
+  /* Browser selection takes the one accent, not the system blue. */
+  ::selection { background-color: #e4ecf9; color: #0b0b0b; }
+}
+
+/* Search bar panel: enters from its trigger edge in 160ms; opacity only when motion is reduced. */
+@keyframes ask-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes ask-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.ask-in { transform-origin: top center; animation: ask-in 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .ask-in { animation: ask-fade 160ms ease-out; }
 }
 
 @layer components {
@@ -13,31 +35,140 @@
     @apply inline-flex items-center justify-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium
       transition-colors disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap;
   }
-  .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-700; }
-  .btn-secondary { @apply btn border border-ink-300 bg-white text-ink-800 hover:bg-ink-100; }
+  /* The one primary action is near-black -- no brand colour in the chrome. */
+  .btn-primary { @apply btn bg-ink-900 text-white hover:bg-ink-950; }
+  .btn-secondary { @apply btn bg-ink-100 text-ink-900 hover:bg-ink-200; }
   .btn-danger { @apply btn bg-bad text-white hover:opacity-90; }
   .btn-ghost { @apply btn text-ink-600 hover:bg-ink-100; }
 
   .field-label { @apply block text-xs font-medium text-ink-600 mb-1; }
   .field-input {
-    @apply w-full rounded-md border border-ink-300 px-3 py-2 text-sm text-ink-900
-      focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500;
+    @apply w-full rounded-md border border-ink-200 px-3 py-2 text-sm text-ink-950 bg-white
+      focus:outline-none focus:ring-2 focus:ring-ink-900/20 focus:border-ink-400;
   }
 
-  .card { @apply bg-white rounded-lg border border-ink-200 shadow-sm; }
+  /* A border, never a shadow, on a surface at rest. */
+  .card { @apply bg-white rounded-lg border border-ink-200; }
+  .panel { @apply bg-ink-50 rounded-lg p-4; }
 
   .table-base { @apply w-full text-sm border-collapse; }
   .table-base th {
-    @apply text-left text-xs font-semibold text-ink-500 uppercase tracking-wide
-      px-3 py-2 border-b border-ink-200 bg-ink-50 sticky top-0;
+    @apply text-left text-xs font-normal text-ink-500 px-3 py-2 border-b border-ink-200;
   }
-  .table-base td { @apply px-3 py-2 border-b border-ink-100 align-top; }
-  .table-base tbody tr:hover { @apply bg-brand-100/40; }
+  .table-base th.num, .table-base td.num { @apply text-right tabular-nums; }
+  .table-base td { @apply px-3 py-2 border-b border-ink-100 align-top tabular-nums; }
+  .table-base tbody tr:hover { @apply bg-ink-50; }
 
   .badge { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium; }
-  .badge-neutral { @apply badge bg-ink-100 text-ink-700; }
-  .badge-ok { @apply badge bg-green-100 text-ok; }
-  .badge-warn { @apply badge bg-amber-100 text-warn; }
-  .badge-bad { @apply badge bg-red-100 text-bad; }
+  .badge-neutral { @apply badge bg-pill-neutral-bg text-pill-neutral-ink; }
+  .badge-ok { @apply badge bg-pill-ok-bg text-pill-ok-ink; }
+  .badge-warn { @apply badge bg-pill-warn-bg text-pill-warn-ink; }
+  .badge-bad { @apply badge bg-pill-bad-bg text-pill-bad-ink; }
   .badge-brand { @apply badge bg-brand-100 text-brand-700; }
+
+  /* Icon-rail nav item (Layout.jsx): a plain colour change on the active icon, no tinted pill. */
+  .rail-item {
+    @apply flex items-center justify-center w-9 h-9 rounded-md text-ink-500 transition-colors;
+  }
+  .rail-item:hover { @apply text-ink-900 bg-ink-100; }
+  .rail-item.active { @apply text-ink-950 bg-ink-100; }
+}
+
+@layer utilities {
+  .tnum { font-variant-numeric: tabular-nums; }
+}
+
+/* Motion. One ease-out curve for everything that responds to the user, short durations, and no
+   motion on anything that happens hundreds of times a day. Transform and opacity only. */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(16px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+/* Fill backwards only: a transform kept after the animation would make the page wrapper the
+   reference for fixed dialogs, so they would cover only the content area, not the window. */
+.page-in { animation: page-in 280ms var(--ease-out) backwards; }
+.toast-in { animation: toast-in 300ms var(--ease-out) both; }
+
+/* Lists and card grids rise in, each row a few milliseconds after the one above. */
+.stagger > * { animation: row-in 300ms var(--ease-out) backwards; }
+.stagger > :nth-child(2) { animation-delay: 40ms; }
+.stagger > :nth-child(3) { animation-delay: 80ms; }
+.stagger > :nth-child(4) { animation-delay: 120ms; }
+.stagger > :nth-child(5) { animation-delay: 160ms; }
+.stagger > :nth-child(6) { animation-delay: 200ms; }
+
+.skeleton {
+  background: linear-gradient(90deg, #f1f2f4 25%, #e5e7eb 37%, #f1f2f4 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* Presses answer at once; hover and focus colour changes ease rather than snap. */
+.btn {
+  transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out),
+    transform 160ms var(--ease-out), box-shadow 200ms var(--ease-out);
+}
+.btn:not(:disabled):active { transform: scale(0.97); }
+.btn-primary:not(:disabled):hover { box-shadow: 0 1px 2px rgba(10, 10, 10, 0.18); }
+
+.card {
+  transition: border-color 200ms var(--ease-out), box-shadow 200ms var(--ease-out);
+}
+/* A card that is a link lifts a hair on hover; still a border, with a soft shadow only in motion. */
+a.card:hover, .card-interactive:hover {
+  border-color: #cfd3da;
+  box-shadow: 0 8px 24px -16px rgba(10, 10, 10, 0.28);
+}
+
+.field-input {
+  transition: border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+}
+
+.table-base tbody tr { transition: background-color 150ms var(--ease-out); }
+
+.rail-item {
+  transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out), transform 160ms var(--ease-out);
+}
+.rail-item:active { transform: scale(0.94); }
+
+/* Dialog overlays: centred when the dialog fits, and scrollable from the top when it does not, so
+   the top fields of a tall form are never cut off above the window. */
+.fixed.inset-0.z-50.flex.items-center {
+  align-items: safe center;
+  overflow-y: auto;
+}
+
+/* Keyboard focus is always visible and drawn in the ink colour, not the browser's blue. */
+:focus-visible {
+  outline: 2px solid rgba(10, 10, 10, 0.35);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  .skeleton { animation: none; }
 }

@@ -5,12 +5,13 @@ import { useToast } from '../../components/Toast'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card } from '../../components/ui'
 import MasterCrudTable from '../../components/MasterCrudTable'
-import { useUnits, useMachines, useProcesses, useRateCategories, useExpenseCategories, useAppSettings } from '../../lib/queries'
+import { useUnits, useMachines, useProcesses, useRateCategories, useExpenseCategories, useAppSettings, useSuppliers, useInventoryItems } from '../../lib/queries'
 import JobWorkServicesTab from './JobWorkServicesTab'
 import RatesTab from './RatesTab'
 
 const TABS = [
-  'Machines', 'Processes', 'Units', 'Job Work & Combinations', 'Rate Categories', 'Rates', 'Expense Categories', 'Company Info',
+  'Machines', 'Processes', 'Units', 'Job Work & Combinations', 'Rate Categories', 'Rates', 'Expense Categories',
+  'Suppliers', 'Inventory Items', 'Company Info',
 ]
 
 export default function Masters() {
@@ -25,7 +26,7 @@ export default function Masters() {
             key={t}
             onClick={() => setTab(t)}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${
-              tab === t ? 'border-brand-600 text-brand-700' : 'border-transparent text-ink-500 hover:text-ink-800'
+              tab === t ? 'border-ink-900 text-ink-950' : 'border-transparent text-ink-500 hover:text-ink-800'
             }`}
           >
             {t}
@@ -40,6 +41,8 @@ export default function Masters() {
       {tab === 'Rate Categories' && <RateCategoriesTab />}
       {tab === 'Rates' && <RatesTab />}
       {tab === 'Expense Categories' && <ExpenseCategoriesTab />}
+      {tab === 'Suppliers' && <SuppliersTab />}
+      {tab === 'Inventory Items' && <InventoryItemsTab />}
       {tab === 'Company Info' && <CompanyInfoTab />}
     </div>
   )
@@ -166,5 +169,48 @@ function ExpenseCategoriesTab() {
         { name: 'description', label: 'Description', type: 'textarea' },
       ]}
     />
+  )
+}
+
+function SuppliersTab() {
+  const query = useSuppliers()
+  return (
+    <MasterCrudTable
+      table="suppliers" queryKey={['suppliers']} title="Suppliers" query={query}
+      fields={[
+        { name: 'name', label: 'Name', required: true },
+        { name: 'gstin', label: 'GSTIN' },
+        { name: 'phone', label: 'Phone' },
+        { name: 'address', label: 'Address', type: 'textarea' },
+        { name: 'notes', label: 'Notes', type: 'textarea' },
+      ]}
+    />
+  )
+}
+
+function InventoryItemsTab() {
+  const query = useInventoryItems()
+  const units = useUnits()
+  return (
+    <>
+      <p className="text-xs text-ink-500 mb-3">
+        Materials at or above Rs.50/unit are automatically tracked as stock (company + per-project inventory).
+        Cheaper items still show as an expense but carry no quantity on hand.
+      </p>
+      <MasterCrudTable
+        table="inventory_items" queryKey={['inventory_items']} title="Inventory Items" query={query}
+        fields={[
+          { name: 'code', label: 'Code' },
+          { name: 'name', label: 'Name', required: true },
+          {
+            name: 'unit_id', label: 'Unit', type: 'select', required: true,
+            options: (units.data || []).map((u) => ({ value: u.id, label: u.name })),
+            render: (row) => row.units?.name || '—',
+          },
+          { name: 'category', label: 'Category' },
+          { name: 'default_rate', label: 'Default Rate (Rs.)', type: 'number' },
+        ]}
+      />
+    </>
   )
 }

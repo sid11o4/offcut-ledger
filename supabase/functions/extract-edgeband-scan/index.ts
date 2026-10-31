@@ -1,14 +1,20 @@
 // Reads a photographed "PVC Edgebanding Usage Log" paper sheet and extracts exactly three
-// things per row -- Project, Edgeband Thickness, Total Meters -- using Claude's vision. This
+// things per row -- Project, Edgeband Thickness, Total Meters -- with Claude Haiku 5.5. This
 // NEVER writes a job-work entry itself: it only fills in scanned_edgeband_rows for a human to
 // review, correct, and confirm from the Daily Log UI, which then calls the same
 // record_job_work_entry() RPC the manual form uses. The calculation engine, rates and billing
 // are completely untouched by this function.
 //
+// Requires the ANTHROPIC_API_KEY secret (Supabase dashboard -> Edge Functions -> Secrets).
+//
 // POST body: { batch_id }
-// Requires the ANTHROPIC_API_KEY secret to be set on this project (supabase secrets set).
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { encodeBase64 } from 'jsr:@std/encoding@1/base64'
+
+const MODEL = 'claude-haiku-5-5'
+// Only Haiku-class models are allowed for scanning; anything larger is rejected at runtime.
+const ALLOWED_MODELS = new Set(['claude-haiku-5-5'])
+if (!ALLOWED_MODELS.has(MODEL)) throw new Error(`Model ${MODEL} is not allowed for edgeband scanning`)
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -20,31 +26,45 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
 }
 
-const EXTRACT_TOOL = {
-  name: 'extract_log',
-  description: 'Report the rows found on the photographed edgeband usage log sheet.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      rows: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            row_no: { type: 'integer', description: 'The S.No printed on that row.' },
-            project_text: { type: ['string', 'null'], description: 'The handwritten project text, verbatim, or null if the row is blank.' },
-            project_match: { type: ['string', 'null'], description: 'The EXACT name (copied character-for-character) from the provided project list, only if you are confident it is the same project. Otherwise null.' },
-            edgeband_text: { type: ['string', 'null'], description: 'The handwritten edgeband code/thickness text, verbatim.' },
-            edgeband_match: { type: ['string', 'null'], description: 'The EXACT name (copied character-for-character) from the provided job-work list, only if confident. Otherwise null.' },
-            total_meters: { type: ['number', 'null'], description: 'The value in the "Total Meters" column. If that cell is blank/illegible but the Start No. and End No. are BOTH clearly legible, compute End − Start instead. Otherwise null.' },
-            flag: { type: ['string', 'null'], description: 'Short note on anything uncertain or illegible in this row; null if everything was clear.' },
-          },
-          required: ['row_no'],
+const EXTRACT_SCHEMA = {
+  type: 'object',
+  properties: {
+    rows: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          row_no: { type: 'integer', description: 'The S.No printed on that row.' },
+          project_text: { type: ['string', 'null'], description: 'The handwritten project text, verbatim, or null if the row is blank.' },
+          project_match: { type: ['string', 'null'], description: 'The EXACT name (copied character-for-character) from the provided project list, only if you are confident it is the same project. Otherwise null.' },
+          edgeband_text: { type: ['string', 'null'], description: 'The handwritten edgeband code/thickness text, verbatim.' },
+          edgeband_match: { type: ['string', 'null'], description: 'The EXACT name (copied character-for-character) from the provided job-work list, only if confident. Otherwise null.' },
+          total_meters: { type: ['number', 'null'], description: 'The value in the "Total Meters" column. If that cell is blank/illegible but the Start No. and End No. are BOTH clearly legible, compute End − Start instead. Otherwise null.' },
+          flag: { type: ['string', 'null'], description: 'Short note on anything uncertain or illegible in this row; null if everything was clear.' },
         },
+        required: ['row_no'],
       },
     },
-    required: ['rows'],
   },
+  required: ['rows'],
+}
+
+// Anthropic answers a transient overload with 529 (or 503); retry those with backoff.
+// deno-lint-ignore no-explicit-any
+async function callAnthropic(apiKey: string, body: unknown): Promise<any> {
+  for (let attempt = 1; ; attempt++) {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify(body),
+    })
+    if (resp.ok) return resp.json()
+    if (![503, 529].includes(resp.status) || attempt === 3) {
+      throw new Error(`Anthropic API error (${resp.status}): ${await resp.text()}`)
+    }
+    console.log(`extract-edgeband-scan: Anthropic ${resp.status} (overloaded), retrying attempt ${attempt + 1}/3`)
+    await new Promise((r) => setTimeout(r, attempt * 2000))
+  }
 }
 
 Deno.serve(async (req) => {
@@ -54,7 +74,7 @@ Deno.serve(async (req) => {
   const url = Deno.env.get('SUPABASE_URL')!
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-  const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
   const authHeader = req.headers.get('Authorization') ?? ''
 
   // 1. Verify the caller is a signed-in, active user (same bar as the manual Daily Log form).
@@ -64,7 +84,9 @@ Deno.serve(async (req) => {
   const { data: active } = await asCaller.rpc('is_active_user')
   if (!active) return json({ error: 'Your account is not active.' }, 403)
 
-  if (!anthropicKey) return json({ error: 'ANTHROPIC_API_KEY is not configured on this project. Ask an admin to add it via `supabase secrets set`.' }, 500)
+  if (!apiKey) {
+    return json({ error: 'ANTHROPIC_API_KEY is not set on this project. Add it under Supabase dashboard -> Edge Functions -> Secrets.' }, 500)
+  }
 
   let body: { batch_id?: string }
   try { body = await req.json() } catch { return json({ error: 'Invalid JSON body.' }, 400) }
@@ -82,7 +104,7 @@ Deno.serve(async (req) => {
     if (dlErr || !fileBlob) throw new Error('Could not read the uploaded image.')
     const bytes = new Uint8Array(await fileBlob.arrayBuffer())
     const imageBase64 = encodeBase64(bytes)
-    const mediaType = /\.png$/i.test(batch.image_path) ? 'image/png' : /\.webp$/i.test(batch.image_path) ? 'image/webp' : 'image/jpeg'
+    const mimeType = /\.png$/i.test(batch.image_path) ? 'image/png' : /\.webp$/i.test(batch.image_path) ? 'image/webp' : 'image/jpeg'
 
     const [{ data: projects }, { data: services }] = await Promise.all([
       admin.from('projects').select('id, name').neq('status', 'cancelled'),
@@ -99,7 +121,7 @@ Deno.serve(async (req) => {
 S.No | Project | Edgeband Code/Thickness | Start No. | End No. | Total Meters (End − Start) | Remarks/Signature
 
 Extract ONLY: for every non-blank row, its S.No, the Project, the Edgeband Code/Thickness, and the Total Meters value.
-Ignore the header fields (Machine, Date, Operator/Shift) and the Remarks/Signature column entirely -- do not report them.
+Ignore the header fields (Machine, Date, Operator/Shift) and the Remarks/Signature column entirely -- do not report them. Skip rows that are entirely empty.
 
 Known projects (match project_text against this list; project_match must be an exact copy from here or null):
 ${projectNames.length ? projectNames.map((n) => `- ${n}`).join('\n') : '(none on file)'}
@@ -107,33 +129,28 @@ ${projectNames.length ? projectNames.map((n) => `- ${n}`).join('\n') : '(none on
 Known edgeband job-work items (match edgeband_text against this list; edgeband_match must be an exact copy from here or null):
 ${edgebandNames.map((n) => `- ${n}`).join('\n')}
 
-Call extract_log with one entry per non-blank row. Skip rows that are entirely empty.`
+Call extract_log with one entry per non-blank row.`
 
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-5',
-        max_tokens: 4000,
-        tools: [EXTRACT_TOOL],
-        tool_choice: { type: 'tool', name: 'extract_log' },
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
-            { type: 'text', text: prompt },
-          ],
-        }],
-      }),
+    const result = await callAnthropic(apiKey, {
+      model: MODEL,
+      max_tokens: 4000,
+      tools: [{
+        name: 'extract_log',
+        description: 'Report the rows found on the photographed edgeband usage log sheet.',
+        input_schema: EXTRACT_SCHEMA,
+      }],
+      tool_choice: { type: 'tool', name: 'extract_log' },
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mimeType, data: imageBase64 } },
+          { type: 'text', text: prompt },
+        ],
+      }],
     })
-    if (!resp.ok) throw new Error(`Claude API error (${resp.status}): ${await resp.text()}`)
-    const result = await resp.json()
-    const toolUse = (result.content || []).find((c: { type: string }) => c.type === 'tool_use')
-    if (!toolUse) throw new Error('Claude did not return structured extraction output.')
+    // deno-lint-ignore no-explicit-any
+    const toolUse = (result.content || []).find((c: any) => c.type === 'tool_use')
+    if (!toolUse) throw new Error(`Claude did not return structured extraction output. Response: ${JSON.stringify(result).slice(0, 500)}`)
     const rows: Array<{
       row_no: number; project_text?: string | null; project_match?: string | null
       edgeband_text?: string | null; edgeband_match?: string | null
