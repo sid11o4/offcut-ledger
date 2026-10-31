@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabaseClient'
 import { PageHeader, Card, StatCard, EmptyState, LoadingBlock } from '../components/ui'
 import DateRangePicker, { presetRanges } from '../components/DateRangePicker'
 import { useAppSettings } from '../lib/queries'
-import { generateIncomeExpenseStatementPdf } from '../lib/pdf'
+import { generateIncomeExpenseStatementPdf } from '../lib/factoryReportPdf'
 import { money } from '../lib/format'
 
 export default function IncomeExpenseStatement() {

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { EmptyState, LoadingBlock } from './ui'
 import { displayDate } from '../lib/dates'
 import { money } from '../lib/format'
+import { buildStatementDoc, saveDoc } from '../lib/reportPdf'
 
 // A bank-style account statement, shared by every ledger in the app. Oldest entry first, an opening
 // balance above the first line, Debit (money out) and Credit (money in) columns, a running balance,
@@ -10,7 +11,7 @@ import { money } from '../lib/format'
 //
 // rows: [{ key, date, category, description, reference, direction: 'in' | 'out', amount, href? }]
 // opening: the balance brought forward at the start of the period.
-export default function BankStatement({ rows, opening = 0, loading = false, exportName = 'statement' }) {
+export default function BankStatement({ rows, opening = 0, loading = false, exportName = 'statement', pdfTitle = 'Account statement', subtitle, period }) {
   let running = Number(opening)
   const lines = rows.map((r) => {
     const amount = Number(r.amount)
@@ -44,6 +45,17 @@ export default function BankStatement({ rows, opening = 0, loading = false, expo
     URL.revokeObjectURL(url)
   }
 
+  function downloadPdf() {
+    const doc = buildStatementDoc({
+      title: pdfTitle,
+      subtitle,
+      meta: period ? [['Period', period]] : [],
+      opening,
+      rows: lines,
+    })
+    saveDoc(doc, exportName)
+  }
+
   if (loading) return <LoadingBlock />
 
   return (
@@ -56,7 +68,7 @@ export default function BankStatement({ rows, opening = 0, loading = false, expo
       </div>
 
       <div className="flex justify-end gap-2 mb-2 print:hidden">
-        <button className="btn-secondary text-xs" onClick={() => window.print()}>Print</button>
+        <button className="btn-secondary text-xs" onClick={downloadPdf}>Download PDF</button>
         {lines.length > 0 && <button className="btn-secondary text-xs" onClick={exportCsv}>Export CSV</button>}
       </div>
 

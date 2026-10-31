@@ -5,6 +5,7 @@ import { PageHeader, Card, StatCard } from '../../components/ui'
 import DateRangePicker, { presetRanges } from '../../components/DateRangePicker'
 import BankStatement from '../../components/BankStatement'
 import { money } from '../../lib/format'
+import { displayDate } from '../../lib/dates'
 
 const FAR_PAST = '2000-01-01'
 
@@ -83,6 +84,9 @@ export default function Ledger() {
           opening={priorQ.data || 0}
           loading={q.isLoading || priorQ.isLoading}
           exportName={`formgrid-ledger-${start}-to-${end}`}
+          pdfTitle="Ledger"
+          subtitle="Factory"
+          period={`${displayDate(start)} – ${displayDate(end)}`}
         />
       </Card>
     </div>

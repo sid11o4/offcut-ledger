@@ -5,6 +5,7 @@ import { PageHeader, Card, StatCard, EmptyState, LoadingBlock } from '../../comp
 import DateRangePicker, { presetRanges } from '../../components/DateRangePicker'
 import BankStatement from '../../components/BankStatement'
 import { money } from '../../lib/format'
+import { displayDate } from '../../lib/dates'
 
 const FAR_PAST = '2000-01-01'
 
@@ -109,6 +110,9 @@ export default function AccountsLedger() {
           opening={-(priorQ.data || 0)}
           loading={ledgerQ.isLoading || priorQ.isLoading}
           exportName={`design-build-statement-${start}-to-${end}`}
+          pdfTitle="Account statement"
+          subtitle="Design Build"
+          period={`${displayDate(start)} – ${displayDate(end)}`}
         />
       </Card>
     </div>
