@@ -78,10 +78,12 @@ function NewProjectModal({ onClose }) {
 
   async function submit(e) {
     e.preventDefault()
-    if (!form.code || !form.name) return toast.error('Code and name are required.')
+    const code = form.code.trim()
+    const name = form.name.trim()
+    if (!code || !name) return toast.error('Code and name are required.')
     setSaving(true)
     const { error } = await supabase.from('design_projects').insert({
-      code: form.code, name: form.name,
+      code, name,
       client_id: form.client_id || null,
       factory_project_id: form.factory_project_id || null,
       budget: form.budget ? Number(form.budget) : null,
@@ -100,10 +102,10 @@ function NewProjectModal({ onClose }) {
       <form onSubmit={submit} className="card p-5 w-full max-w-md space-y-3">
         <div className="text-sm font-semibold text-ink-950">New Design Build project</div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Code"><Input required value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="SAN-U02" /></Field>
+          <Field label="Code"><Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="SAN-U02" /></Field>
           <Field label="Start date"><Input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} /></Field>
         </div>
-        <Field label="Name"><Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Sanctum Residence — Unit 02" /></Field>
+        <Field label="Name"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Sanctum Residence — Unit 02" /></Field>
         <Field label="Client">
           <Select value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })}>
             <option value="">—</option>
@@ -116,7 +118,7 @@ function NewProjectModal({ onClose }) {
             {(projectsQ.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </Select>
         </Field>
-        <Field label="Budget"><Input type="number" min="0" step="0.01" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} /></Field>
+        <Field label="Budget (optional)"><Input type="number" min="0" step="0.01" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} /></Field>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
           <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Creating…' : 'Create'}</button>
