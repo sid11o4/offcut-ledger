@@ -100,6 +100,20 @@ const PROPOSE_TOOL = {
   },
 }
 
+// The user id from the caller's JWT. The database has already checked the token when the RPC below
+// runs with it, so reading the id here only needs the payload.
+function userIdFromToken(authHeader: string): string | null {
+  const part = authHeader.replace(/^Bearer\s+/i, '').split('.')[1]
+  if (!part) return null
+  try {
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/')
+    const payload = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)))
+    return typeof payload.sub === 'string' ? payload.sub : null
+  } catch {
+    return null
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -112,9 +126,9 @@ Deno.serve(async (req) => {
   if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY is not set on this project.' }, 500)
 
   const db = createClient(url, anonKey, { global: { headers: { Authorization: authHeader } } })
-  const { data: { user }, error: authError } = await db.auth.getUser(authHeader.replace(/^Bearer\s+/i, ""))
-  if (!user) return json({ error: `Not signed in. (${authError?.message ?? 'no user for this token'}; header ${authHeader.length} chars, starts "${authHeader.slice(0, 7)}", token ${authHeader.replace(/^Bearer\s+/i, '').length} chars)` }, 401)
-  const { data: active } = await db.rpc('is_active_user')
+  if (!userIdFromToken(authHeader)) return json({ error: 'Not signed in.' }, 401)
+  const { data: active, error: activeError } = await db.rpc('is_active_user')
+  if (activeError) return json({ error: 'Not signed in.' }, 401)
   if (!active) return json({ error: 'Your account is not active.' }, 403)
 
   let body: { question?: string; attachment?: { mime?: string; base64?: string } }
