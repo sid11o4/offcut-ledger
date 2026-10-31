@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, StatCard, EmptyState, LoadingBlock, Field, Input, Select, Badge } from '../../components/ui'
-import { useCompanyInventoryValue, useInventoryItems, invalidateInventory } from '../../lib/queries'
+import { Link } from 'react-router-dom'
+import { useCompanyInventoryValue, useInventoryItems, useDesignProjectsSummary, invalidateInventory } from '../../lib/queries'
 import { money, qty } from '../../lib/format'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
@@ -10,6 +11,7 @@ import TransferModal from '../../components/TransferModal'
 
 export default function CompanyInventory() {
   const valueQ = useCompanyInventoryValue()
+  const projectsQ = useDesignProjectsSummary()
   const { hasPermission } = useAuth()
   const qc = useQueryClient()
   const [transferOpen, setTransferOpen] = useState(false)
@@ -32,9 +34,21 @@ export default function CompanyInventory() {
         )}
       />
 
-      <Card className="mb-5">
-        <StatCard label="Total value on hand" value={money(total)} money />
-      </Card>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
+        <Card>
+          <div className="text-xs text-ink-500">Company Inventory</div>
+          <div className="text-2xl font-medium tnum mt-1">{money(total)}</div>
+          <div className="text-xs text-ink-500 mt-1">{rows.length} material{rows.length === 1 ? '' : 's'} in the shared pool</div>
+        </Card>
+        {(projectsQ.data || []).map((p) => (
+          <Link key={p.id} to={`/design-build/projects/${p.id}`} className="card p-4 hover:bg-ink-50 block">
+            <div className="text-xs text-ink-500 font-mono">{p.code}</div>
+            <div className="font-medium text-ink-950 mt-0.5">{p.name}</div>
+            <div className="text-2xl font-medium tnum mt-2">{money(p.current_inventory_value)}</div>
+            <div className="text-xs text-ink-500 mt-1">Project warehouse</div>
+          </Link>
+        ))}
+      </div>
 
       <Card>
         {valueQ.isLoading ? <LoadingBlock /> : !rows.length ? (
