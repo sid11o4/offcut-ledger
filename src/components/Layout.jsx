@@ -55,6 +55,7 @@ const WORKSPACE_GROUPS = {
         { to: '/design-build/projects', label: 'Projects', icon: 'layers', perm: 'design_build_manage' },
         { to: '/design-build/inventory', label: 'Company Inventory', icon: 'inventory', perm: 'inventory_operate' },
         { to: '/design-build/slip', label: 'Consumption / Transfer Slip', icon: 'transfer', perm: 'inventory_operate' },
+        { to: '/design-build/ledger', label: 'Ledger & Statement', icon: 'ledger', perm: 'supplier_bills_manage' },
       ],
     },
     {

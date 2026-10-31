@@ -26,6 +26,7 @@ import AuditLog from './pages/AuditLog'
 import DesignProjectsList from './pages/DesignBuild/ProjectsList'
 import DesignProjectDashboard from './pages/DesignBuild/ProjectDashboard'
 import CompanyInventory from './pages/DesignBuild/CompanyInventory'
+import AccountsLedger from './pages/DesignBuild/AccountsLedger'
 import ManualSlip from './pages/DesignBuild/ManualSlip'
 import AccountsOverview from './pages/Accounts/AccountsOverview'
 import BillAuditQueue from './pages/Accounts/BillAuditQueue'
@@ -83,7 +84,8 @@ export default function App() {
         <Route path="design-build/projects" element={<RequirePermission perm="design_build_manage"><DesignProjectsList /></RequirePermission>} />
         <Route path="design-build/projects/:id" element={<RequirePermission perm="design_build_manage"><DesignProjectDashboard /></RequirePermission>} />
         <Route path="design-build/inventory" element={<RequirePermission perm="inventory_operate"><CompanyInventory /></RequirePermission>} />
-        <Route path="design-build/slip" element={<RequirePermission perm="inventory_operate"><ManualSlip /></RequirePermission>} />
+        <Route path="design-build/ledger" element={<RequirePermission perm="supplier_bills_manage"><AccountsLedger /></RequirePermission>} />
+        <Route path="design-build/slip"element={<RequirePermission perm="inventory_operate"><ManualSlip /></RequirePermission>} />
 
         <Route path="accounts" element={<RequirePermission perm="supplier_bills_manage"><AccountsOverview /></RequirePermission>} />
         <Route path="accounts/bills" element={<RequirePermission perm="supplier_bills_manage"><BillAuditQueue /></RequirePermission>} />
