@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+
 // Achromatic ledger components (design-taste-frontend, kind=finance, dealt Oct 2026). House
 // rules this follows throughout: a noun title (never a greeting), KPIs as type with no icon
 // circles or sparklines, 1px borders instead of shadows, pale-tint status pills, right-aligned
@@ -51,6 +53,34 @@ export function StatRow({ children }) {
   return <div className="grid divide-x divide-ink-200" style={{ gridTemplateColumns: `repeat(${Array.isArray(children) ? children.length : 1}, 1fr)` }}>
     {Array.isArray(children) ? children.map((c, i) => <div key={i} className={i === 0 ? '' : 'pl-4'}>{c}</div>) : children}
   </div>
+}
+
+// A dashboard tile: a label, a large tabular figure, and an optional spend bar. `progress` is a
+// share (0-1) of a budget; past 1 the bar turns red. With `to`, the whole tile is a link.
+export function Tile({ label, value, sub, to, progress }) {
+  const bar = progress == null ? null : (
+    <div
+      role="img"
+      aria-label={`${Math.round(progress * 100)}% of budget used`}
+      className="mt-4 h-1.5 overflow-hidden rounded-full bg-ink-100"
+    >
+      <div
+        className={`h-full rounded-full transition-[width] duration-500 ease-out ${progress > 1 ? 'bg-bad' : 'bg-ink-900'}`}
+        style={{ width: `${Math.min(progress, 1) * 100}%` }}
+      />
+    </div>
+  )
+  const content = (
+    <>
+      <div className="text-xs text-ink-500">{label}</div>
+      <div className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-ink-950 sm:text-[28px]">{value}</div>
+      {bar}
+      {sub && <div className="mt-2 text-xs text-ink-500">{sub}</div>}
+    </>
+  )
+  return to
+    ? <Link to={to} className="card card-interactive block p-4">{content}</Link>
+    : <div className="card p-4">{content}</div>
 }
 
 export function EmptyState({ title = 'Nothing here yet', hint }) {

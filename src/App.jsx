@@ -23,6 +23,7 @@ import IncomeExpenseStatement from './pages/IncomeExpenseStatement'
 import Masters from './pages/Masters/Masters'
 import UsersPermissions from './pages/UsersPermissions'
 import AuditLog from './pages/AuditLog'
+import DesignBuildDashboard from './pages/DesignBuild/DesignBuildDashboard'
 import DesignProjectsList from './pages/DesignBuild/ProjectsList'
 import DesignProjectDashboard from './pages/DesignBuild/ProjectDashboard'
 import CompanyInventory from './pages/DesignBuild/CompanyInventory'
@@ -81,6 +82,7 @@ export default function App() {
           element={<RequirePermission perm="financial_reports"><AuditLog /></RequirePermission>}
         />
 
+        <Route path="design-build" element={<RequirePermission perm="design_build_manage"><DesignBuildDashboard /></RequirePermission>} />
         <Route path="design-build/projects" element={<RequirePermission perm="design_build_manage"><DesignProjectsList /></RequirePermission>} />
         <Route path="design-build/projects/:id" element={<RequirePermission perm="design_build_manage"><DesignProjectDashboard /></RequirePermission>} />
         <Route path="design-build/inventory" element={<RequirePermission perm="inventory_operate"><CompanyInventory /></RequirePermission>} />

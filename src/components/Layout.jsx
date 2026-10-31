@@ -18,7 +18,7 @@ import Icon from './icons'
 // already shared. Dashboard and Admin sit outside the switch: Dashboard reads across both
 // businesses at once, and Masters/Users/Audit Log are shared back-office regardless of which
 // workspace is active.
-const PINNED = { to: '/', label: 'Dashboard', icon: 'dashboard', end: true }
+const PINNED = { to: '/', label: 'Factory Dashboard', icon: 'dashboard', end: true }
 
 const WORKSPACES = [
   { key: 'factory', label: 'Factory', icon: 'project' },
@@ -53,6 +53,7 @@ const WORKSPACE_GROUPS = {
     {
       label: 'Design Build',
       items: [
+        { to: '/design-build', label: 'Dashboard', icon: 'dashboard', perm: 'design_build_manage', end: true },
         { to: '/design-build/projects', label: 'Projects', icon: 'layers', perm: 'design_build_manage' },
         { to: '/design-build/inventory', label: 'Company Inventory', icon: 'inventory', perm: 'inventory_operate' },
         { to: '/design-build/slip', label: 'Consumption / Transfer Slip', icon: 'transfer', perm: 'inventory_operate' },

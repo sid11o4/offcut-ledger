@@ -2,12 +2,13 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
-import { PageHeader, Card, StatCard, StatusBadge, EmptyState, LoadingBlock } from '../components/ui'
+import { PageHeader, Card, Tile, StatusBadge, EmptyState, LoadingBlock } from '../components/ui'
 import { today, startOfThisMonth, displayDate } from '../lib/dates'
 import { money } from '../lib/format'
 
+// The Factory dashboard: job-work, billing and expenses only. Design Build has its own dashboard.
 export default function Dashboard() {
-  const { hasPermission, profile } = useAuth()
+  const { hasPermission } = useAuth()
   const t = today()
   const monthStart = startOfThisMonth()
 
@@ -80,129 +81,79 @@ export default function Dashboard() {
     },
   })
 
-  // One figure for both businesses at once (owner's request: "let the dashboard be
-  // integrated") even though the sidebar now keeps their menus apart -- a Design Build
-  // summary alongside Factory's, not a separate dashboard behind the workspace switch.
-  const canSeeDesignBuild = hasPermission('design_build_manage') || hasPermission('inventory_operate') || hasPermission('supplier_bills_manage')
-  const designBuildQ = useQuery({
-    queryKey: ['dash-design-build'],
-    enabled: canSeeDesignBuild,
-    queryFn: async () => {
-      const [projects, companyStock, pendingBills] = await Promise.all([
-        supabase.rpc('report_design_projects_summary'),
-        supabase.rpc('report_company_inventory_value'),
-        supabase.from('supplier_bills').select('id, grand_total').eq('status', 'pending_review'),
-      ])
-      if (projects.error) throw projects.error
-      if (companyStock.error) throw companyStock.error
-      if (pendingBills.error) throw pendingBills.error
-      const projectInventory = (projects.data || []).reduce((s, p) => s + Number(p.current_inventory_value || 0), 0)
-      const companyInventory = (companyStock.data || []).reduce((s, r) => s + Number(r.value || 0), 0)
-      return {
-        activeProjects: (projects.data || []).filter((p) => p.status === 'active').length,
-        totalInventoryValue: projectInventory + companyInventory,
-        pendingBillsCount: pendingBills.data?.length || 0,
-        pendingBillsTotal: (pendingBills.data || []).reduce((s, b) => s + Number(b.grand_total), 0),
-        topProjects: (projects.data || []).slice(0, 5),
-      }
-    },
-  })
+  const todayNet = (todayQ.data?.revenue || 0) - (todayQ.data?.expenses || 0)
+  const monthNet = (monthQ.data?.revenue || 0) - (monthQ.data?.expenseTotal || 0)
 
   return (
     <div>
-      <PageHeader title="Dashboard" subtitle={profile?.full_name ? `Signed in as ${profile.full_name}` : 'Factory overview'} />
+      <PageHeader title="Factory Dashboard" subtitle="Job-work, billing and expenses" />
 
-      <Card title="Today's Overview" className="mb-5">
+      <section className="mb-6">
+        <h2 className="mb-3 text-sm font-medium text-ink-800">Today</h2>
         {todayQ.isLoading ? <LoadingBlock /> : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatCard label="Today's Revenue" value={money(todayQ.data?.revenue)} tone="brand" />
-            <StatCard label="Today's Expenses" value={money(todayQ.data?.expenses)} tone="bad" />
-            <StatCard label="Today's Net" value={money((todayQ.data?.revenue || 0) - (todayQ.data?.expenses || 0))} tone={(todayQ.data?.revenue || 0) - (todayQ.data?.expenses || 0) >= 0 ? 'ok' : 'bad'} />
-            <StatCard label="Jobs / Projects Worked" value={`${todayQ.data?.jobs || 0} / ${todayQ.data?.projects || 0}`} />
+          <div className="stagger grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Tile label="Revenue" value={money(todayQ.data?.revenue)} />
+            <Tile label="Expenses" value={money(todayQ.data?.expenses)} />
+            <Tile label="Net" value={money(todayNet)} sub={todayNet >= 0 ? 'In profit today' : 'Spent more than earned'} />
+            <Tile label="Jobs · projects worked" value={`${todayQ.data?.jobs || 0} · ${todayQ.data?.projects || 0}`} />
           </div>
         )}
-      </Card>
+      </section>
 
-      <Card title="This Month" className="mb-5">
+      <section className="mb-6">
+        <h2 className="mb-3 text-sm font-medium text-ink-800">This month</h2>
         {monthQ.isLoading ? <LoadingBlock /> : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatCard label="Revenue" value={money(monthQ.data?.revenue)} tone="brand" />
-            <StatCard label="Expenses" value={money(monthQ.data?.expenseTotal)} tone="bad" />
-            <StatCard label="Net Contribution" value={money((monthQ.data?.revenue || 0) - (monthQ.data?.expenseTotal || 0))} tone={(monthQ.data?.revenue || 0) - (monthQ.data?.expenseTotal || 0) >= 0 ? 'ok' : 'bad'} />
-            <StatCard label="Unbilled Work" value={money(monthQ.data?.billing?.unbilled_revenue)} tone="warn" />
+          <div className="stagger grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Tile label="Revenue" value={money(monthQ.data?.revenue)} />
+            <Tile label="Expenses" value={money(monthQ.data?.expenseTotal)} />
+            <Tile label="Net contribution" value={money(monthNet)} sub={monthNet >= 0 ? 'Ahead for the month' : 'Behind for the month'} />
+            <Tile label="Unbilled work" value={money(monthQ.data?.billing?.unbilled_revenue)} sub="Done but not yet billed" />
           </div>
         )}
-      </Card>
+      </section>
 
-      {canSeeDesignBuild && (
-        <Card title="Design Build" className="mb-5">
-          {designBuildQ.isLoading ? <LoadingBlock /> : (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              <StatCard label="Active projects" value={designBuildQ.data?.activeProjects ?? 0} />
-              <StatCard label="Inventory on hand (company + projects)" value={money(designBuildQ.data?.totalInventoryValue)} money />
-              <StatCard
-                label="Bills awaiting approval"
-                value={designBuildQ.data?.pendingBillsCount ?? 0}
-                sub={designBuildQ.data?.pendingBillsCount ? money(designBuildQ.data.pendingBillsTotal) : undefined}
-                tone={designBuildQ.data?.pendingBillsCount ? 'warn' : 'neutral'}
-              />
-            </div>
-          )}
-          {!!designBuildQ.data?.topProjects?.length && (
-            <ul className="mt-4 pt-3 border-t border-ink-100 space-y-1.5">
-              {designBuildQ.data.topProjects.map((p) => (
-                <li key={p.id} className="flex justify-between text-sm">
-                  <Link to={`/design-build/projects/${p.id}`} className="hover:underline">{p.name}</Link>
-                  <span className="font-medium">{money(p.current_inventory_value)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      )}
-
-      <div className="grid lg:grid-cols-3 gap-5 mb-5">
-        <Card title="Revenue by Project (this month)">
+      <div className="grid gap-5 lg:grid-cols-3">
+        <Card title="Revenue by project (this month)">
           {!monthQ.data?.byProject?.length ? <EmptyState title="No revenue yet" /> : (
-            <ul className="space-y-1.5">
+            <ul className="space-y-2">
               {monthQ.data.byProject.slice(0, 8).map((r) => (
                 <li key={r.project_id} className="flex justify-between text-sm">
                   <Link to={`/projects/${r.project_id}`} className="hover:underline">{r.project_name}</Link>
-                  <span className="font-medium">{money(r.revenue)}</span>
+                  <span className="tnum font-medium">{money(r.revenue)}</span>
                 </li>
               ))}
             </ul>
           )}
         </Card>
-        <Card title="Revenue by Process (this month)">
+        <Card title="Revenue by process (this month)">
           {!opsQ.data?.process?.length ? <EmptyState title="No data" /> : (
-            <ul className="space-y-1.5">
+            <ul className="space-y-2">
               {opsQ.data.process.map((r) => (
-                <li key={r.process_id} className="flex justify-between text-sm"><span>{r.process_name}</span><span className="font-medium">{money(r.revenue)}</span></li>
+                <li key={r.process_id} className="flex justify-between text-sm"><span>{r.process_name}</span><span className="tnum font-medium">{money(r.revenue)}</span></li>
               ))}
             </ul>
           )}
         </Card>
-        <Card title="Revenue by Rate Category (this month)">
+        <Card title="Revenue by rate category (this month)">
           {!opsQ.data?.category?.length ? <EmptyState title="No data" /> : (
-            <ul className="space-y-1.5">
+            <ul className="space-y-2">
               {opsQ.data.category.map((r) => (
-                <li key={r.rate_category_id} className="flex justify-between text-sm"><span>{r.rate_category_name}</span><span className="font-medium">{money(r.revenue)}</span></li>
+                <li key={r.rate_category_id} className="flex justify-between text-sm"><span>{r.rate_category_name}</span><span className="tnum font-medium">{money(r.revenue)}</span></li>
               ))}
             </ul>
           )}
         </Card>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-5">
+      <div className="mt-5 grid gap-5 lg:grid-cols-3">
         {canSeeFinancials && (
-          <Card title="Recent Bills">
+          <Card title="Recent bills">
             {financialQ.isLoading ? <LoadingBlock /> : !financialQ.data?.bills.length ? <EmptyState title="No bills yet" /> : (
               <ul className="divide-y divide-ink-100">
                 {financialQ.data.bills.map((b) => (
-                  <li key={b.id} className="py-2 text-sm flex justify-between items-center">
+                  <li key={b.id} className="flex items-center justify-between py-2.5 text-sm">
                     <Link to={`/billing/${b.id}`} className="text-brand-700 hover:underline">{b.bill_number}</Link>
-                    <span className="font-medium">{money(b.grand_total)}</span>
+                    <span className="tnum font-medium">{money(b.grand_total)}</span>
                     <StatusBadge status={b.status} />
                   </li>
                 ))}
@@ -210,26 +161,26 @@ export default function Dashboard() {
             )}
           </Card>
         )}
-        <Card title="Recent Estimates">
+        <Card title="Recent estimates">
           {financialQ.isLoading && canSeeFinancials ? <LoadingBlock /> : !financialQ.data?.estimates?.length ? <EmptyState title="No estimates yet" /> : (
             <ul className="divide-y divide-ink-100">
               {financialQ.data?.estimates.map((e) => (
-                <li key={e.id} className="py-2 text-sm flex justify-between items-center">
+                <li key={e.id} className="flex items-center justify-between py-2.5 text-sm">
                   <Link to={`/estimates/${e.id}`} className="text-brand-700 hover:underline">{e.estimate_number}</Link>
-                  <span className="font-medium">{money(e.grand_total)}</span>
+                  <span className="tnum font-medium">{money(e.grand_total)}</span>
                   <StatusBadge status={e.status} />
                 </li>
               ))}
             </ul>
           )}
         </Card>
-        <Card title="Recent Expenses">
+        <Card title="Recent expenses">
           {recentExpensesQ.isLoading ? <LoadingBlock /> : !recentExpensesQ.data?.length ? <EmptyState title="No expenses yet" /> : (
             <ul className="divide-y divide-ink-100">
               {recentExpensesQ.data.map((x) => (
-                <li key={x.id} className="py-2 text-sm flex justify-between items-center">
+                <li key={x.id} className="flex items-center justify-between py-2.5 text-sm">
                   <span>{x.expense_categories?.name} <span className="text-ink-400">· {displayDate(x.expense_date)}</span></span>
-                  <span className="font-medium">{money(x.amount)}</span>
+                  <span className="tnum font-medium">{money(x.amount)}</span>
                 </li>
               ))}
             </ul>
