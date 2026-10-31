@@ -275,7 +275,10 @@ export default function Layout() {
         </header>
 
         <main className="flex-1 p-4 md:p-6 max-w-[1280px] w-full mx-auto">
-          <Outlet />
+          {/* Keyed on the route, so every page enters with the same short, eased rise. */}
+          <div key={location.pathname} className="page-in">
+            <Outlet />
+          </div>
         </main>
       </div>
 

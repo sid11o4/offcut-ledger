@@ -45,7 +45,7 @@ export default function DesignProjectsList() {
                   <th className="num">Internal Order</th><th className="num">Inventory on hand</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="stagger">
                 {rows.map((p) => (
                   <tr key={p.id}>
                     <td className="font-mono text-xs text-ink-500">{p.code}</td>

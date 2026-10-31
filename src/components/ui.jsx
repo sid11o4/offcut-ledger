@@ -125,10 +125,14 @@ export function Spinner({ className = '' }) {
   )
 }
 
+// Shimmering placeholder lines in the shape of content, so a page loads into its own layout.
 export function LoadingBlock({ label = 'Loading…' }) {
   return (
-    <div className="flex items-center gap-2 text-ink-500 text-sm py-8 justify-center">
-      <Spinner /> {label}
+    <div role="status" className="space-y-3 py-6">
+      <span className="sr-only">{label}</span>
+      <div className="skeleton h-4 w-2/5 rounded" />
+      <div className="skeleton h-4 w-full rounded" />
+      <div className="skeleton h-4 w-4/5 rounded" />
     </div>
   )
 }

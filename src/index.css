@@ -77,3 +77,89 @@
 @layer utilities {
   .tnum { font-variant-numeric: tabular-nums; }
 }
+
+/* Motion. One ease-out curve for everything that responds to the user, short durations, and no
+   motion on anything that happens hundreds of times a day. Transform and opacity only. */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(16px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+.page-in { animation: page-in 280ms var(--ease-out) both; }
+.toast-in { animation: toast-in 300ms var(--ease-out) both; }
+
+/* Lists and card grids rise in, each row a few milliseconds after the one above. */
+.stagger > * { animation: row-in 300ms var(--ease-out) both; }
+.stagger > :nth-child(2) { animation-delay: 40ms; }
+.stagger > :nth-child(3) { animation-delay: 80ms; }
+.stagger > :nth-child(4) { animation-delay: 120ms; }
+.stagger > :nth-child(5) { animation-delay: 160ms; }
+.stagger > :nth-child(6) { animation-delay: 200ms; }
+
+.skeleton {
+  background: linear-gradient(90deg, #f1f2f4 25%, #e5e7eb 37%, #f1f2f4 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* Presses answer at once; hover and focus colour changes ease rather than snap. */
+.btn {
+  transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out),
+    transform 160ms var(--ease-out), box-shadow 200ms var(--ease-out);
+}
+.btn:not(:disabled):active { transform: scale(0.97); }
+.btn-primary:not(:disabled):hover { box-shadow: 0 1px 2px rgba(10, 10, 10, 0.18); }
+
+.card {
+  transition: border-color 200ms var(--ease-out), box-shadow 200ms var(--ease-out);
+}
+/* A card that is a link lifts a hair on hover; still a border, with a soft shadow only in motion. */
+a.card:hover, .card-interactive:hover {
+  border-color: #cfd3da;
+  box-shadow: 0 8px 24px -16px rgba(10, 10, 10, 0.28);
+}
+
+.field-input {
+  transition: border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+}
+
+.table-base tbody tr { transition: background-color 150ms var(--ease-out); }
+
+.rail-item {
+  transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out), transform 160ms var(--ease-out);
+}
+.rail-item:active { transform: scale(0.94); }
+
+/* Keyboard focus is always visible and drawn in the ink colour, not the browser's blue. */
+:focus-visible {
+  outline: 2px solid rgba(10, 10, 10, 0.35);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  .skeleton { animation: none; }
+}

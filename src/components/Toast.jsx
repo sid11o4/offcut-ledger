@@ -31,7 +31,7 @@ export function ToastProvider({ children }) {
             key={t.id}
             role="status"
             onClick={() => dismiss(t.id)}
-            className={`cursor-pointer rounded-md border px-4 py-3 text-sm shadow-lg ${
+            className={`toast-in cursor-pointer rounded-lg border px-4 py-3 text-sm shadow-[0_12px_32px_-12px_rgba(10,10,10,0.28)] ${
               t.tone === 'ok'
                 ? 'bg-green-50 border-green-200 text-ok'
                 : t.tone === 'bad'
