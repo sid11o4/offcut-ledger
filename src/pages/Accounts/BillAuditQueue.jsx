@@ -32,6 +32,31 @@ async function classifyBillFile(path, mime) {
   return data.classification
 }
 
+// FORMGRID bill numbers are compared ignoring case, spaces and dashes, so "FG 2587" matches "FG-2587".
+function billKey(number) {
+  return String(number ?? '').replace(/[\s-]+/g, '').toUpperCase()
+}
+
+// The bills an uploaded document can attach to: the slips in this upload, or, when there are none,
+// the bill open in the queue.
+async function billCandidates(slipBills, selectedId, rows) {
+  if (slipBills.length) {
+    const { data } = await supabase.from('supplier_bills').select('id, internal_bill_number')
+      .in('id', slipBills.map((b) => b.id))
+    return data || []
+  }
+  const selected = rows.find((r) => r.id === selectedId)
+  return selected ? [{ id: selected.id, internal_bill_number: selected.internal_bill_number }] : []
+}
+
+// A document that carries a FORMGRID number belongs to that bill, or to none. A document with no
+// number belongs to the only candidate, and to none when there are several.
+function matchBill(number, candidates) {
+  const key = billKey(number)
+  if (key) return candidates.find((c) => billKey(c.internal_bill_number) === key) ?? null
+  return candidates.length === 1 ? candidates[0] : null
+}
+
 export default function BillAuditQueue() {
   const toast = useToast()
   const qc = useQueryClient()
@@ -76,51 +101,65 @@ export default function BillAuditQueue() {
   }
 
   // Each file is classified on its own, so one upload can mix kinds. A FORMGRID slip becomes a
-  // bill and is scanned. A vendor bill, GST invoice or other document is attached as an annexure
-  // to the first slip in this upload, or to the bill open in the panel. If classification is
-  // unavailable, the file is scanned as a slip, as it was before this step existed.
+  // bill and is scanned. A vendor bill, GST invoice or other document is attached to the bill whose
+  // FORMGRID number it carries, which is written on top of it by hand. A document with no number
+  // goes to the only bill it could belong to. Anything that matches no bill is not attached and is
+  // listed, so it can be attached from that bill's details. If classification is unavailable, the
+  // file is scanned as a slip, as it was before this step existed.
   async function handleUpload(e) {
     const files = Array.from(e.target.files || [])
     e.target.value = ''
     if (!files.length) return
     setUploading(true)
     const slipBills = []
-    const annexures = []
+    const docs = []
     let failed = 0
     for (const file of files) {
       try {
         const path = await storeBillFile(profile.id, file)
-        let kind = 'formgrid_slip'
+        let c = { kind: 'formgrid_slip', formgrid_bill_number: null }
         try {
-          kind = (await classifyBillFile(path, file.type)).kind
+          c = await classifyBillFile(path, file.type)
         } catch { /* unavailable: scan it as a slip */ }
-        if (kind === 'formgrid_slip') slipBills.push(await createSlipBill(path))
-        else annexures.push({ path, file, kind })
+        if (c.kind === 'formgrid_slip') slipBills.push(await createSlipBill(path))
+        else docs.push({ path, file, kind: c.kind, number: c.formgrid_bill_number })
       } catch (err) {
         failed += 1
         toast.error(`${file.name}: ${err.message || err}`)
       }
     }
-    const targetId = slipBills[0]?.id ?? selectedId
-    if (annexures.length) {
-      if (!targetId) {
-        toast.error('Scan a FORMGRID slip first, then attach these documents to it.')
-      } else {
-        const { error } = await supabase.from('supplier_bill_annexures').insert(annexures.map((x) => ({
-          bill_id: targetId,
-          kind: x.kind === 'vendor_bill' || x.kind === 'gst_invoice' ? x.kind : 'other',
-          file_path: x.path,
-          file_name: x.file.name,
-          mime_type: x.file.type,
-          size_bytes: x.file.size,
-        })))
-        if (error) toast.error(error.message)
-        else {
-          qc.invalidateQueries({ queryKey: ['supplier_bill_annexures', targetId] })
-          toast.success(`${annexures.length} document${annexures.length === 1 ? '' : 's'} attached as annexures`)
-        }
+
+    // Slips take their final bill numbers from the scan, so match against those, not PENDING ones.
+    const candidates = await billCandidates(slipBills, selectedId, rows)
+    const byBill = new Map()
+    const unmatched = []
+    for (const d of docs) {
+      const target = matchBill(d.number, candidates)
+      if (!target) { unmatched.push(d.file.name); continue }
+      if (!byBill.has(target.id)) byBill.set(target.id, [])
+      byBill.get(target.id).push({
+        bill_id: target.id,
+        kind: d.kind === 'vendor_bill' || d.kind === 'gst_invoice' ? d.kind : 'other',
+        file_path: d.path,
+        file_name: d.file.name,
+        mime_type: d.file.type,
+        size_bytes: d.file.size,
+      })
+    }
+    let attached = 0
+    for (const [billId, list] of byBill) {
+      const { error } = await supabase.from('supplier_bill_annexures').insert(list)
+      if (error) toast.error(error.message)
+      else {
+        attached += list.length
+        qc.invalidateQueries({ queryKey: ['supplier_bill_annexures', billId] })
       }
     }
+    if (unmatched.length) {
+      toast.error(`${unmatched.join(', ')}: no bill in this upload carries its FORMGRID number. Attach ${unmatched.length === 1 ? 'it' : 'them'} from that bill's details.`)
+    }
+    if (attached) toast.success(`${attached} document${attached === 1 ? '' : 's'} attached as annexures`)
+
     setUploading(false)
     qc.invalidateQueries({ queryKey: ['supplier_bills_queue'] })
     if (slipBills.length) toast.success(slipBills.length === 1 ? 'Bill scanned — review below.' : `${slipBills.length} bills scanned — review below.`)

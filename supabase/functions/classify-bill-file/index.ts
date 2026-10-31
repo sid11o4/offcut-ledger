@@ -37,6 +37,7 @@ const CLASSIFY_TOOL = {
       confidence: { type: 'number', description: '0-1 confidence in the kind.' },
       reason: { type: 'string', description: 'One short sentence on what in the document shows the kind.' },
       vendor_invoice_number: { type: ['string', 'null'], description: 'The vendor\'s own invoice or bill number if printed, else null.' },
+      formgrid_bill_number: { type: ['string', 'null'], description: 'The FORMGRID bill number written by hand or printed at the top of a vendor or GST document, e.g. FG-2587. Null if there is none.' },
     },
     required: ['kind', 'confidence', 'reason'],
   },
