@@ -187,9 +187,9 @@ export default function DailyLog() {
 // What an Internal Order job uses per sheet, read from the job's name: a double-side job uses a raw
 // board and two laminates, a single-side job a raw board and one laminate, and plain cutting a core.
 const LAMINATION = {
-  double: { title: 'Double side · 2 skins', hint: 'Each sheet uses one raw board and two laminates (skin 1 and skin 2).' },
-  single: { title: 'Single side · 1 skin', hint: 'Each sheet uses one raw board and one laminate (skin 1).' },
-  core: { title: 'Cutting · core', hint: 'Each sheet uses one core board.' },
+  double: { title: 'Double side · 2 skins', hint: 'Each sheet uses one raw board and two laminates. Type the board as thickness, category and type (e.g. 16MM MR PLY) and each laminate as its code (e.g. 6965SUD); stock is matched from that.' },
+  single: { title: 'Single side · 1 skin', hint: 'Each sheet uses one raw board and one laminate. Type the board as thickness, category and type (e.g. 16MM MR PLY) and the laminate as its code (e.g. 6965SUD); stock is matched from that.' },
+  core: { title: 'Cutting · core', hint: 'Each sheet uses one core board. Type it as thickness, category and type (e.g. 16MM MR PLY).' },
 }
 
 function laminationFor(serviceName) {
@@ -199,10 +199,42 @@ function laminationFor(serviceName) {
   return null
 }
 
-// Returns the inventory item id for a material name, creating the item (as negative stock, to be
-// reconciled by a later purchase) when it is not in inventory yet. Nothing is blocked for it.
-async function ensureItem(name) {
-  const { data, error } = await supabase.rpc('ensure_inventory_item', { p_name: name.trim(), p_unit_code: 'SHEET' })
+// Lower-case words of a material name, split on anything that is not a letter or digit.
+function materialWords(text) {
+  return String(text ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+}
+
+// The stock item a typed material refers to, or null. A raw board is matched on every word typed
+// (thickness, category, type), and Century is preferred because it is the brand in use. A laminate
+// is matched on its code, wherever the code sits in the stock name.
+function matchMaterial(kind, typed, items) {
+  const words = materialWords(typed)
+  if (!words.length) return null
+  if (kind === 'laminate') {
+    const code = words.join('')
+    return items.find((i) => materialWords(i.name).join('').includes(code)) ?? null
+  }
+  const candidates = items.filter((i) => {
+    const have = materialWords(i.name)
+    return words.every((w) => have.includes(w))
+  })
+  return candidates.find((i) => materialWords(i.name)[0] === 'century') ?? candidates[0] ?? null
+}
+
+// A raw board typed without a brand is Century; one that starts with a brand name is kept as typed.
+function rawBoardName(typed) {
+  const clean = String(typed).trim().replace(/\s+/g, ' ')
+  return /^\d/.test(clean) ? `Century ${clean.toUpperCase()}` : clean
+}
+
+// The inventory item id for a typed material: the matching stock item when there is one, otherwise a
+// new item (as negative stock, to be reconciled by a later purchase). Nothing is blocked for it.
+async function resolveMaterial(kind, typed, items) {
+  const text = String(typed ?? '').trim()
+  const hit = matchMaterial(kind, text, items)
+  if (hit) return hit.id
+  const name = kind === 'raw' ? rawBoardName(text) : text.toUpperCase()
+  const { data, error } = await supabase.rpc('ensure_inventory_item', { p_name: name, p_unit_code: 'SHEET' })
   if (error) throw error
   return data
 }
@@ -288,10 +320,11 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
         if (!laminate.raw.trim()) throw new Error(lamKind === 'core' ? 'Enter the core board.' : 'Enter the raw board.')
         if (lamKind !== 'core' && !laminate.skin1.trim()) throw new Error('Enter the skin 1 laminate code.')
         if (lamKind === 'double' && !laminate.skin2.trim()) throw new Error('Enter the skin 2 laminate code.')
+        const items = inventoryItemsQ.data || []
         const [rawId, skin1Id, skin2Id] = await Promise.all([
-          ensureItem(laminate.raw),
-          lamKind !== 'core' ? ensureItem(laminate.skin1) : null,
-          lamKind === 'double' ? ensureItem(laminate.skin2) : null,
+          resolveMaterial('raw', laminate.raw, items),
+          lamKind !== 'core' ? resolveMaterial('laminate', laminate.skin1, items) : null,
+          lamKind === 'double' ? resolveMaterial('laminate', laminate.skin2, items) : null,
         ])
         lamination = {
           p_raw_material_item_id: rawId, p_raw_material_qty: sheets,
@@ -391,7 +424,7 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
                 <label className="field-label">{lamKind === 'core' ? 'Core board' : 'Raw board'}</label>
                 <input
                   className="field-input" list="inventory-materials"
-                  placeholder={lamKind === 'core' ? 'e.g. 18mm core board' : 'e.g. 18mm MR Ply'}
+                  placeholder={lamKind === 'core' ? 'e.g. 16MM CORE' : 'e.g. 16MM MR PLY'}
                   value={laminate.raw} onChange={(e) => setLaminate({ ...laminate, raw: e.target.value })}
                 />
               </div>
