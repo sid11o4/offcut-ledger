@@ -184,6 +184,21 @@ export default function DailyLog() {
   )
 }
 
+// What an Internal Order job uses per sheet, read from the job's name: a double-side job uses a raw
+// board and two laminates, a single-side job a raw board and one laminate, and plain cutting a core.
+const LAMINATION = {
+  double: { title: 'Double side · 2 skins', hint: 'Each sheet uses one raw board and two laminates (skin 1 and skin 2).' },
+  single: { title: 'Single side · 1 skin', hint: 'Each sheet uses one raw board and one laminate (skin 1).' },
+  core: { title: 'Cutting · core', hint: 'Each sheet uses one core board.' },
+}
+
+function laminationFor(serviceName) {
+  if (/double side/i.test(serviceName)) return 'double'
+  if (/single side/i.test(serviceName)) return 'single'
+  if (/cutting/i.test(serviceName)) return 'core'
+  return null
+}
+
 // Returns the inventory item id for a material name, creating the item (as negative stock, to be
 // reconciled by a later purchase) when it is not in inventory yet. Nothing is blocked for it.
 async function ensureItem(name) {
@@ -202,9 +217,9 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
   const [overrides, setOverrides] = useState({}) // componentServiceId -> {rate, reason}
   const [saving, setSaving] = useState(false)
   const [showNewProject, setShowNewProject] = useState(false)
-  // Internal Order lamination: a sheet count, the raw board, and the laminate(s) each sheet uses.
-  // Single side = one laminate (skin 1); double side = two (skin 1 and skin 2).
-  const [laminate, setLaminate] = useState({ side: 'single', sheets: '', raw: '', skin1: '', skin2: '' })
+  // Internal Order lamination: the board and laminate codes for the job. How many of each is the
+  // sheet quantity entered above, and which fields show is set by the job's name.
+  const [laminate, setLaminate] = useState({ raw: '', skin1: '', skin2: '' })
   const confirm = useConfirm()
   const inventoryItemsQ = useInventoryItems()
 
@@ -213,6 +228,7 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
   // Internal Order (spec): billing for this rate category captures Raw Material/Skin1/Skin2,
   // and that quantity is added to the linked Design Build project's consumption automatically.
   const isInternalOrder = project?.rate_categories?.code === 'INTERNAL'
+  const lamKind = isInternalOrder && service ? laminationFor(service.name) : null
 
   // Units this service can be logged in for the project's rate category as of the log date.
   const unitOptions = useMemo(() => {
@@ -265,20 +281,21 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
     setSaving(true)
     // One sheet uses one raw board and one laminate per side, so every quantity is the sheet count.
     let lamination = {}
-    if (isInternalOrder) {
+    if (lamKind) {
       try {
-        const sheets = Number(laminate.sheets)
-        if (!(sheets > 0)) throw new Error('Enter how many sheets were used.')
-        if (!laminate.raw.trim() || !laminate.skin1.trim()) throw new Error('Enter the raw board and the skin 1 laminate.')
-        if (laminate.side === 'double' && !laminate.skin2.trim()) throw new Error('Enter the skin 2 laminate for a double-side job.')
+        const sheets = Number(quantity)
+        if (!(sheets > 0)) throw new Error('Enter the quantity in sheets.')
+        if (!laminate.raw.trim()) throw new Error(lamKind === 'core' ? 'Enter the core board.' : 'Enter the raw board.')
+        if (lamKind !== 'core' && !laminate.skin1.trim()) throw new Error('Enter the skin 1 laminate code.')
+        if (lamKind === 'double' && !laminate.skin2.trim()) throw new Error('Enter the skin 2 laminate code.')
         const [rawId, skin1Id, skin2Id] = await Promise.all([
           ensureItem(laminate.raw),
-          ensureItem(laminate.skin1),
-          laminate.side === 'double' ? ensureItem(laminate.skin2) : null,
+          lamKind !== 'core' ? ensureItem(laminate.skin1) : null,
+          lamKind === 'double' ? ensureItem(laminate.skin2) : null,
         ])
         lamination = {
           p_raw_material_item_id: rawId, p_raw_material_qty: sheets,
-          p_skin1_item_id: skin1Id, p_skin1_qty: sheets,
+          p_skin1_item_id: skin1Id, p_skin1_qty: skin1Id ? sheets : null,
           p_skin2_item_id: skin2Id, p_skin2_qty: skin2Id ? sheets : null,
         }
       } catch (err) {
@@ -300,7 +317,7 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
     }
     toast.success('Job work logged.')
     setServiceId(''); setUnitId(''); setQuantity(''); setRemarks(''); setOverrideOn(false); setOverrides({})
-    setLaminate({ side: 'single', sheets: '', raw: '', skin1: '', skin2: '' })
+    setLaminate({ raw: '', skin1: '', skin2: '' })
     onSaved()
   }
 
@@ -360,51 +377,34 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
           <input className="field-input" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
         </div>
 
-        {isInternalOrder && (
+        {lamKind && (
           <div className="space-y-3 rounded-lg border border-ink-200 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-sm font-medium text-ink-900">
-                <Badge tone="brand">Internal Order</Badge> Lamination
+                <Badge tone="brand">Internal Order</Badge> {LAMINATION[lamKind].title}
               </div>
-              <div role="radiogroup" aria-label="Side" className="inline-flex rounded-md border border-ink-200 p-0.5 text-xs">
-                {[['single', 'Single side'], ['double', 'Double side']].map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    role="radio"
-                    aria-checked={laminate.side === value}
-                    onClick={() => setLaminate({ ...laminate, side: value })}
-                    className={`rounded px-3 py-1.5 font-medium transition-colors duration-150 ${laminate.side === value ? 'bg-ink-900 text-white' : 'text-ink-600 hover:bg-ink-100'}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <span className="tnum text-xs text-ink-500">{quantity || 0} sheets</span>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className={`grid gap-3 ${lamKind === 'double' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
               <div>
-                <label className="field-label">Sheets</label>
+                <label className="field-label">{lamKind === 'core' ? 'Core board' : 'Raw board'}</label>
                 <input
-                  className="field-input tnum" type="number" min="0" step="1" placeholder="How many sheets"
-                  value={laminate.sheets} onChange={(e) => setLaminate({ ...laminate, sheets: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="field-label">Raw board</label>
-                <input
-                  className="field-input" list="inventory-materials" placeholder="e.g. 18mm MR Ply"
+                  className="field-input" list="inventory-materials"
+                  placeholder={lamKind === 'core' ? 'e.g. 18mm core board' : 'e.g. 18mm MR Ply'}
                   value={laminate.raw} onChange={(e) => setLaminate({ ...laminate, raw: e.target.value })}
                 />
               </div>
-              <div>
-                <label className="field-label">Skin 1 laminate code</label>
-                <input
-                  className="field-input" list="inventory-materials" placeholder="Laminate code"
-                  value={laminate.skin1} onChange={(e) => setLaminate({ ...laminate, skin1: e.target.value })}
-                />
-              </div>
-              {laminate.side === 'double' && (
+              {lamKind !== 'core' && (
+                <div>
+                  <label className="field-label">Skin 1 laminate code</label>
+                  <input
+                    className="field-input" list="inventory-materials" placeholder="Laminate code"
+                    value={laminate.skin1} onChange={(e) => setLaminate({ ...laminate, skin1: e.target.value })}
+                  />
+                </div>
+              )}
+              {lamKind === 'double' && (
                 <div>
                   <label className="field-label">Skin 2 laminate code</label>
                   <input
@@ -416,8 +416,7 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
             </div>
 
             <p className="text-xs text-ink-500">
-              Each sheet uses one raw board{laminate.side === 'double' ? ' and two laminates (skin 1 and skin 2)' : ' and one laminate (skin 1)'}.
-              A material that is not in inventory yet is added automatically and shows as negative stock until it is bought.
+              {LAMINATION[lamKind].hint} A material that is not in inventory yet is added automatically and shows as negative stock until it is bought.
             </p>
             <datalist id="inventory-materials">
               {(inventoryItemsQ.data || []).map((i) => <option key={i.id} value={i.name} />)}
