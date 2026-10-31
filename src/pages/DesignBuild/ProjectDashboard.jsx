@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, StatCard, StatusBadge, EmptyState, LoadingBlock } from '../../components/ui'
@@ -14,6 +14,18 @@ export default function ProjectDashboard() {
   const toast = useToast()
   const qc = useQueryClient()
   const [transferOpen, setTransferOpen] = useState(false)
+  const navigate = useNavigate()
+
+  // The database refuses the delete while the project has bills, slips or stock locations, and
+  // says why, so that message is what the user sees.
+  async function deleteProject() {
+    if (!window.confirm(`Delete ${projectQ.data?.name}? This cannot be undone.`)) return
+    const { error } = await supabase.rpc('delete_design_project', { p_project_id: id })
+    if (error) return toast.error(error.message)
+    invalidateInventory(qc)
+    toast.success(`${projectQ.data?.name} deleted`)
+    navigate('/design-build/projects')
+  }
 
   const projectQ = useQuery({
     queryKey: ['design_project', id],
@@ -79,6 +91,7 @@ export default function ProjectDashboard() {
           <>
             <StatusBadge status={p?.status} />
             <button className="btn-secondary" onClick={() => setTransferOpen(true)}>Transfer stock</button>
+            <button className="btn-danger" onClick={deleteProject}>Delete project</button>
           </>
         }
       />
