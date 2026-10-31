@@ -241,7 +241,7 @@ export default function Layout() {
       {/* Desktop sidebar: a narrow icon strip that opens into the full menu as an overlay while the cursor
           is over it. The overlay floats above the page, so the content never shifts. */}
       <div
-        className="hidden md:block relative shrink-0 w-14 h-screen sticky top-0 z-30"
+        className="hidden md:block relative shrink-0 w-14 h-screen sticky top-0 z-50"
         onMouseEnter={() => setRailHover(true)}
         onMouseLeave={() => setRailHover(false)}
       >
