@@ -10,6 +10,16 @@ import { supabase } from '../lib/supabaseClient'
 const MAX_BYTES = 4 * 1024 * 1024
 const ACCEPT = 'image/png,image/jpeg,image/webp,application/pdf'
 
+// supabase-js reports any non-2xx as "Edge Function returned a non-2xx status code" and keeps the
+// real JSON error on fnError.context; read it so the user sees the actual reason.
+async function invokeError(fnError) {
+  try {
+    const body = await fnError.context?.json()
+    if (body?.error) return body.error
+  } catch { /* body was not JSON */ }
+  return fnError.message
+}
+
 function readAsBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -51,7 +61,7 @@ export default function AskBar() {
       const body = { question: q }
       if (file) body.attachment = { mime: file.type, base64: await readAsBase64(file) }
       const { data, error: fnError } = await supabase.functions.invoke('assistant-query', { body })
-      if (fnError) throw new Error(fnError.message)
+      if (fnError) throw new Error(await invokeError(fnError))
       if (data?.error) throw new Error(data.error)
       if (data.proposal) setProposal(data.proposal)
       else setResult(data.answer)
@@ -68,7 +78,7 @@ export default function AskBar() {
     try {
       const action = { ...proposal, type: proposal.action_type }
       const { data, error: fnError } = await supabase.functions.invoke('assistant-execute', { body: { action } })
-      if (fnError) throw new Error(fnError.message)
+      if (fnError) throw new Error(await invokeError(fnError))
       if (data?.error) throw new Error(data.error)
       setOutcome(data.message)
       setProposal(null)
