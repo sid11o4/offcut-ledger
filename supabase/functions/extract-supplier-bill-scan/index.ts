@@ -45,6 +45,9 @@ const EXTRACT_SCHEMA = {
     supplier_text: { type: ['string', 'null'], description: 'The supplier name exactly as written.' },
     supplier_match: { type: ['string', 'null'], description: 'The EXACT name (character-for-character) from the known supplier list, only if confident this is the same supplier. Otherwise null.' },
     supplier_confidence: { type: 'number', description: '0-1 confidence that supplier_match is correct (0 if supplier_match is null).' },
+    supplier_gstin: { type: ['string', 'null'], description: 'The supplier\'s GSTIN if printed on the slip, exactly as written. Null if absent.' },
+    supplier_phone: { type: ['string', 'null'], description: 'The supplier\'s phone number if printed on the slip. Null if absent.' },
+    supplier_address: { type: ['string', 'null'], description: 'The supplier\'s address if printed on the slip. Null if absent.' },
     project_text: { type: ['string', 'null'], description: 'The Project Name/Code field exactly as written.' },
     project_match: { type: ['string', 'null'], description: 'The EXACT name (character-for-character) from the known Design Build project list, only if confident. Otherwise null.' },
     project_confidence: { type: 'number' },
@@ -194,6 +197,8 @@ Amount in Words, Grand Total, Remarks, Prepared By.
 
 Extract every field. Rates and totals are GST-inclusive as printed -- report rate_inclusive exactly as written, do not compute anything yourself. Use null for any field that is blank or illegible.
 
+If the supplier is not on the known list, still read supplier_text exactly as written, and read any GSTIN, phone and address printed for the supplier into supplier_gstin, supplier_phone and supplier_address. Never copy the FORMGRID company's own details into those fields.
+
 Known suppliers (match supplier_text against this list; supplier_match must be an exact copy from here or null):
 ${[...supplierIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}
 
@@ -220,6 +225,12 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
       bill_date: extracted.bill_date || bill.bill_date,
       supplier_id: supplierId,
       supplier_text: extracted.supplier_text ?? null,
+      supplier_details: {
+        name: extracted.supplier_text ?? null,
+        gstin: extracted.supplier_gstin ?? null,
+        phone: extracted.supplier_phone ?? null,
+        address: extracted.supplier_address ?? null,
+      },
       design_project_id: designProjectId,
       expense_nature: extracted.expense_nature || 'material',
       cost_heads: (extracted.cost_heads || []).filter((h: string) => COST_HEADS.includes(h)),

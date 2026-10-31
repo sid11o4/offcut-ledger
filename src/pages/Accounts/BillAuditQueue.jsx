@@ -143,6 +143,56 @@ export default function BillAuditQueue() {
   )
 }
 
+// Shown when the scan read a supplier name that is not in the suppliers master. Asks before adding,
+// reuses a supplier that already has the same name, and links the bill to it.
+function NewSupplierPrompt({ bill }) {
+  const toast = useToast()
+  const qc = useQueryClient()
+  const [busy, setBusy] = useState(false)
+  const [dismissed, setDismissed] = useState(false)
+  const d = bill.supplier_details || {}
+  const name = (d.name || bill.supplier_text || '').trim()
+  if (dismissed || !name) return null
+
+  async function add() {
+    setBusy(true)
+    const { data: existing, error: findErr } = await supabase.from('suppliers').select('id')
+      .ilike('name', name.replace(/[%_\\]/g, '\\$&')).limit(1)
+    if (findErr) { setBusy(false); return toast.error(findErr.message) }
+    let supplierId = existing?.[0]?.id
+    if (!supplierId) {
+      const { data, error } = await supabase.from('suppliers').insert({
+        name, gstin: d.gstin || null, phone: d.phone || null, address: d.address || null,
+      }).select('id').single()
+      if (error) { setBusy(false); return toast.error(error.message) }
+      supplierId = data.id
+    }
+    const { error } = await supabase.from('supplier_bills').update({ supplier_id: supplierId }).eq('id', bill.id)
+    setBusy(false)
+    if (error) return toast.error(error.message)
+    qc.invalidateQueries({ queryKey: ['suppliers'] })
+    qc.invalidateQueries({ queryKey: ['supplier_bill', bill.id] })
+    qc.invalidateQueries({ queryKey: ['supplier_bills_queue'] })
+    toast.success(`${name} added to suppliers`)
+  }
+
+  return (
+    <div className="rounded-md border border-brand-500 bg-brand-100 p-3 text-sm">
+      <div className="font-medium text-ink-950">New supplier on this bill: {name}</div>
+      <div className="mt-1 text-xs text-ink-600 space-y-0.5">
+        {d.gstin && <div>GSTIN: <span className="tnum">{d.gstin}</span></div>}
+        {d.phone && <div>Phone: <span className="tnum">{d.phone}</span></div>}
+        {d.address && <div>Address: {d.address}</div>}
+        {!d.gstin && !d.phone && !d.address && <div>No GSTIN, phone or address was read from the slip.</div>}
+      </div>
+      <div className="mt-3 flex gap-2">
+        <button className="btn-primary" onClick={add} disabled={busy}>{busy ? 'Adding…' : 'Add to suppliers'}</button>
+        <button className="btn-secondary" onClick={() => setDismissed(true)} disabled={busy}>Not now</button>
+      </div>
+    </div>
+  )
+}
+
 function AuditPanel({ billId, onDone }) {
   const toast = useToast()
   const qc = useQueryClient()
@@ -262,6 +312,7 @@ function AuditPanel({ billId, onDone }) {
       <div className="space-y-4 lg:h-[calc(100vh-180px)] lg:overflow-y-auto lg:pr-1">
         <Card title="Basic details">
           <div className="space-y-3">
+            {billQ.data && !billQ.data.supplier_id && <NewSupplierPrompt bill={billQ.data} />}
             <div className="flex items-center justify-between gap-2">
               <Field label="Supplier">
                 <Select value={b.supplier_id || ''} onChange={(e) => patchBill({ supplier_id: e.target.value || null })}>
