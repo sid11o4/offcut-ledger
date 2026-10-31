@@ -101,11 +101,13 @@
   to { background-position: -100% 0; }
 }
 
-.page-in { animation: page-in 280ms var(--ease-out) both; }
+/* Fill backwards only: a transform kept after the animation would make the page wrapper the
+   reference for fixed dialogs, so they would cover only the content area, not the window. */
+.page-in { animation: page-in 280ms var(--ease-out) backwards; }
 .toast-in { animation: toast-in 300ms var(--ease-out) both; }
 
 /* Lists and card grids rise in, each row a few milliseconds after the one above. */
-.stagger > * { animation: row-in 300ms var(--ease-out) both; }
+.stagger > * { animation: row-in 300ms var(--ease-out) backwards; }
 .stagger > :nth-child(2) { animation-delay: 40ms; }
 .stagger > :nth-child(3) { animation-delay: 80ms; }
 .stagger > :nth-child(4) { animation-delay: 120ms; }
