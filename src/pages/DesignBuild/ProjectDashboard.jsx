@@ -110,10 +110,11 @@ export default function ProjectDashboard() {
       />
 
       <Card title="Financials" className="mb-5">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 divide-x divide-ink-200">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 divide-x divide-ink-200">
           <div><StatCard label="Budget" value={f.budget ? money(f.budget) : '—'} money /></div>
           <div className="pl-4"><StatCard label="Supplier Bills" value={money(f.supplier_bills_total)} money /></div>
           <div className="pl-4"><StatCard label="Internal Order (Factory job-work)" value={money(f.internal_order_total)} money /></div>
+          <div className="pl-4"><StatCard label="Direct expenses" value={money(f.direct_expenses_total)} money /></div>
           <div className="pl-4"><StatCard label="Inventory on hand" value={money(f.current_inventory_value)} money /></div>
         </div>
         {p?.projects && (

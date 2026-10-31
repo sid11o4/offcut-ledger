@@ -36,7 +36,8 @@ export default function AccountsLedger() {
   const ledger = ledgerQ.data || []
   const totalBills = statement.reduce((s, r) => s + Number(r.supplier_bills_total), 0)
   const totalInternal = statement.reduce((s, r) => s + Number(r.internal_order_total), 0)
-  const totalExpense = totalBills + totalInternal
+  const totalDirect = statement.reduce((s, r) => s + Number(r.direct_expenses || 0), 0)
+  const totalExpense = totalBills + totalInternal + totalDirect
 
   let running = 0
   const withBalance = [...ledger].reverse().map((r) => {
@@ -61,15 +62,16 @@ export default function AccountsLedger() {
     <div>
       <PageHeader
         title="Design Build Ledger & Statement"
-        subtitle="Design Build's own books: supplier costs and Internal Order cost, per project."
+        subtitle="Design Build's own books: supplier costs, Internal Order cost and direct expenses, per project and for the company."
         actions={ledger.length > 0 && <button className="btn-secondary text-xs" onClick={exportCsv}>Export CSV</button>}
       />
 
       <Card className="mb-5"><DateRangePicker start={start} end={end} onChange={(s, e) => { setStart(s); setEnd(e) }} /></Card>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <StatCard label="Supplier bills (approved)" value={money(totalBills)} />
         <StatCard label="Internal Order cost" value={money(totalInternal)} />
+        <StatCard label="Direct expenses" value={money(totalDirect)} />
         <StatCard label="Total expense" value={money(totalExpense)} tone="bad" />
       </div>
 
@@ -77,13 +79,14 @@ export default function AccountsLedger() {
         {statementQ.isLoading ? <LoadingBlock /> : !statement.length ? <EmptyState title="No Design Build projects yet" /> : (
           <div className="overflow-x-auto -mx-4">
             <table className="table-base">
-              <thead><tr><th>Project</th><th className="num">Supplier bills</th><th className="num">Internal Order</th><th className="num">Total</th></tr></thead>
+              <thead><tr><th>Project</th><th className="num">Supplier bills</th><th className="num">Internal Order</th><th className="num">Direct</th><th className="num">Total</th></tr></thead>
               <tbody>
                 {statement.map((r) => (
-                  <tr key={r.design_project_id}>
+                  <tr key={r.design_project_id ?? 'company'}>
                     <td>{r.project_name}</td>
                     <td className="num">{money(r.supplier_bills_total)}</td>
                     <td className="num">{money(r.internal_order_total)}</td>
+                    <td className="num">{money(r.direct_expenses)}</td>
                     <td className="num font-medium">{money(r.total_expense)}</td>
                   </tr>
                 ))}

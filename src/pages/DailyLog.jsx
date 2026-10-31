@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext'
 import { Card, StatCard, Badge, EmptyState, LoadingBlock, PageHeader } from '../components/ui'
 import ProjectFormModal from '../components/ProjectFormModal'
 import ScanEdgebandLog from '../components/ScanEdgebandLog'
-import { useProjects, useJobWorkServices, useJobWorkComponents, useRates, useExpenseCategories, useUnits, useInventoryItems } from '../lib/queries'
+import { useProjects, useJobWorkServices, useJobWorkComponents, useRates, useExpenseCategories, useUnits, useInventoryItems, useDesignProjects } from '../lib/queries'
 import { previewEntry, availableUnitsForService } from '../lib/calc'
 import { today, displayDate } from '../lib/dates'
 import { money, qty } from '../lib/format'
@@ -684,20 +684,30 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
   const [projectId, setProjectId] = useState('')
+  // Where the expense is charged: 'factory', 'design_build' (the company), or 'dp:<design project id>'.
+  const [chargeTo, setChargeTo] = useState('factory')
   const [saving, setSaving] = useState(false)
   const [showNewProject, setShowNewProject] = useState(false)
+  const designProjectsQ = useDesignProjects()
+  const designProjects = (designProjectsQ.data || []).filter((p) => p.status !== 'completed')
 
+  // A Factory expense stays in the Factory expenses; anything charged to Design Build goes to the
+  // Design Build expenses, against the company or one of its projects.
   async function submit(e) {
     e.preventDefault()
     setSaving(true)
-    const { error } = await supabase.from('expenses').insert({
-      expense_date: date, category_id: categoryId, amount: Number(amount),
-      description: description || null, project_id: projectId || null, created_by: profile?.id,
-    })
+    const common = { expense_date: date, category_id: categoryId, amount: Number(amount), description: description || null }
+    const { error } = chargeTo === 'factory'
+      ? await supabase.from('expenses').insert({ ...common, project_id: projectId || null, created_by: profile?.id })
+      : await supabase.from('design_build_expenses').insert({
+          ...common,
+          design_project_id: chargeTo.startsWith('dp:') ? chargeTo.slice(3) : null,
+          created_by: profile?.id,
+        })
     setSaving(false)
     if (error) return toast.error(error.message)
-    toast.success('Expense logged.')
-    setCategoryId(''); setAmount(''); setDescription(''); setProjectId('')
+    toast.success(chargeTo === 'factory' ? 'Factory expense logged.' : 'Design Build expense logged.')
+    setCategoryId(''); setAmount(''); setDescription(''); setProjectId(''); setChargeTo('factory')
     onSaved()
   }
 
@@ -729,15 +739,25 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
           <input className="field-input" value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
         <div>
-          <div className="flex items-center justify-between">
-            <label className="field-label mb-0">Project <span className="text-ink-400 font-normal">(optional — leave blank for factory-wide)</span></label>
-            <button type="button" className="btn-ghost text-xs px-2 text-brand-700" onClick={() => setShowNewProject(true)}>+ New</button>
-          </div>
-          <select className="field-input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-            <option value="">Factory-wide</option>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          <label className="field-label">Charge to *</label>
+          <select className="field-input" value={chargeTo} onChange={(e) => setChargeTo(e.target.value)}>
+            <option value="factory">Factory</option>
+            <option value="design_build">Design Build · company</option>
+            {designProjects.map((p) => <option key={p.id} value={`dp:${p.id}`}>Design Build · {p.name}</option>)}
           </select>
         </div>
+        {chargeTo === 'factory' && (
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="field-label mb-0">Factory project <span className="text-ink-400 font-normal">(optional — leave blank for factory-wide)</span></label>
+              <button type="button" className="btn-ghost text-xs px-2 text-brand-700" onClick={() => setShowNewProject(true)}>+ New</button>
+            </div>
+            <select className="field-input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              <option value="">Factory-wide</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+        )}
         <button type="submit" disabled={saving} className="btn-primary w-full">{saving ? 'Saving…' : 'Add Expense'}</button>
       </form>
     </Card>
