@@ -102,6 +102,7 @@ export default function ProjectDashboard() {
         actions={
           <>
             <StatusBadge status={p?.status} />
+            <Link className="btn-secondary" to={`/design-build/projects/${id}/report`}>Project report</Link>
             <button className="btn-secondary" onClick={() => setTransferOpen(true)}>Transfer stock</button>
             {p?.status !== 'completed' && <button className="btn-secondary" onClick={completeProject}>Mark complete</button>}
             <button className="btn-danger" onClick={deleteProject}>Delete project</button>
