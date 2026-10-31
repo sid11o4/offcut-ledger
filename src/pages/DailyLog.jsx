@@ -199,26 +199,123 @@ function laminationFor(serviceName) {
   return null
 }
 
-// Lower-case words of a material name, split on anything that is not a letter or digit.
-function materialWords(text) {
-  return String(text ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+const PART_LABEL = { raw: 'Raw board', skin1: 'Skin 1 laminate', skin2: 'Skin 2 laminate' }
+
+// Lower-case letters and digits only, so spacing, punctuation and capitals do not count.
+function squash(text) {
+  return String(text ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
-// The stock item a typed material refers to, or null. A raw board is matched on every word typed
-// (thickness, category, type), and Century is preferred because it is the brand in use. A laminate
-// is matched on its code, wherever the code sits in the stock name.
-function matchMaterial(kind, typed, items) {
-  const words = materialWords(typed)
-  if (!words.length) return null
-  if (kind === 'laminate') {
-    const code = words.join('')
-    return items.find((i) => materialWords(i.name).join('').includes(code)) ?? null
+// Similarity from 0 (nothing shared) to 1 (identical), on the pairs of characters the two share.
+function similarity(a, b) {
+  if (!a || !b) return 0
+  if (a === b) return 1
+  if (a.length < 2 || b.length < 2) return 0
+  const pairs = (s) => {
+    const m = new Map()
+    for (let i = 0; i < s.length - 1; i++) {
+      const pair = s.slice(i, i + 2)
+      m.set(pair, (m.get(pair) || 0) + 1)
+    }
+    return m
   }
-  const candidates = items.filter((i) => {
-    const have = materialWords(i.name)
-    return words.every((w) => have.includes(w))
-  })
-  return candidates.find((i) => materialWords(i.name)[0] === 'century') ?? candidates[0] ?? null
+  const pa = pairs(a)
+  const pb = pairs(b)
+  let shared = 0
+  for (const [pair, n] of pa) shared += Math.min(n, pb.get(pair) || 0)
+  return (2 * shared) / ((a.length - 1) + (b.length - 1))
+}
+
+// The thickness figures in a name, so a 16 mm board never matches an 18 mm one.
+function thicknessOf(text) {
+  return (String(text ?? '').toLowerCase().match(/\d+/g) || []).join(' ')
+}
+
+// How well a stock name matches what was typed, from 0 to 1. A raw board is compared with and
+// without the Century brand, which is assumed when none is typed. A laminate matches on its code.
+function scoreMaterial(kind, typed, stockName) {
+  const t = squash(typed)
+  const s = squash(stockName)
+  if (!t || !s) return 0
+  if (kind === 'laminate') {
+    if (s === t) return 1
+    // The code as a run of whole words in the stock name ("6965 SUD" for 6965SUD) is a clear match;
+    // the code inside a longer code ("6965SUDS") is only a candidate.
+    const words = String(stockName).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+    for (let i = 0; i < words.length; i++) {
+      let run = ''
+      for (let j = i; j < words.length && run.length < t.length; j++) {
+        run += words[j]
+        if (run === t) return 0.97
+      }
+    }
+    return s.includes(t) ? 0.85 : similarity(t, s)
+  }
+  if (thicknessOf(typed) && thicknessOf(typed) !== thicknessOf(stockName)) return 0
+  return Math.max(similarity(t, s), similarity(squash(`century ${typed}`), s))
+}
+
+// What a typed material refers to. A clear single match is used as it is. Anything less certain is
+// a doubt, with the closest candidates, for the user to decide before the entry is saved. Nothing
+// close at all is a new item.
+function matchFor(kind, typed, items) {
+  const text = String(typed ?? '').trim()
+  const name = kind === 'raw' ? rawBoardName(text) : text.toUpperCase()
+  const ranked = items
+    .map((i) => ({ item: i, score: scoreMaterial(kind, text, i.name) }))
+    .filter((r) => r.score >= 0.5)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+  const top = ranked[0]
+  if (top && top.score >= 0.92 && !(ranked[1] && ranked[1].score >= 0.92)) {
+    return { status: 'match', id: top.item.id, name: top.item.name }
+  }
+  if (!ranked.length) return { status: 'new', name, typed: text }
+  return { status: 'doubt', name, typed: text, candidates: ranked.map((r) => ({ id: r.item.id, name: r.item.name })) }
+}
+
+// The board and laminate(s) of a lamination job, each matched to stock.
+function matchLamination(lamKind, laminate, items) {
+  return {
+    raw: matchFor('raw', laminate.raw, items),
+    skin1: lamKind !== 'core' ? matchFor('laminate', laminate.skin1, items) : null,
+    skin2: lamKind === 'double' ? matchFor('laminate', laminate.skin2, items) : null,
+  }
+}
+
+// What each part will use: a matched item, a new item to create, or -- for a doubt the user has not
+// answered -- the closest candidate, which they can change before saving.
+function defaultPicks(matches) {
+  const picks = {}
+  for (const [key, m] of Object.entries(matches)) {
+    if (!m) continue
+    if (m.status === 'match') picks[key] = { id: m.id }
+    else if (m.status === 'new') picks[key] = { create: m.name }
+    else picks[key] = { id: m.candidates[0].id }
+  }
+  return picks
+}
+
+function hasDoubt(matches) {
+  return Object.values(matches).some((m) => m && m.status === 'doubt')
+}
+
+// The lamination fields for the entry, creating any new item first. Each sheet uses one of each.
+async function laminationArgs(picks, quantity) {
+  const sheets = Number(quantity)
+  const idOf = async (pick) => {
+    if (!pick) return null
+    if (pick.id) return pick.id
+    const { data, error } = await supabase.rpc('ensure_inventory_item', { p_name: pick.create, p_unit_code: 'SHEET' })
+    if (error) throw error
+    return data
+  }
+  const [raw, skin1, skin2] = await Promise.all([idOf(picks.raw), idOf(picks.skin1), idOf(picks.skin2)])
+  return {
+    p_raw_material_item_id: raw, p_raw_material_qty: sheets,
+    p_skin1_item_id: skin1, p_skin1_qty: skin1 ? sheets : null,
+    p_skin2_item_id: skin2, p_skin2_qty: skin2 ? sheets : null,
+  }
 }
 
 // A raw board typed without a brand is Century; one that starts with a brand name is kept as typed.
@@ -227,17 +324,6 @@ function rawBoardName(typed) {
   return /^\d/.test(clean) ? `Century ${clean.toUpperCase()}` : clean
 }
 
-// The inventory item id for a typed material: the matching stock item when there is one, otherwise a
-// new item (as negative stock, to be reconciled by a later purchase). Nothing is blocked for it.
-async function resolveMaterial(kind, typed, items) {
-  const text = String(typed ?? '').trim()
-  const hit = matchMaterial(kind, text, items)
-  if (hit) return hit.id
-  const name = kind === 'raw' ? rawBoardName(text) : text.toUpperCase()
-  const { data, error } = await supabase.rpc('ensure_inventory_item', { p_name: name, p_unit_code: 'SHEET' })
-  if (error) throw error
-  return data
-}
 
 function JobWorkEntryForm({ date, projects, services, components, rates, units, canOverride, toast, onSaved }) {
   const [projectId, setProjectId] = useState('')
@@ -252,6 +338,8 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
   // Internal Order lamination: the board and laminate codes for the job. How many of each is the
   // sheet quantity entered above, and which fields show is set by the job's name.
   const [laminate, setLaminate] = useState({ raw: '', skin1: '', skin2: '' })
+  // Set while a material is not a clear match to stock: the entry waits here until the user picks.
+  const [doubt, setDoubt] = useState(null)
   const confirm = useConfirm()
   const inventoryItemsQ = useInventoryItems()
 
@@ -286,6 +374,37 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
 
   const unitName = units.find((u) => u.id === effectiveUnitId)?.name
 
+  // Saves the entry with the given rate overrides and material picks (null when not a lamination job).
+  async function saveEntry(overrides, picks) {
+    setSaving(true)
+    let lamination = {}
+    if (picks) {
+      try {
+        lamination = await laminationArgs(picks, quantity)
+      } catch (err) {
+        setSaving(false)
+        toast.error(err.message || 'Could not record the laminate.')
+        return
+      }
+    }
+    const { error } = await supabase.rpc('record_job_work_entry', {
+      p_entry_date: date, p_project_id: projectId, p_service_id: serviceId,
+      p_base_quantity: Number(quantity), p_remarks: remarks || null, p_rate_overrides: overrides,
+      p_unit_id: effectiveUnitId || null,
+      ...lamination,
+    })
+    setSaving(false)
+    if (error) {
+      toast.error(error.message)
+      return
+    }
+    toast.success('Job work logged.')
+    setDoubt(null)
+    setServiceId(''); setUnitId(''); setQuantity(''); setRemarks(''); setOverrideOn(false); setOverrides({})
+    setLaminate({ raw: '', skin1: '', skin2: '' })
+    onSaved()
+  }
+
   async function submit(e) {
     e.preventDefault()
     if (preview.missingRates.length && !overrideOn) {
@@ -310,48 +429,20 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
       }
     }
 
-    setSaving(true)
-    // One sheet uses one raw board and one laminate per side, so every quantity is the sheet count.
-    let lamination = {}
+    // Lamination: the sheet count and the parts must be there, and every typed material is matched to
+    // stock. A match that is not clear is put to the user, and nothing is saved until they answer.
     if (lamKind) {
-      try {
-        const sheets = Number(quantity)
-        if (!(sheets > 0)) throw new Error('Enter the quantity in sheets.')
-        if (!laminate.raw.trim()) throw new Error(lamKind === 'core' ? 'Enter the core board.' : 'Enter the raw board.')
-        if (lamKind !== 'core' && !laminate.skin1.trim()) throw new Error('Enter the skin 1 laminate code.')
-        if (lamKind === 'double' && !laminate.skin2.trim()) throw new Error('Enter the skin 2 laminate code.')
-        const items = inventoryItemsQ.data || []
-        const [rawId, skin1Id, skin2Id] = await Promise.all([
-          resolveMaterial('raw', laminate.raw, items),
-          lamKind !== 'core' ? resolveMaterial('laminate', laminate.skin1, items) : null,
-          lamKind === 'double' ? resolveMaterial('laminate', laminate.skin2, items) : null,
-        ])
-        lamination = {
-          p_raw_material_item_id: rawId, p_raw_material_qty: sheets,
-          p_skin1_item_id: skin1Id, p_skin1_qty: skin1Id ? sheets : null,
-          p_skin2_item_id: skin2Id, p_skin2_qty: skin2Id ? sheets : null,
-        }
-      } catch (err) {
-        setSaving(false)
-        toast.error(err.message || 'Could not record the laminate.')
-        return
-      }
+      if (!(Number(quantity) > 0)) { toast.error('Enter the quantity in sheets.'); return }
+      if (!laminate.raw.trim()) { toast.error(lamKind === 'core' ? 'Enter the core board.' : 'Enter the raw board.'); return }
+      if (lamKind !== 'core' && !laminate.skin1.trim()) { toast.error('Enter the skin 1 laminate code.'); return }
+      if (lamKind === 'double' && !laminate.skin2.trim()) { toast.error('Enter the skin 2 laminate code.'); return }
     }
-    const { error } = await supabase.rpc('record_job_work_entry', {
-      p_entry_date: date, p_project_id: projectId, p_service_id: serviceId,
-      p_base_quantity: Number(quantity), p_remarks: remarks || null, p_rate_overrides: payloadOverrides,
-      p_unit_id: effectiveUnitId || null,
-      ...lamination,
-    })
-    setSaving(false)
-    if (error) {
-      toast.error(error.message)
+    const matches = lamKind ? matchLamination(lamKind, laminate, inventoryItemsQ.data || []) : null
+    if (matches && hasDoubt(matches)) {
+      setDoubt({ overrides: payloadOverrides, matches, picks: defaultPicks(matches) })
       return
     }
-    toast.success('Job work logged.')
-    setServiceId(''); setUnitId(''); setQuantity(''); setRemarks(''); setOverrideOn(false); setOverrides({})
-    setLaminate({ raw: '', skin1: '', skin2: '' })
-    onSaved()
+    await saveEntry(payloadOverrides, matches ? defaultPicks(matches) : null)
   }
 
   return (
@@ -454,6 +545,42 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
             <datalist id="inventory-materials">
               {(inventoryItemsQ.data || []).map((i) => <option key={i.id} value={i.name} />)}
             </datalist>
+          </div>
+        )}
+
+        {doubt && (
+          <div role="alertdialog" aria-label="Check materials" className="space-y-4 rounded-lg border border-ink-300 bg-white p-4">
+            <div>
+              <div className="text-sm font-medium text-ink-950">Check these materials before saving</div>
+              <p className="mt-1 text-xs text-ink-500">They are not an exact match to stock. Pick what each one means, or add it as a new item.</p>
+            </div>
+            {Object.entries(doubt.matches).filter(([, m]) => m && m.status === 'doubt').map(([key, m]) => (
+              <fieldset key={key} className="space-y-1.5">
+                <legend className="field-label">{PART_LABEL[key]}: “{m.typed}”</legend>
+                {m.candidates.map((c) => (
+                  <label key={c.id} className="flex cursor-pointer items-center gap-2 text-sm text-ink-900">
+                    <input
+                      type="radio" name={`pick-${key}`} checked={doubt.picks[key].id === c.id}
+                      onChange={() => setDoubt({ ...doubt, picks: { ...doubt.picks, [key]: { id: c.id } } })}
+                    />
+                    {c.name}
+                  </label>
+                ))}
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-600">
+                  <input
+                    type="radio" name={`pick-${key}`} checked={doubt.picks[key].create !== undefined}
+                    onChange={() => setDoubt({ ...doubt, picks: { ...doubt.picks, [key]: { create: m.name } } })}
+                  />
+                  Add as new: {m.name}
+                </label>
+              </fieldset>
+            ))}
+            <div className="flex gap-2">
+              <button type="button" className="btn-primary" disabled={saving} onClick={() => saveEntry(doubt.overrides, doubt.picks)}>
+                Confirm and add entry
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => setDoubt(null)}>Back</button>
+            </div>
           </div>
         )}
 
