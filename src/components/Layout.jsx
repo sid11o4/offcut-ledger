@@ -64,6 +64,7 @@ const WORKSPACE_GROUPS = {
         { to: '/design-build/recurring-expenses', label: 'Recurring Expenses', icon: 'recur', perm: 'design_build_manage' },
         { to: '/design-build/inventory', label: 'Company Inventory', icon: 'inventory', perm: 'inventory_operate' },
         { to: '/design-build/slip', label: 'Consumption / Transfer Slip', icon: 'transfer', perm: 'inventory_operate' },
+        { to: '/design-build/returns', label: 'Returns & voids', icon: 'transfer', perm: 'inventory_operate' },
       ],
     },
     // Each subheader is its own group, so the expanded rail shows it as a heading over its reports.

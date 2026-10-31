@@ -140,7 +140,7 @@ export default function ProjectDashboard() {
                     <td className="num">{qty(s.quantity)} {s.inventory_items?.units?.code}</td>
                     <td className="num">{money(s.avg_unit_cost)}</td>
                     <td className="num font-medium">{money(s.quantity * s.avg_unit_cost)}</td>
-                    <td className="text-right"><button className="btn-ghost text-xs px-2" onClick={() => setReturning(s)}>Return</button></td>
+                    <td className="text-right whitespace-nowrap"><button className="btn-ghost text-xs px-2" onClick={() => setReturning(s)}>Move to company</button><button className="btn-ghost text-xs px-2" onClick={() => navigate(`/design-build/returns?location=${locationQ.data?.id ?? ''}&item=${s.item_id}&qty=${s.quantity}`)}>Return to vendor</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -169,7 +169,7 @@ export default function ProjectDashboard() {
 
       {returning && (
         <TransferModal
-          title="Return to company inventory"
+          title="Move to company inventory"
           designProjectId={id}
           initial={{ item_id: returning.item_id, from: locationQ.data?.id, to: companyLocationId, quantity: returning.quantity }}
           onClose={() => setReturning(null)}

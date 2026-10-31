@@ -80,7 +80,7 @@ export async function loadConsolidated({ start, end, projectId }) {
 // A supplier's statement: bills raised (credit) and payments made (debit), with the balance owed.
 // Category breakdown is the cost heads of the bills in the period.
 export async function loadSupplierStatement({ supplierId, start, end, projectId }) {
-  const [supplierR, billsR, paymentsR] = await Promise.all([
+  const [supplierR, billsR, paymentsR, returnsR] = await Promise.all([
     supabase.from('suppliers').select('id, name, gstin, address').eq('id', supplierId).single(),
     supabase.from('supplier_bills')
       .select('id, internal_bill_number, bill_date, grand_total, cost_heads, design_project_id, design_projects(name)')
@@ -88,8 +88,11 @@ export async function loadSupplierStatement({ supplierId, start, end, projectId 
     supabase.from('supplier_bill_payments')
       .select('id, mode, allocated_amount, confirmed, confirmed_at, created_at, utr_reference, bill:supplier_bills!inner(supplier_id, status, design_project_id, internal_bill_number, design_projects(name))')
       .eq('bill.supplier_id', supplierId).eq('bill.status', 'approved'),
+    supabase.from('supplier_return_slips')
+      .select('id, slip_number, return_date, total_amount, location:inventory_locations(design_project_id, name, kind)')
+      .eq('supplier_id', supplierId),
   ])
-  for (const r of [supplierR, billsR, paymentsR]) if (r.error) throw r.error
+  for (const r of [supplierR, billsR, paymentsR, returnsR]) if (r.error) throw r.error
 
   const inScope = (pid) => (projectId ? pid === projectId : true)
   const bills = (billsR.data || []).filter((b) => inScope(b.design_project_id))
@@ -110,15 +113,22 @@ export async function loadSupplierStatement({ supplierId, start, end, projectId 
     .sort((a, b) => b.amount - a.amount)
 
   // Balance brought forward: everything billed and paid before the period.
+  // Goods returned to the supplier reduce what is owed, so they count as payments on the statement.
+  const returns = (returnsR.data || []).filter((r) => (projectId ? r.location?.design_project_id === projectId : true))
   const billedBefore = bills.filter((b) => b.bill_date < start).reduce((s, b) => s + Number(b.grand_total), 0)
   const paidBefore = payments.filter((p) => p.date < start).reduce((s, p) => s + Number(p.allocated_amount), 0)
-  const opening = billedBefore - paidBefore
+  const returnedBefore = returns.filter((r) => r.return_date < start).reduce((s, r) => s + Number(r.total_amount), 0)
+  const opening = billedBefore - paidBefore - returnedBefore
 
   const entries = [
     ...bills.filter((b) => inPeriod(b.bill_date, start, end)).map((b) => ({
       key: `bill-${b.id}`, date: b.bill_date, category: 'Bill',
       description: [b.design_projects?.name, (b.cost_heads || []).map((h) => COST_HEAD_LABEL[h] || h).join(', ')].filter(Boolean).join(' — '),
       reference: b.internal_bill_number, direction: 'in', amount: Number(b.grand_total),
+    })),
+    ...returns.filter((r) => inPeriod(r.return_date, start, end)).map((r) => ({
+      key: `return-${r.id}`, date: r.return_date, category: 'Return to supplier',
+      description: r.location?.name || '', reference: r.slip_number, direction: 'out', amount: Number(r.total_amount),
     })),
     ...payments.filter((p) => inPeriod(p.date, start, end)).map((p) => ({
       key: `pay-${p.id}`, date: p.date, category: 'Payment',
