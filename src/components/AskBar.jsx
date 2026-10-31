@@ -93,29 +93,36 @@ async function loadCurrent(p) {
   return data
 }
 
-// Rows for the review table: field, now, after.
+// Rows for the review table. A supplier or project that is not on file is flagged isNew and shown
+// in red as "(a new one will be created)", because approving will create it.
 function reviewRows(p) {
   const cur = p.current
+  const row = (field, now, after, isNew = false) => ({
+    field,
+    now,
+    after: isNew ? `${after} (a new one will be created)` : after,
+    isNew,
+  })
   if (p.action_type === 'create_bill') {
     const rows = [
-      ['Supplier', '—', `${p.supplier_name}${p.create_supplier ? ' (new supplier)' : ''}`],
-      ['Project', '—', p.project_name || 'Factory expense'],
-      ['Bill date', '—', p.bill_date || 'Today'],
-      ['Total', '—', p.grand_total != null ? money(p.grand_total) : '—'],
+      row('Supplier', '—', p.supplier_name, Boolean(p.create_supplier)),
+      row('Project', '—', p.project_name || 'Factory expense', Boolean(p.project_name && p.create_project)),
+      row('Bill date', '—', p.bill_date || 'Today'),
+      row('Total', '—', p.grand_total != null ? money(p.grand_total) : '—'),
     ]
-    if (p.remarks) rows.push(['Remarks', '—', p.remarks])
-    const payRows = (p.payments || []).map((pay, i) => [
+    if (p.remarks) rows.push(row('Remarks', '—', p.remarks))
+    const payRows = (p.payments || []).map((pay, i) => row(
       `Payment ${i + 1}`,
       '—',
       `${MODE_LABEL[pay.mode] ?? pay.mode} · ${money(pay.amount)}${pay.utr_reference ? ` · UTR ${pay.utr_reference}` : ''}`,
-    ])
+    ))
     return [...rows, ...payRows]
   }
   if (p.action_type === 'delete_bill') {
     return [
-      ['Supplier', cur?.supplier_text || '—', 'Removed'],
-      ['Bill date', cur?.bill_date || '—', 'Removed'],
-      ['Total', cur ? money(cur.grand_total) : '—', 'Removed'],
+      row('Supplier', cur?.supplier_text || '—', 'Removed'),
+      row('Bill date', cur?.bill_date || '—', 'Removed'),
+      row('Total', cur ? money(cur.grand_total) : '—', 'Removed'),
     ]
   }
   const before = {
@@ -124,11 +131,34 @@ function reviewRows(p) {
     remarks: cur?.remarks,
     supplier_name: cur?.supplier_text,
   }
-  return Object.entries(p.changes || {}).map(([k, v]) => [
+  return Object.entries(p.changes || {}).map(([k, v]) => row(
     CHANGE_LABEL[k] ?? labelFor(k),
     before[k] || '—',
     k === 'grand_total' ? money(v) : String(v),
-  ])
+    (k === 'supplier_name' && Boolean(p.create_supplier)) || (k === 'project_name' && Boolean(p.create_project)),
+  ))
+}
+
+// True when a supplier or project name is not on file, so approving will create it.
+async function isNewRecord(table, name) {
+  const n = String(name ?? '').trim()
+  if (!n) return false
+  const { data } = await supabase.from(table).select('id').ilike('name', n.replace(/[%_\\]/g, '\\$&')).limit(1)
+  return !(data?.length)
+}
+
+// Adds what the review needs: the current bill and which supplier or project is new.
+async function withReviewContext(p) {
+  const next = { ...p, current: await loadCurrent(p) }
+  if (p.action_type === 'create_bill') {
+    if (p.supplier_name) next.create_supplier = Boolean(p.create_supplier) || await isNewRecord('suppliers', p.supplier_name)
+    if (p.project_name) next.create_project = Boolean(p.create_project) || await isNewRecord('design_projects', p.project_name)
+  }
+  if (p.action_type === 'update_bill') {
+    if (p.changes?.supplier_name) next.create_supplier = Boolean(p.create_supplier) || await isNewRecord('suppliers', p.changes.supplier_name)
+    if (p.changes?.project_name) next.create_project = Boolean(p.create_project) || await isNewRecord('design_projects', p.changes.project_name)
+  }
+  return next
 }
 
 export default function AskBar() {
@@ -233,7 +263,7 @@ export default function AskBar() {
       const { data, error: fnError } = await supabase.functions.invoke('assistant-query', { body })
       if (fnError) throw new Error(await invokeError(fnError))
       if (data?.error) throw new Error(data.error)
-      if (data.proposal) setProposal({ ...data.proposal, current: await loadCurrent(data.proposal) })
+      if (data.proposal) setProposal(await withReviewContext(data.proposal))
       else setResult(data.answer)
     } catch (err) {
       setError(err.message || 'Could not get an answer.')
@@ -418,11 +448,11 @@ export default function AskBar() {
                     </tr>
                   </thead>
                   <tbody>
-                    {reviewRows(proposal).map(([field, now, after], i) => (
+                    {reviewRows(proposal).map(({ field, now, after, isNew }, i) => (
                       <tr key={i}>
                         <td className="text-ink-600">{field}</td>
                         <td className={isNumeric(now) ? 'num text-ink-500' : 'text-ink-500'}>{now}</td>
-                        <td className={`font-medium text-ink-950 ${isNumeric(after) ? 'num' : ''}`}>{after}</td>
+                        <td className={`font-medium ${isNew ? 'text-bad' : 'text-ink-950'} ${isNumeric(after) ? 'num' : ''}`}>{after}</td>
                       </tr>
                     ))}
                   </tbody>

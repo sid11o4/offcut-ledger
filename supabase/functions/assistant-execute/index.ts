@@ -3,9 +3,10 @@
 // what is allowed; the proposal is re-validated here, not trusted from the browser.
 // Supported actions (supplier bills only, for now):
 //   create_bill  -- new pending_review bill with supplier, project, date, total and its payments.
-//                   With create_supplier set, an unknown supplier is added to the master list.
 //   update_bill  -- change date, total, remarks, supplier or project on a pending_review bill
 //   delete_bill  -- hard delete of a bill that is not approved (uses delete_supplier_bill)
+// A supplier or project that does not exist is created only when the proposal sets create_supplier
+// or create_project; the review shows those in red before the user approves.
 // Approved bills are never changed or deleted from here; they must be reversed.
 // Line items are not written here; they are added from the Bill Audit Queue.
 //
@@ -63,6 +64,29 @@ Deno.serve(async (req) => {
     return (data ?? []).find((r: { name: string }) => norm(r.name) === norm(name)) ?? null
   }
 
+  // Finds the supplier or project by name, or creates it when the proposal allows it.
+  // Returns { record, created } or { error }.
+  const resolve = async (table: 'suppliers' | 'design_projects', rawName: string, allowCreate: boolean) => {
+    const name = String(rawName ?? '').trim()
+    if (!name) return { record: null, created: false }
+    const existing = await findByName(table, name)
+    if (existing) return { record: existing, created: false }
+    if (!allowCreate) {
+      return { error: table === 'suppliers'
+        ? `No supplier named "${name}". Ask to add it as a new supplier, or add it in Masters first.`
+        : `No Design Build project named "${name}".` }
+    }
+    if (table === 'suppliers') {
+      const { data, error } = await db.from('suppliers').insert({ name, created_by: user.id }).select('id, name').single()
+      if (error) return { error: error.message }
+      return { record: data, created: true }
+    }
+    const code = `DP-${crypto.randomUUID().slice(0, 6).toUpperCase()}`
+    const { data, error } = await db.from('design_projects').insert({ code, name, created_by: user.id }).select('id, name').single()
+    if (error) return { error: error.message }
+    return { record: data, created: true }
+  }
+
   const findBill = async (billNumber: string) => {
     const { data } = await db.from('supplier_bills').select('id, status, internal_bill_number')
       .eq('internal_bill_number', billNumber).limit(2)
@@ -73,19 +97,18 @@ Deno.serve(async (req) => {
 
   try {
     if (a.type === 'create_bill') {
-      const supplierName = String(a.supplier_name ?? '').trim()
-      let supplier = await findByName('suppliers', supplierName)
-      const createdSupplier = !supplier && Boolean(a.create_supplier) && supplierName.length > 0
-      if (createdSupplier) {
-        const { data, error } = await db.from('suppliers').insert({ name: supplierName, created_by: user.id })
-          .select('id, name').single()
-        if (error) return json({ error: error.message }, 403)
-        supplier = data
-      }
-      if (!supplier) return json({ error: `No supplier named "${supplierName}". Ask to add it as a new supplier, or add it in Masters first.` }, 400)
+      const sup = await resolve('suppliers', a.supplier_name, Boolean(a.create_supplier))
+      if (sup.error) return json({ error: sup.error }, 400)
+      if (!sup.record) return json({ error: 'A supplier name is required.' }, 400)
 
-      const project = a.project_name ? await findByName('design_projects', a.project_name) : null
-      if (a.project_name && !project) return json({ error: `No Design Build project named "${a.project_name}".` }, 400)
+      let project: { id: string; name: string } | null = null
+      let createdProject = false
+      if (a.project_name) {
+        const proj = await resolve('design_projects', a.project_name, Boolean(a.create_project))
+        if (proj.error) return json({ error: proj.error }, 400)
+        project = proj.record
+        createdProject = proj.created
+      }
 
       const total = money(a.grand_total)
       if (total === null) return json({ error: 'A valid total amount is required.' }, 400)
@@ -107,8 +130,8 @@ Deno.serve(async (req) => {
       const { data: bill, error } = await db.from('supplier_bills').insert({
         internal_bill_number: `PENDING-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
         bill_date: date,
-        supplier_id: supplier.id,
-        supplier_text: supplier.name,
+        supplier_id: sup.record.id,
+        supplier_text: sup.record.name,
         design_project_id: project?.id ?? null,
         expense_nature: 'material',
         grand_total: total,
@@ -128,9 +151,13 @@ Deno.serve(async (req) => {
           return json({ error: payErr.message }, 403)
         }
       }
+      const added = [
+        sup.created ? 'supplier' : '',
+        createdProject ? 'project' : '',
+      ].filter(Boolean)
       return json({
         ok: true,
-        message: `Created bill ${bill.internal_bill_number} for ${supplier.name}${createdSupplier ? ', added as a new supplier' : ''}. It is in the Bill Audit Queue for review.`,
+        message: `Created bill ${bill.internal_bill_number} for ${sup.record.name}${added.length ? `; new ${added.join(' and ')} added` : ''}. It is in the Bill Audit Queue for review.`,
       })
     }
 
@@ -151,15 +178,15 @@ Deno.serve(async (req) => {
       }
       if (a.changes?.remarks !== undefined) changes.remarks = String(a.changes.remarks)
       if (a.changes?.supplier_name) {
-        const s = await findByName('suppliers', a.changes.supplier_name)
-        if (!s) return json({ error: `No supplier named "${a.changes.supplier_name}".` }, 400)
-        changes.supplier_id = s.id
-        changes.supplier_text = s.name
+        const s = await resolve('suppliers', a.changes.supplier_name, Boolean(a.create_supplier))
+        if (s.error) return json({ error: s.error }, 400)
+        changes.supplier_id = s.record.id
+        changes.supplier_text = s.record.name
       }
       if (a.changes?.project_name) {
-        const p = await findByName('design_projects', a.changes.project_name)
-        if (!p) return json({ error: `No Design Build project named "${a.changes.project_name}".` }, 400)
-        changes.design_project_id = p.id
+        const p = await resolve('design_projects', a.changes.project_name, Boolean(a.create_project))
+        if (p.error) return json({ error: p.error }, 400)
+        changes.design_project_id = p.record.id
       }
       if (Object.keys(changes).length === 0) return json({ error: 'Nothing to change.' }, 400)
       const { error } = await db.from('supplier_bills').update(changes).eq('id', found.bill.id)

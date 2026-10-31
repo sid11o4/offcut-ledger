@@ -67,7 +67,8 @@ const PROPOSE_TOOL = {
       summary: { type: 'string', description: 'One sentence describing exactly what will happen, in plain words.' },
       bill_number: { type: ['string', 'null'], description: 'For update_bill and delete_bill: the internal bill number, e.g. FG-2587.' },
       supplier_name: { type: ['string', 'null'], description: 'For create_bill.' },
-      create_supplier: { type: 'boolean', description: 'For create_bill: true when the user asks to add the supplier as a new supplier.' },
+      create_supplier: { type: 'boolean', description: 'True when the supplier is not on file and the user wants it added as a new supplier.' },
+      create_project: { type: 'boolean', description: 'True when the Design Build project is not on file and the user wants it created.' },
       project_name: { type: ['string', 'null'], description: 'Design Build project name, or null for company-level.' },
       bill_date: { type: ['string', 'null'], description: 'YYYY-MM-DD' },
       grand_total: { type: ['number', 'null'] },
@@ -147,7 +148,7 @@ Two businesses exist: Factory (job-work, billing, expenses) and Design Build (pr
 Amounts are Indian rupees, formatted with commas (e.g. ₹40,180). Give the direct answer in summary, back it with tables in sections, and link to the matching in-app page when one exists (/design-build/ledger, /design-build/inventory, /accounts/bills, /statement, /reports, /billing/<id>).
 If an attached file is a bill or slip, describe what it contains in a table and say that it has not been saved.
 If a needed section says NOT PERMITTED, set not_permitted to true and say the user lacks access. Never guess numbers that are not in the context.
-If the user asks to create, change or delete a supplier bill, call propose_action instead of answer. Fill only the fields the user stated, and never invent a number, date or supplier. Dates are YYYY-MM-DD. For create_bill, put every payment row in payments, and set create_supplier to true when the user asks to add the supplier. The bar does not save line items; say so in the summary when the user's bill has them, and point to the Bill Audit Queue. The change is not made until the user approves it.`
+If the user asks to create, change or delete a supplier bill, call propose_action instead of answer. Fill only the fields the user stated, and never invent a number, date or supplier. Dates are YYYY-MM-DD. For create_bill, put every payment row in payments. Set create_supplier or create_project to true when the named supplier or project is not on file; the review will show it as a new record. The bar does not save line items; say so in the summary when the user's bill has them, and point to the Bill Audit Queue. The change is not made until the user approves it.`
 
   const userContent: unknown[] = []
   if (attachment?.mime && attachment.base64) {
