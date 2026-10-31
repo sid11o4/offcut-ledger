@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, StatCard, EmptyState, LoadingBlock, Field, Input, Select, Badge } from '../../components/ui'
 import { Link } from 'react-router-dom'
@@ -74,6 +74,8 @@ export default function CompanyInventory() {
         )}
       </Card>
 
+      {canOperate && <LinkPlaceholders />}
+
       {transferOpen && (
         <TransferModal
           onClose={() => setTransferOpen(false)}
@@ -82,6 +84,79 @@ export default function CompanyInventory() {
       )}
       {purchaseOpen && <PurchaseModal onClose={() => setPurchaseOpen(false)} />}
     </div>
+  )
+}
+
+// Items created from job work with negative stock, waiting to be matched to the real stock item.
+// Picking the real item merges the placeholder into it: stock, history and references move across.
+function LinkPlaceholders() {
+  const toast = useToast()
+  const qc = useQueryClient()
+  const itemsQ = useInventoryItems()
+  const [targets, setTargets] = useState({})
+  const placeholdersQ = useQuery({
+    queryKey: ['placeholder_items'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('inventory_stock')
+        .select('item_id, quantity, inventory_items(id, name, unit_id, active, units(code))')
+        .lt('quantity', 0)
+      if (error) throw error
+      const byItem = new Map()
+      for (const row of data || []) {
+        const item = row.inventory_items
+        if (!item || !item.active) continue
+        const cur = byItem.get(item.id) || { id: item.id, name: item.name, unit_id: item.unit_id, unit: item.units?.code, quantity: 0 }
+        cur.quantity += Number(row.quantity)
+        byItem.set(item.id, cur)
+      }
+      return [...byItem.values()]
+    },
+  })
+
+  const placeholders = placeholdersQ.data || []
+  if (!placeholders.length) return null
+
+  async function merge(from) {
+    const intoId = targets[from.id]
+    const target = (itemsQ.data || []).find((i) => i.id === intoId)
+    if (!target) return
+    if (!window.confirm(`Merge "${from.name}" into "${target.name}"? Its stock and history move to "${target.name}", and "${from.name}" is retired.`)) return
+    const { error } = await supabase.rpc('merge_inventory_item', { p_from_item: from.id, p_into_item: intoId })
+    if (error) return toast.error(error.message)
+    toast.success(`Merged into ${target.name}.`)
+    invalidateInventory(qc)
+    qc.invalidateQueries({ queryKey: ['placeholder_items'] })
+    qc.invalidateQueries({ queryKey: ['inventory_items'] })
+  }
+
+  return (
+    <Card title="Materials to link" className="mb-5">
+      <p className="mb-3 text-xs text-ink-500">
+        Created from job work and not yet matched to a stock item. Pick the item each one really is, and its stock and history move onto it.
+      </p>
+      <ul className="divide-y divide-ink-100">
+        {placeholders.map((p) => {
+          const options = (itemsQ.data || []).filter((i) => i.active && i.unit_id === p.unit_id && i.id !== p.id)
+          return (
+            <li key={p.id} className="flex flex-wrap items-center gap-3 py-3">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-ink-950">{p.name}</div>
+                <div className="tnum text-xs text-bad">{qty(Math.abs(p.quantity))} {p.unit} short</div>
+              </div>
+              <Select
+                className="w-auto min-w-[14rem]"
+                value={targets[p.id] || ''}
+                onChange={(e) => setTargets({ ...targets, [p.id]: e.target.value })}
+              >
+                <option value="">This is actually…</option>
+                {options.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </Select>
+              <button type="button" className="btn-secondary" disabled={!targets[p.id]} onClick={() => merge(p)}>Merge</button>
+            </li>
+          )
+        })}
+      </ul>
+    </Card>
   )
 }
 
