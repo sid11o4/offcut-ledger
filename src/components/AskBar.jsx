@@ -38,6 +38,12 @@ const ACTION = {
   delete_bill: { label: 'Delete', tone: 'badge-bad', title: 'Review the deletion', approve: 'Approve and delete' },
 }
 
+const SCOPE = {
+  factory: { label: 'Factory', tone: 'badge-neutral' },
+  design_build: { label: 'Design Build', tone: 'badge-brand' },
+  both: { label: 'Factory + Design Build', tone: 'badge-neutral' },
+}
+
 const MODE_LABEL = { cash: 'Cash', rtgs_neft: 'RTGS / NEFT', credit: 'Credit' }
 const CHANGE_LABEL = { bill_date: 'Bill date', grand_total: 'Total', remarks: 'Remarks', supplier_name: 'Supplier', project_name: 'Project' }
 
@@ -180,6 +186,8 @@ export default function AskBar() {
   const panelOpen = Boolean(busy || result || error || proposal || outcome)
   const canSubmit = !busy && Boolean(question.trim() || file)
   const meta = proposal ? ACTION[proposal.action_type] : null
+  // Which business this is for. A bill with no project is a Factory expense.
+  const scope = result?.scope ?? (proposal ? (proposal.project_name ? 'design_build' : 'factory') : null)
 
   const close = useCallback(() => {
     setResult(null)
@@ -371,7 +379,10 @@ export default function AskBar() {
           className="ask-in absolute left-0 right-0 z-40 mt-2 max-h-[70vh] overflow-y-auto rounded-lg border border-ink-200 bg-white p-4 text-sm text-ink-800 shadow-[0_16px_40px_-16px_rgba(10,10,10,0.22)]"
         >
           <div className="mb-3 flex items-start justify-between gap-3">
-            <p className="min-w-0 truncate text-xs text-ink-500">{asked}</p>
+            <div className="flex min-w-0 items-center gap-2">
+              {scope && <span className={SCOPE[scope].tone}>{SCOPE[scope].label}</span>}
+              <p className="min-w-0 truncate text-xs text-ink-500">{asked}</p>
+            </div>
             <button type="button" onClick={close} aria-label="Close" className="btn-ghost h-7 w-7 shrink-0 p-0">
               <Icon name="x" />
             </button>

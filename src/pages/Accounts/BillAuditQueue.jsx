@@ -14,6 +14,24 @@ const COST_HEADS = [
   ['employee_salary', 'Employee Salary'], ['other', 'Other'],
 ]
 
+const ANNEX_KINDS = [['vendor_bill', 'Vendor bill'], ['gst_invoice', 'GST invoice'], ['other', 'Other']]
+
+// Stores an uploaded file in the scan bucket and returns its path.
+async function storeBillFile(userId, file) {
+  const path = `supplier-bills/${userId}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+  const { error } = await supabase.storage.from('scan-uploads').upload(path, file)
+  if (error) throw error
+  return path
+}
+
+// Asks the classifier what a stored file is: formgrid_slip, vendor_bill, gst_invoice or other.
+async function classifyBillFile(path, mime) {
+  const { data, error } = await supabase.functions.invoke('classify-bill-file', { body: { path, mime } })
+  if (error) throw new Error(data?.error || error.message)
+  if (data?.error) throw new Error(data.error)
+  return data.classification
+}
+
 export default function BillAuditQueue() {
   const toast = useToast()
   const qc = useQueryClient()
@@ -44,10 +62,7 @@ export default function BillAuditQueue() {
   // read in full by the extraction function below -- a scanned slip with a back page, or a
   // front+back pair, is still one bill). Selecting several files at once queues each as its
   // own bill and extracts them one at a time; one bad file doesn't stop the rest.
-  async function uploadOne(file) {
-    const path = `supplier-bills/${profile.id}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
-    const { error: upErr } = await supabase.storage.from('scan-uploads').upload(path, file)
-    if (upErr) throw upErr
+  async function createSlipBill(path) {
     const { data: bill, error: billErr } = await supabase.from('supplier_bills').insert({
       internal_bill_number: `PENDING-${Date.now().toString().slice(-6)}`,
       bill_date: new Date().toISOString().slice(0, 10),
@@ -60,27 +75,56 @@ export default function BillAuditQueue() {
     return bill
   }
 
+  // Each file is classified on its own, so one upload can mix kinds. A FORMGRID slip becomes a
+  // bill and is scanned. A vendor bill, GST invoice or other document is attached as an annexure
+  // to the first slip in this upload, or to the bill open in the panel. If classification is
+  // unavailable, the file is scanned as a slip, as it was before this step existed.
   async function handleUpload(e) {
     const files = Array.from(e.target.files || [])
     e.target.value = ''
     if (!files.length) return
     setUploading(true)
-    let lastGoodId = null
+    const slipBills = []
+    const annexures = []
     let failed = 0
     for (const file of files) {
       try {
-        const bill = await uploadOne(file)
-        lastGoodId = bill.id
+        const path = await storeBillFile(profile.id, file)
+        let kind = 'formgrid_slip'
+        try {
+          kind = (await classifyBillFile(path, file.type)).kind
+        } catch { /* unavailable: scan it as a slip */ }
+        if (kind === 'formgrid_slip') slipBills.push(await createSlipBill(path))
+        else annexures.push({ path, file, kind })
       } catch (err) {
         failed += 1
         toast.error(`${file.name}: ${err.message || err}`)
       }
     }
+    const targetId = slipBills[0]?.id ?? selectedId
+    if (annexures.length) {
+      if (!targetId) {
+        toast.error('Scan a FORMGRID slip first, then attach these documents to it.')
+      } else {
+        const { error } = await supabase.from('supplier_bill_annexures').insert(annexures.map((x) => ({
+          bill_id: targetId,
+          kind: x.kind === 'vendor_bill' || x.kind === 'gst_invoice' ? x.kind : 'other',
+          file_path: x.path,
+          file_name: x.file.name,
+          mime_type: x.file.type,
+          size_bytes: x.file.size,
+        })))
+        if (error) toast.error(error.message)
+        else {
+          qc.invalidateQueries({ queryKey: ['supplier_bill_annexures', targetId] })
+          toast.success(`${annexures.length} document${annexures.length === 1 ? '' : 's'} attached as annexures`)
+        }
+      }
+    }
     setUploading(false)
     qc.invalidateQueries({ queryKey: ['supplier_bills_queue'] })
-    const ok = files.length - failed
-    if (ok) toast.success(ok === 1 ? 'Bill scanned — review below.' : `${ok} bills scanned — review below.`)
-    if (lastGoodId) setSelectedId(lastGoodId)
+    if (slipBills.length) toast.success(slipBills.length === 1 ? 'Bill scanned — review below.' : `${slipBills.length} bills scanned — review below.`)
+    if (slipBills[0]) setSelectedId(slipBills[0].id)
   }
 
   function goNext(fromId) {
@@ -196,6 +240,7 @@ function NewSupplierPrompt({ bill }) {
 function AuditPanel({ billId, onDone }) {
   const toast = useToast()
   const qc = useQueryClient()
+  const { profile } = useAuth()
   const suppliersQ = useSuppliers()
   const projectsQ = useDesignProjects()
   const [saving, setSaving] = useState(false)
@@ -234,6 +279,65 @@ function AuditPanel({ billId, onDone }) {
     },
     enabled: !!itemsLineQ.data?.length,
   })
+
+  const annexuresQ = useQuery({
+    queryKey: ['supplier_bill_annexures', billId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('supplier_bill_annexures').select('*').eq('bill_id', billId).order('created_at')
+      if (error) throw error
+      return data
+    },
+  })
+
+  // Adds documents to this bill. A FORMGRID slip is refused here, since it belongs in Scan bill.
+  async function addAnnexures(e) {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    if (!files.length) return
+    setSaving(true)
+    for (const file of files) {
+      try {
+        const path = await storeBillFile(profile.id, file)
+        let kind = 'other'
+        try { kind = (await classifyBillFile(path, file.type)).kind } catch { /* keep as other */ }
+        if (kind === 'formgrid_slip') {
+          toast.error(`${file.name} looks like a FORMGRID slip. Use Scan bill to add it as a bill.`)
+          continue
+        }
+        const { error } = await supabase.from('supplier_bill_annexures').insert({
+          bill_id: billId,
+          kind: kind === 'vendor_bill' || kind === 'gst_invoice' ? kind : 'other',
+          file_path: path,
+          file_name: file.name,
+          mime_type: file.type,
+          size_bytes: file.size,
+        })
+        if (error) toast.error(error.message)
+      } catch (err) {
+        toast.error(`${file.name}: ${err.message || err}`)
+      }
+    }
+    setSaving(false)
+    qc.invalidateQueries({ queryKey: ['supplier_bill_annexures', billId] })
+  }
+
+  async function setAnnexureKind(id, kind) {
+    const { error } = await supabase.from('supplier_bill_annexures').update({ kind }).eq('id', id)
+    if (error) toast.error(error.message)
+    else qc.invalidateQueries({ queryKey: ['supplier_bill_annexures', billId] })
+  }
+
+  async function removeAnnexure(id) {
+    const { error } = await supabase.from('supplier_bill_annexures').delete().eq('id', id)
+    if (error) toast.error(error.message)
+    else qc.invalidateQueries({ queryKey: ['supplier_bill_annexures', billId] })
+  }
+
+  async function openAnnexure(a) {
+    const { data } = await supabase.storage.from('scan-uploads').createSignedUrl(a.file_path, 600)
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank', 'noopener')
+    else toast.error('Could not open that document.')
+  }
 
   const imageUrl = useQuery({
     queryKey: ['scan_url', billQ.data?.scan_image_path],
@@ -310,6 +414,29 @@ function AuditPanel({ billId, onDone }) {
       </Card>
 
       <div className="space-y-4 lg:h-[calc(100vh-180px)] lg:overflow-y-auto lg:pr-1">
+        <Card title="Annexures">
+          {(annexuresQ.data || []).length === 0 && (
+            <p className="text-sm text-ink-500">No vendor bill, GST invoice or other document attached yet.</p>
+          )}
+          <ul className="divide-y divide-ink-100">
+            {(annexuresQ.data || []).map((a) => (
+              <li key={a.id} className="flex items-center gap-3 py-2">
+                <button type="button" onClick={() => openAnnexure(a)} className="min-w-0 flex-1 truncate text-left text-sm text-brand-700 hover:underline">
+                  {a.file_name}
+                </button>
+                <Select value={a.kind} onChange={(e) => setAnnexureKind(a.id, e.target.value)} className="w-auto py-1 text-xs">
+                  {ANNEX_KINDS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                </Select>
+                <button type="button" onClick={() => removeAnnexure(a.id)} className="btn-ghost h-7 px-2 text-xs">Remove</button>
+              </li>
+            ))}
+          </ul>
+          <label className="btn-secondary mt-3 inline-flex cursor-pointer">
+            {saving ? 'Attaching…' : 'Attach document'}
+            <input type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" className="hidden" disabled={saving} onChange={addAnnexures} />
+          </label>
+        </Card>
+
         <Card title="Basic details">
           <div className="space-y-3">
             {billQ.data && !billQ.data.supplier_id && <NewSupplierPrompt bill={billQ.data} />}

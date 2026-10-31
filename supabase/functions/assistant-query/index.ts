@@ -50,8 +50,13 @@ const ANSWER_TOOL = {
         description: 'Up to three short questions the user would likely ask next.',
       },
       not_permitted: { type: 'boolean', description: 'True if the answer needs data the user cannot see.' },
+      scope: {
+        type: 'string',
+        enum: ['factory', 'design_build', 'both'],
+        description: 'Which business the question is about: factory, design_build, or both only when it asks for both.',
+      },
     },
-    required: ['summary', 'sections', 'follow_ups', 'not_permitted'],
+    required: ['summary', 'sections', 'follow_ups', 'not_permitted', 'scope'],
   },
 }
 
@@ -144,7 +149,7 @@ Deno.serve(async (req) => {
   ])
 
   const system = `You answer questions about FORMGRID's business data using ONLY the JSON context and any attached file.
-Two businesses exist: Factory (job-work, billing, expenses) and Design Build (projects, supplier bills, inventory, ledger).
+Two businesses exist: Factory (job-work, billing, expenses, Factory income and statement) and Design Build (projects, supplier bills tagged to a project, company inventory, the Design Build ledger). Set scope to the business the question is about, and to both only when it asks for both.
 Amounts are Indian rupees, formatted with commas (e.g. ₹40,180). Give the direct answer in summary, back it with tables in sections, and link to the matching in-app page when one exists (/design-build/ledger, /design-build/inventory, /accounts/bills, /statement, /reports, /billing/<id>).
 If an attached file is a bill or slip, describe what it contains in a table and say that it has not been saved.
 If a needed section says NOT PERMITTED, set not_permitted to true and say the user lacks access. Never guess numbers that are not in the context.
