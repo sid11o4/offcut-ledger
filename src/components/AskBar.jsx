@@ -36,6 +36,7 @@ const ACTION = {
   create_bill: { label: 'Create', tone: 'badge-brand', title: 'Review the new bill', approve: 'Approve and save' },
   update_bill: { label: 'Change', tone: 'badge-warn', title: 'Review the change', approve: 'Approve and change' },
   delete_bill: { label: 'Delete', tone: 'badge-bad', title: 'Review the deletion', approve: 'Approve and delete' },
+  run_sql: { label: 'Change data', tone: 'badge-warn', title: 'Review the database change', approve: 'Approve and run' },
 }
 
 const SCOPE = {
@@ -426,6 +427,9 @@ export default function AskBar() {
               </div>
               <p className="mt-1.5 leading-relaxed text-ink-800">{proposal.summary}</p>
 
+              {proposal.action_type === 'run_sql' ? (
+                <pre className="mt-4 max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-ink-200 bg-ink-50 p-3 font-mono text-xs text-ink-900">{proposal.sql}</pre>
+              ) : (<>
               <dl className="mt-4 grid grid-cols-3 divide-x divide-ink-100 rounded-md border border-ink-200">
                 <div className="px-3 py-2">
                   <dt className="text-xs text-ink-500">Screen</dt>
@@ -469,6 +473,8 @@ export default function AskBar() {
                   </tbody>
                 </table>
               </div>
+
+              </>)}
 
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                 <p className="flex items-center gap-2 text-xs text-ink-500">

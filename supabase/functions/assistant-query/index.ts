@@ -2,7 +2,8 @@
 // The caller's own JWT is used for every read, so Row Level Security and the has_permission()
 // checks decide what is visible. A section the caller cannot read is reported to the model as
 // "NOT PERMITTED" instead of leaking numbers. An optional attachment (image or PDF) is read by
-// the model alongside the question. This function never writes data.
+// the model alongside the question. The model can run read-only SELECTs (run_sql) to find any figure,
+// and proposes changes for approval; nothing is written here.
 //
 // Model: Claude Haiku 5.5 only (ANTHROPIC_API_KEY).
 //
@@ -60,15 +61,28 @@ const ANSWER_TOOL = {
   },
 }
 
+// Reads the database. The query runs as the signed-in user, so Row Level Security applies. The
+// assistant can call this several times to gather what it needs before answering.
+const RUN_SQL_TOOL = {
+  name: 'run_sql',
+  description: 'Run one read-only SELECT against the FORMGRID database and get the rows back as JSON (up to 1000 rows). Use it to look up any figure you need. To see table or column names, query information_schema.columns. Amounts are in rupees.',
+  input_schema: {
+    type: 'object',
+    properties: { sql: { type: 'string', description: 'A single SELECT (or WITH ... SELECT) statement.' } },
+    required: ['sql'],
+  },
+}
+
 // Proposes a change. Nothing is written here; the browser shows the proposal and only runs it
 // through assistant-execute after the user approves.
 const PROPOSE_TOOL = {
   name: 'propose_action',
-  description: 'Use ONLY when the user asks to create, change or delete a supplier bill. Describe the change; do not execute it.',
+  description: 'Use when the user asks to create, change or delete data: a supplier bill (create_bill, update_bill, delete_bill) or any other change (run_sql). Describe the change; do not execute it.',
   input_schema: {
     type: 'object',
     properties: {
-      action_type: { type: 'string', enum: ['create_bill', 'update_bill', 'delete_bill'] },
+      action_type: { type: 'string', enum: ['create_bill', 'update_bill', 'delete_bill', 'run_sql'] },
+      sql: { type: ['string', 'null'], description: 'For run_sql: one INSERT, UPDATE or DELETE statement. UPDATE and DELETE need a WHERE clause. The user reviews and approves it before it runs.' },
       summary: { type: 'string', description: 'One sentence describing exactly what will happen, in plain words.' },
       bill_number: { type: ['string', 'null'], description: 'For update_bill and delete_bill: the internal bill number, e.g. FG-2587.' },
       supplier_name: { type: ['string', 'null'], description: 'For create_bill.' },
@@ -167,7 +181,9 @@ Two businesses exist: Factory (job-work, billing, expenses, Factory income and s
 Amounts are Indian rupees, formatted with commas (e.g. ₹40,180). Give the direct answer in summary, back it with tables in sections, and link to the matching in-app page when one exists (/design-build/ledger, /design-build/inventory, /accounts/bills, /statement, /reports, /billing/<id>).
 If an attached file is a bill or slip, describe what it contains in a table and say that it has not been saved.
 If a needed section says NOT PERMITTED, set not_permitted to true and say the user lacks access. Never guess numbers that are not in the context.
-If the user asks to create, change or delete a supplier bill, call propose_action instead of answer. Fill only the fields the user stated, and never invent a number, date or supplier. Dates are YYYY-MM-DD. For create_bill, put every payment row in payments. Set create_supplier or create_project to true when the named supplier or project is not on file; the review will show it as a new record. The bar does not save line items; say so in the summary when the user's bill has them, and point to the Bill Audit Queue. The change is not made until the user approves it.`
+Use run_sql to look up any figure you need, several times if needed; query information_schema.columns to find table and column names. Amounts in run_sql results are rupees. Answer only from the query results.
+If the user asks to create, change or delete a supplier bill, call propose_action instead of answer.
+If the user asks to change any other data, call propose_action with action_type run_sql and the single INSERT, UPDATE or DELETE statement in sql, with a one-sentence summary. Use it only for a change the user has asked for. Fill only the fields the user stated, and never invent a number, date or supplier. Dates are YYYY-MM-DD. For create_bill, put every payment row in payments. Set create_supplier or create_project to true when the named supplier or project is not on file; the review will show it as a new record. The bar does not save line items; say so in the summary when the user's bill has them, and point to the Bill Audit Queue. The change is not made until the user approves it.`
 
   const userContent: unknown[] = []
   if (attachment?.mime && attachment.base64) {
@@ -180,23 +196,44 @@ If the user asks to create, change or delete a supplier bill, call propose_actio
     text: `Today is ${today}.\n\nData context (JSON):\n${JSON.stringify(sections)}\n\nQuestion: ${question || 'Read the attached file and describe it.'}`,
   })
 
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 1500,
-      system,
-      tools: [ANSWER_TOOL, PROPOSE_TOOL],
-      tool_choice: { type: 'any' },
-      messages: [{ role: 'user', content: userContent }],
-    }),
-  })
-  if (!resp.ok) return json({ error: `Anthropic API error (${resp.status}): ${await resp.text()}` }, 500)
-  const result = await resp.json()
-  // deno-lint-ignore no-explicit-any
-  const toolUse = (result.content || []).find((c: any) => c.type === 'tool_use')
-  if (!toolUse) return json({ error: 'The assistant did not return an answer.' }, 500)
-  if (toolUse.name === 'propose_action') return json({ proposal: toolUse.input })
-  return json({ answer: toolUse.input })
+  const messages: unknown[] = [{ role: 'user', content: userContent }]
+  for (let round = 0; round < 8; round++) {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 2000,
+        system,
+        tools: [RUN_SQL_TOOL, ANSWER_TOOL, PROPOSE_TOOL],
+        tool_choice: { type: 'any' },
+        messages,
+      }),
+    })
+    if (!resp.ok) return json({ error: `Anthropic API error (${resp.status}): ${await resp.text()}` }, 500)
+    const result = await resp.json()
+    // deno-lint-ignore no-explicit-any
+    const content: any[] = result.content || []
+    const finalUse = content.find((c) => c.type === 'tool_use' && (c.name === 'answer' || c.name === 'propose_action'))
+    if (finalUse) {
+      if (finalUse.name === 'propose_action') return json({ proposal: finalUse.input })
+      return json({ answer: finalUse.input })
+    }
+    const queries = content.filter((c) => c.type === 'tool_use' && c.name === 'run_sql')
+    if (queries.length === 0) return json({ error: 'The assistant did not return an answer.' }, 500)
+
+    messages.push({ role: 'assistant', content })
+    const results = []
+    for (const q of queries) {
+      const { data, error } = await db.rpc('ai_run_read', { p_sql: String(q.input?.sql ?? '') })
+      results.push({
+        type: 'tool_result',
+        tool_use_id: q.id,
+        content: error ? `Query error: ${error.message}` : JSON.stringify(data).slice(0, 60000),
+        is_error: Boolean(error),
+      })
+    }
+    messages.push({ role: 'user', content: results })
+  }
+  return json({ error: 'The question needed too many lookups. Ask a narrower question.' }, 500)
 })
