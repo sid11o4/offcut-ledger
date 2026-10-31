@@ -2,10 +2,12 @@
 // Every write runs with the caller's own JWT, so Row Level Security and has_permission() decide
 // what is allowed; the proposal is re-validated here, not trusted from the browser.
 // Supported actions (supplier bills only, for now):
-//   create_bill  -- new pending_review bill with supplier, project, date, total and optional payment
+//   create_bill  -- new pending_review bill with supplier, project, date, total and its payments.
+//                   With create_supplier set, an unknown supplier is added to the master list.
 //   update_bill  -- change date, total, remarks, supplier or project on a pending_review bill
 //   delete_bill  -- hard delete of a bill that is not approved (uses delete_supplier_bill)
 // Approved bills are never changed or deleted from here; they must be reversed.
+// Line items are not written here; they are added from the Bill Audit Queue.
 //
 // POST body: { action: { type, ... } }
 import { createClient } from 'jsr:@supabase/supabase-js@2'
@@ -15,6 +17,8 @@ const cors = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
+
+const PAYMENT_MODES = ['cash', 'rtgs_neft', 'credit']
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
@@ -69,19 +73,42 @@ Deno.serve(async (req) => {
 
   try {
     if (a.type === 'create_bill') {
-      const supplier = await findByName('suppliers', a.supplier_name)
+      const supplierName = String(a.supplier_name ?? '').trim()
+      let supplier = await findByName('suppliers', supplierName)
+      const createdSupplier = !supplier && Boolean(a.create_supplier) && supplierName.length > 0
+      if (createdSupplier) {
+        const { data, error } = await db.from('suppliers').insert({ name: supplierName, created_by: user.id })
+          .select('id, name').single()
+        if (error) return json({ error: error.message }, 403)
+        supplier = data
+      }
+      if (!supplier) return json({ error: `No supplier named "${supplierName}". Ask to add it as a new supplier, or add it in Masters first.` }, 400)
+
       const project = a.project_name ? await findByName('design_projects', a.project_name) : null
-      if (!supplier) return json({ error: `No supplier named "${a.supplier_name}". Add the supplier in Masters first.` }, 400)
       if (a.project_name && !project) return json({ error: `No Design Build project named "${a.project_name}".` }, 400)
+
       const total = money(a.grand_total)
       if (total === null) return json({ error: 'A valid total amount is required.' }, 400)
       const date = validDate(a.bill_date) ?? new Date().toISOString().slice(0, 10)
+
+      const payments = (Array.isArray(a.payments) ? a.payments : []).map((p: Action) => ({
+        mode: p?.mode,
+        amount: money(p?.amount),
+        utr_reference: p?.utr_reference || null,
+      }))
+      if (payments.some((p: Action) => !PAYMENT_MODES.includes(p.mode) || p.amount === null || p.amount <= 0)) {
+        return json({ error: 'Each payment needs a mode (cash, rtgs_neft or credit) and an amount above zero.' }, 400)
+      }
+      const paid = Math.round(payments.reduce((s: number, p: Action) => s + p.amount, 0) * 100) / 100
+      if (payments.length > 0 && Math.abs(paid - total) > 0.01) {
+        return json({ error: `The payments add up to ${paid} but the bill total is ${total}. Correct the rows so they match.` }, 400)
+      }
 
       const { data: bill, error } = await db.from('supplier_bills').insert({
         internal_bill_number: `PENDING-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
         bill_date: date,
         supplier_id: supplier.id,
-        supplier_text: a.supplier_name,
+        supplier_text: supplier.name,
         design_project_id: project?.id ?? null,
         expense_nature: 'material',
         grand_total: total,
@@ -91,16 +118,20 @@ Deno.serve(async (req) => {
       }).select('id, internal_bill_number').single()
       if (error) return json({ error: error.message }, 403)
 
-      const mode = a.payment_mode
-      if (mode && ['cash', 'rtgs_neft', 'credit'].includes(mode)) {
-        const amount = money(a.payment_amount) ?? total
-        const { error: payErr } = await db.from('supplier_bill_payments').insert({
-          bill_id: bill.id, mode, allocated_amount: amount, created_by: user.id,
-          utr_reference: a.utr_reference ?? null,
-        })
-        if (payErr) return json({ error: payErr.message }, 403)
+      if (payments.length > 0) {
+        const { error: payErr } = await db.from('supplier_bill_payments').insert(
+          payments.map((p: Action) => ({ bill_id: bill.id, mode: p.mode, allocated_amount: p.amount, utr_reference: p.utr_reference, created_by: user.id })),
+        )
+        if (payErr) {
+          // Do not leave a bill with half its payments behind.
+          await db.rpc('delete_supplier_bill', { p_bill_id: bill.id })
+          return json({ error: payErr.message }, 403)
+        }
       }
-      return json({ ok: true, message: `Created bill ${bill.internal_bill_number} for ${a.supplier_name}. It is in the Bill Audit Queue for review.` })
+      return json({
+        ok: true,
+        message: `Created bill ${bill.internal_bill_number} for ${supplier.name}${createdSupplier ? ', added as a new supplier' : ''}. It is in the Bill Audit Queue for review.`,
+      })
     }
 
     if (a.type === 'update_bill') {
@@ -123,7 +154,7 @@ Deno.serve(async (req) => {
         const s = await findByName('suppliers', a.changes.supplier_name)
         if (!s) return json({ error: `No supplier named "${a.changes.supplier_name}".` }, 400)
         changes.supplier_id = s.id
-        changes.supplier_text = a.changes.supplier_name
+        changes.supplier_text = s.name
       }
       if (a.changes?.project_name) {
         const p = await findByName('design_projects', a.changes.project_name)

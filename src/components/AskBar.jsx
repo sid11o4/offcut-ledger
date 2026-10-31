@@ -183,9 +183,14 @@ export default function AskBar() {
 
   const proposalRows = proposal
     ? [
+        ...(proposal.create_supplier ? [['New supplier', 'Will be added to the supplier list']] : []),
         ...Object.entries(proposal)
-          .filter(([k, v]) => v !== null && v !== undefined && v !== '' && !['summary', 'action_type', 'changes', 'type'].includes(k))
+          .filter(([k, v]) => v !== null && v !== undefined && v !== '' && !['summary', 'action_type', 'changes', 'type', 'create_supplier', 'payments'].includes(k))
           .map(([k, v]) => [labelFor(k), v]),
+        ...(proposal.payments || []).map((p, i) => [
+          `Payment ${i + 1}`,
+          `${p.mode === 'rtgs_neft' ? 'RTGS / NEFT' : labelFor(p.mode)} · ₹${Number(p.amount).toLocaleString('en-IN')}${p.utr_reference ? ` · UTR ${p.utr_reference}` : ''}`,
+        ]),
         ...Object.entries(proposal.changes || {}).map(([k, v]) => [`New ${k.replace(/_/g, ' ')}`, v]),
       ]
     : []
