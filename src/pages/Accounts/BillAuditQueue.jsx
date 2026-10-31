@@ -37,6 +37,17 @@ function billKey(number) {
   return String(number ?? '').replace(/[\s-]+/g, '').toUpperCase()
 }
 
+// Each line carries its own cost head. The bill's cost heads and expense nature are shown as a summary
+// of those lines, so they are recalculated whenever a line changes.
+async function syncBillFromLines(billId) {
+  const { data: lines } = await supabase.from('supplier_bill_items').select('item_type, cost_head').eq('bill_id', billId)
+  if (!lines?.length) return
+  const heads = [...new Set(lines.map((l) => l.cost_head).filter(Boolean))]
+  const types = new Set(lines.map((l) => l.item_type))
+  const nature = types.has('material') && types.has('labour') ? 'both' : types.has('labour') ? 'labour' : 'material'
+  await supabase.from('supplier_bills').update({ cost_heads: heads, expense_nature: nature }).eq('id', billId)
+}
+
 // The bills an uploaded document can attach to: the slips in this upload, or, when there are none,
 // the bill open in the queue.
 async function billCandidates(slipBills, selectedId, rows) {
@@ -398,6 +409,7 @@ function AuditPanel({ billId, onDone }) {
   }
 
   const approve = useCallback(async () => {
+    if (saving) return
     setSaving(true)
     const { error } = await supabase.rpc('approve_supplier_bill', { p_bill_id: billId })
     setSaving(false)
@@ -409,7 +421,7 @@ function AuditPanel({ billId, onDone }) {
     invalidateInventory(qc)
     toast.success('Bill approved.')
     onDone()
-  }, [billId, toast, onDone, qc])
+  }, [billId, toast, onDone, qc, saving])
 
   const flag = useCallback(async () => {
     const note = window.prompt('Flag this bill — what needs attention?')
@@ -428,16 +440,27 @@ function AuditPanel({ billId, onDone }) {
     onDone()
   }
 
-  const handleKey = useCallback((e) => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return
-    if (e.key === 'Enter') { e.preventDefault(); approve() }
-    else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); flag() }
-  }, [approve, flag])
-
+  // The shortcuts always act on the latest bill and handlers, read through a ref, so a single listener
+  // is enough. Keys are ignored only while typing in a text field; a dropdown or button that happens
+  // to have focus does not block them.
+  const actionsRef = useRef({})
+  actionsRef.current = { approve, flag, deleteBill }
   useEffect(() => {
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [handleKey])
+    function onKey(e) {
+      if (e.defaultPrevented || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return
+      const t = e.target
+      const typing = t instanceof HTMLElement && (
+        t.isContentEditable || t.tagName === 'TEXTAREA'
+        || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'range', 'color'].includes(t.type))
+      )
+      if (typing) return
+      if (e.key === 'Enter') { e.preventDefault(); actionsRef.current.approve() }
+      else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); actionsRef.current.flag() }
+      else if (e.key === 'Delete') { e.preventDefault(); actionsRef.current.deleteBill() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   if (billQ.isLoading) return <Card><LoadingBlock /></Card>
   const b = billQ.data
@@ -498,13 +521,13 @@ function AuditPanel({ billId, onDone }) {
                 {(projectsQ.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </Select>
             </Field>
-            <Field label="Expense nature">
+            <Field label="Expense nature (indicative — follows the line items)">
               <Select value={b.expense_nature} onChange={(e) => patchBill({ expense_nature: e.target.value })}>
                 <option value="material">Material</option><option value="labour">Labour</option><option value="both">Both</option>
               </Select>
             </Field>
             <div>
-              <div className="field-label mb-1">Cost head</div>
+              <div className="field-label mb-1">Cost head (indicative — each line carries its own, below)</div>
               <div className="flex flex-wrap gap-1.5">
                 {COST_HEADS.map(([key, label]) => {
                   const active = (b.cost_heads || []).includes(key)
@@ -547,11 +570,12 @@ function AuditPanel({ billId, onDone }) {
 
         <div className="flex items-center gap-2 pt-1">
           <button className="btn-secondary" onClick={flag}>Flag issue <kbd className="ml-1 text-[10px] opacity-60">F</kbd></button>
-          <button className="btn-secondary text-bad" onClick={deleteBill}>Delete bill</button>
+          <button className="btn-secondary text-bad" onClick={deleteBill}>Delete bill <kbd className="ml-1 text-[10px] opacity-60">Del</kbd></button>
           <button className="btn-primary flex-1" disabled={saving} onClick={approve}>
             {saving ? 'Approving…' : 'Approve & next'} <kbd className="ml-1 text-[10px] opacity-60">⏎</kbd>
           </button>
         </div>
+        <p className="text-[11px] text-ink-400">Shortcuts: Enter approve · F flag · Delete delete. Not active while typing in a text field.</p>
       </div>
     </div>
   )
@@ -573,6 +597,15 @@ function LineItemRow({ item, suggestions, billId }) {
     qc.invalidateQueries({ queryKey: ['material_match_suggestions', billId] })
   }
 
+  // The cost head is the auditor's call: the scan proposes one per line, and this corrects it.
+  async function setCostHead(value) {
+    const { error } = await supabase.from('supplier_bill_items').update({ cost_head: value || null }).eq('id', item.id)
+    if (error) return toast.error(error.message)
+    await syncBillFromLines(billId)
+    qc.invalidateQueries({ queryKey: ['supplier_bill_items', billId] })
+    qc.invalidateQueries({ queryKey: ['supplier_bill', billId] })
+  }
+
   return (
     <div className="border border-ink-100 rounded-md p-2.5">
       <div className="flex items-center justify-between gap-2">
@@ -584,6 +617,14 @@ function LineItemRow({ item, suggestions, billId }) {
         <span>@ {money(item.rate_inclusive)}</span>
         <span>GST {item.gst_percent}%</span>
         <span className="font-medium text-ink-900 ml-auto">{money(item.total_amount)}</span>
+      </div>
+      <div className="flex items-center gap-2 mt-2">
+        <span className="text-xs text-ink-500">Cost head</span>
+        <Select value={item.cost_head || ''} onChange={(e) => setCostHead(e.target.value)} className="w-auto py-1 text-xs">
+          <option value="">Not set</option>
+          {COST_HEADS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </Select>
+        {!item.cost_head && <span className="text-xs text-ink-400">Needs a cost head</span>}
       </div>
       {suggestion && (
         <div className="flex items-center gap-2 mt-2 bg-ink-50 rounded px-2 py-1.5">
