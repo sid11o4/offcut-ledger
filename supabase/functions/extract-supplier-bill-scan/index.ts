@@ -16,6 +16,9 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { encodeBase64 } from 'jsr:@std/encoding@1/base64'
 
 const MODEL = 'claude-haiku-5-5'
+// Only Haiku-class models are allowed for scanning; anything larger is rejected at runtime.
+const ALLOWED_MODELS = new Set(['claude-haiku-5-5'])
+if (!ALLOWED_MODELS.has(MODEL)) throw new Error(`Model ${MODEL} is not allowed for bill scanning`)
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
