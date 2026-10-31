@@ -112,8 +112,8 @@ Deno.serve(async (req) => {
   if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY is not set on this project.' }, 500)
 
   const db = createClient(url, anonKey, { global: { headers: { Authorization: authHeader } } })
-  const { data: { user } } = await db.auth.getUser(authHeader.replace(/^Bearer\s+/i, ""))
-  if (!user) return json({ error: 'Not signed in.' }, 401)
+  const { data: { user }, error: authError } = await db.auth.getUser(authHeader.replace(/^Bearer\s+/i, ""))
+  if (!user) return json({ error: `Not signed in. (${authError?.message ?? 'no user for this token'}; token ${authHeader ? 'sent' : 'missing'})` }, 401)
   const { data: active } = await db.rpc('is_active_user')
   if (!active) return json({ error: 'Your account is not active.' }, 403)
 
