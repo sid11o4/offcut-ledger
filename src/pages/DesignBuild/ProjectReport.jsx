@@ -2,6 +2,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, StatCard, EmptyState, LoadingBlock } from '../../components/ui'
+import BankStatement from '../../components/BankStatement'
 import { useAppSettings } from '../../lib/queries'
 import { downloadDesignProjectReport } from '../../lib/designProjectReportPdf'
 import { displayDate } from '../../lib/dates'
@@ -30,7 +31,8 @@ async function loadProjectReport(id) {
   const f = financialsR.data?.[0] || {}
   const expenses = expensesR.data || []
   const bills = billsR.data || []
-  const ledger = (ledgerR.data || []).filter((r) => r.design_project_id === id)
+  // The ledger RPC is newest first; a statement reads oldest first.
+  const ledger = (ledgerR.data || []).filter((r) => r.design_project_id === id).reverse()
 
   // Expenses by category: the two bill-driven lines first, then each expense category.
   const byCategory = new Map()
@@ -185,23 +187,20 @@ export default function DesignProjectReport() {
         )}
       </Card>
 
-      <Card title="Ledger statement (all payments)" className="mb-5">
-        {!r.ledger.length ? <EmptyState title="No transactions yet" /> : (
-          <div className="overflow-x-auto -mx-4">
-            <table className="table-base">
-              <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Reference</th><th className="num">Out</th></tr></thead>
-              <tbody>
-                {r.ledger.map((x) => (
-                  <tr key={`${x.reference_type}-${x.reference_id}`}>
-                    <td>{displayDate(x.txn_date)}</td><td>{x.category}</td><td>{x.description}</td><td>{x.reference}</td>
-                    <td className="num">{money(x.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot><tr><td colSpan={4} className="font-medium">Total</td><td className="num font-medium">{money(r.ledgerTotal)}</td></tr></tfoot>
-            </table>
-          </div>
-        )}
+      <Card title="Account statement (all payments)" className="mb-5">
+        <BankStatement
+          rows={r.ledger.map((x) => ({
+            key: `${x.reference_type}-${x.reference_id}`,
+            date: x.txn_date,
+            category: x.category,
+            description: x.description,
+            reference: x.reference,
+            direction: 'out',
+            amount: x.amount,
+          }))}
+          opening={0}
+          exportName={`project-statement-${project.code || project.name}`}
+        />
       </Card>
     </div>
   )

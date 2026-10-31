@@ -66,10 +66,30 @@ const WORKSPACE_GROUPS = {
         { to: '/design-build/slip', label: 'Consumption / Transfer Slip', icon: 'transfer', perm: 'inventory_operate' },
       ],
     },
+    // Each subheader is its own group, so the expanded rail shows it as a heading over its reports.
     {
-      label: 'Reports',
+      label: 'Ledgers',
       items: [
         { to: '/design-build/ledger', label: 'Ledger & Statement', icon: 'ledger', perm: 'supplier_bills_manage' },
+      ],
+    },
+    {
+      label: 'Project reports',
+      items: [
+        { to: '/design-build/reports/projects', label: 'Project summary', icon: 'layers', perm: 'design_build_manage' },
+      ],
+    },
+    {
+      label: 'Expense reports',
+      items: [
+        { to: '/design-build/reports/expenses', label: 'By category', icon: 'wallet', perm: 'design_build_manage' },
+      ],
+    },
+    {
+      label: 'Material & labour reports',
+      items: [
+        { to: '/design-build/reports/materials', label: 'Materials consumed', icon: 'inventory', perm: 'design_build_manage' },
+        { to: '/design-build/reports/labour', label: 'Labour', icon: 'tool', perm: 'design_build_manage' },
       ],
     },
     {
