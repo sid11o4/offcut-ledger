@@ -248,21 +248,22 @@ export default function Layout() {
           <div className="w-8 h-8 shrink-0 rounded-md bg-brand-600 text-white flex items-center justify-center font-semibold text-sm">F</div>
           {railExpanded && <span className="font-medium text-white text-sm">Formgrid</span>}
         </div>
-        <nav className="flex-1 flex flex-col items-center [&_.rail-item]:text-ink-400 [&_.rail-item:hover]:text-white [&_.rail-item:hover]:bg-white/10 [&_.rail-item.active]:text-white [&_.rail-item.active]:bg-white/10">
-          <WorkspaceSwitcher workspace={workspace} onChange={changeWorkspace} labelled={railExpanded} />
-          <RailGroups groups={activeGroups} labelled={railExpanded} />
-          <RailGroups groups={[ADMIN_GROUP]} labelled={railExpanded} firstBordered />
-        </nav>
+        {/* The toggle sits at the top, above the menu, so it stays in view however long the menu grows. */}
         <button
           type="button"
           onClick={toggleRail}
           title={railExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-          className={`rail-item text-ink-400 hover:text-white hover:bg-white/10 mt-2 ${railExpanded ? '!w-full !justify-start gap-2.5 px-3' : ''}`}
+          className={`rail-item text-ink-400 hover:text-white hover:bg-white/10 mb-2 ${railExpanded ? '!w-full !justify-start gap-2.5 px-3' : ''}`}
         >
           <Icon name="chevron" className={railExpanded ? 'rotate-180' : ''} />
           {railExpanded && <span className="text-sm font-medium">Collapse</span>}
           <span className="sr-only">{railExpanded ? 'Collapse sidebar' : 'Expand sidebar'}</span>
         </button>
+        <nav className="flex-1 flex flex-col items-center [&_.rail-item]:text-ink-400 [&_.rail-item:hover]:text-white [&_.rail-item:hover]:bg-white/10 [&_.rail-item.active]:text-white [&_.rail-item.active]:bg-white/10">
+          <WorkspaceSwitcher workspace={workspace} onChange={changeWorkspace} labelled={railExpanded} />
+          <RailGroups groups={activeGroups} labelled={railExpanded} />
+          <RailGroups groups={[ADMIN_GROUP]} labelled={railExpanded} firstBordered />
+        </nav>
       </aside>
 
       {mobileOpen && (
