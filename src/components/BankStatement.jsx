@@ -11,7 +11,7 @@ import { buildStatementDoc, saveDoc } from '../lib/reportPdf'
 //
 // rows: [{ key, date, category, description, reference, direction: 'in' | 'out', amount, href? }]
 // opening: the balance brought forward at the start of the period.
-export default function BankStatement({ rows, opening = 0, loading = false, exportName = 'statement', pdfTitle = 'Account statement', subtitle, period }) {
+export default function BankStatement({ rows, opening = 0, loading = false, exportName = 'statement', pdfTitle = 'Account statement', subtitle, period, categories }) {
   let running = Number(opening)
   const lines = rows.map((r) => {
     const amount = Number(r.amount)
@@ -52,6 +52,7 @@ export default function BankStatement({ rows, opening = 0, loading = false, expo
       meta: period ? [['Period', period]] : [],
       opening,
       rows: lines,
+      categories,
     })
     saveDoc(doc, exportName)
   }

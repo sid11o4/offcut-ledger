@@ -176,7 +176,17 @@ export function newReportDoc({ title, subtitle, meta }) {
 
 // Bank-style statement: summary cards, then Date / Details / Reference / Debit / Credit / Balance with
 // the opening and closing balances. Rows are oldest first, already signed as debit or credit.
-export function buildStatementDoc({ title, subtitle, meta, opening = 0, rows, footerNote }) {
+// categories (optional): [{ name, amount }] drawn as a breakdown table above the ledger, with its total.
+export function buildStatementDoc({ title, subtitle, meta, opening = 0, rows: rawRows, footerNote, categories }) {
+  // Each row is either already split (debit / credit) or carries direction 'in' | 'out' and an amount.
+  const rows = rawRows.map((r) => {
+    const amount = Number(r.amount || 0)
+    return {
+      ...r,
+      debit: r.debit ?? (r.direction === 'out' ? amount : 0),
+      credit: r.credit ?? (r.direction === 'in' ? amount : 0),
+    }
+  })
   const out = newReportDoc({ title, subtitle, meta })
   let y = out.y
   const totalDebit = rows.reduce((s, r) => s + r.debit, 0)
@@ -189,7 +199,17 @@ export function buildStatementDoc({ title, subtitle, meta, opening = 0, rows, fo
     ['Debits (out)', money(totalDebit)],
     ['Closing balance', money(closing)],
   ])
-  y = sectionLabel(out.doc, y, 'Account statement')
+  if (categories?.length) {
+    const catTotal = categories.reduce((s, c) => s + c.amount, 0)
+    y = sectionLabel(out.doc, y, 'Category breakdown')
+    y = brandTable(out.doc, y, {
+      head: ['Category', 'Amount', 'Share'],
+      body: categories.map((c) => [c.name, money(c.amount), catTotal ? `${((c.amount / catTotal) * 100).toFixed(1)}%` : '—']),
+      foot: ['Total', money(catTotal), '100%'],
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+    })
+  }
+  y = sectionLabel(out.doc, y, 'Ledger')
 
   let running = Number(opening)
   const body = rows.map((r) => {

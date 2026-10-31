@@ -77,6 +77,13 @@ const WORKSPACE_GROUPS = {
       label: 'Project reports',
       items: [
         { to: '/design-build/reports/projects', label: 'Project summary', icon: 'layers', perm: 'design_build_manage' },
+        { to: '/design-build/reports/consolidated', label: 'Consolidated report', icon: 'report', perm: 'design_build_manage' },
+      ],
+    },
+    {
+      label: 'Suppliers & contractors',
+      items: [
+        { to: '/design-build/suppliers', label: 'Statements', icon: 'users', perm: 'supplier_bills_manage' },
       ],
     },
     {
