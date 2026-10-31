@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from './Toast'
 import { supabase } from '../lib/supabaseClient'
 import GlobalSearch from './GlobalSearch'
+import AskBar from './AskBar'
 import Icon from './icons'
 
 // Icon rail (design-taste-frontend, app-screens §3/§4): an unlabelled 56px rail, grouped by
@@ -246,8 +247,8 @@ export default function Layout() {
             <Icon name="menu" />
           </button>
           <div className="md:hidden font-medium text-ink-950">Formgrid</div>
-          <div className="hidden md:block flex-1 max-w-sm">
-            <GlobalSearch />
+          <div className="hidden md:block flex-1 max-w-xl">
+            <AskBar />
           </div>
           <div className="relative md:ml-0 ml-auto">
             <button className="btn-ghost" onClick={() => setMenuOpen((o) => !o)}>
