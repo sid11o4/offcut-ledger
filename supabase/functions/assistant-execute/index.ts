@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
   const authHeader = req.headers.get('Authorization') ?? ''
 
   const db = createClient(url, anonKey, { global: { headers: { Authorization: authHeader } } })
-  const { data: { user } } = await db.auth.getUser()
+  const { data: { user } } = await db.auth.getUser(authHeader.replace(/^Bearer\s+/i, ""))
   if (!user) return json({ error: 'Not signed in.' }, 401)
   const { data: active } = await db.rpc('is_active_user')
   if (!active) return json({ error: 'Your account is not active.' }, 403)
