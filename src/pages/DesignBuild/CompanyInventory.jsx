@@ -40,7 +40,7 @@ export default function CompanyInventory() {
           <div className="text-2xl font-medium tnum mt-1">{money(total)}</div>
           <div className="text-xs text-ink-500 mt-1">{rows.length} material{rows.length === 1 ? '' : 's'} in the shared pool</div>
         </Card>
-        {(projectsQ.data || []).map((p) => (
+        {(projectsQ.data || []).filter((p) => p.status !== 'completed').map((p) => (
           <Link key={p.id} to={`/design-build/projects/${p.id}`} className="card p-4 hover:bg-ink-50 block">
             <div className="text-xs text-ink-500 font-mono">{p.code}</div>
             <div className="font-medium text-ink-950 mt-0.5">{p.name}</div>

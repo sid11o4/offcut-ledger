@@ -16,6 +16,18 @@ export default function ProjectDashboard() {
   const [transferOpen, setTransferOpen] = useState(false)
   const navigate = useNavigate()
 
+  // Leftover stock moves to Company inventory and the project leaves the active lists. The database
+  // refuses while bills are still waiting for review.
+  async function completeProject() {
+    if (!window.confirm(`Mark ${projectQ.data?.name} complete? Any stock left on the project moves to Company inventory.`)) return
+    const { data: moved, error } = await supabase.rpc('complete_design_project', { p_project_id: id })
+    if (error) return toast.error(error.message)
+    invalidateInventory(qc)
+    qc.invalidateQueries({ queryKey: ['design_project', id] })
+    toast.success(moved ? `${projectQ.data?.name} completed. ${moved} stock line${moved === 1 ? '' : 's'} moved to Company inventory.` : `${projectQ.data?.name} completed.`)
+    navigate('/design-build/projects')
+  }
+
   // The database refuses the delete while the project has bills, slips or stock locations, and
   // says why, so that message is what the user sees.
   async function deleteProject() {
@@ -91,6 +103,7 @@ export default function ProjectDashboard() {
           <>
             <StatusBadge status={p?.status} />
             <button className="btn-secondary" onClick={() => setTransferOpen(true)}>Transfer stock</button>
+            {p?.status !== 'completed' && <button className="btn-secondary" onClick={completeProject}>Mark complete</button>}
             <button className="btn-danger" onClick={deleteProject}>Delete project</button>
           </>
         }

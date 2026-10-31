@@ -12,16 +12,25 @@ export default function DesignProjectsList() {
   const summaryQ = useDesignProjectsSummary()
   const { hasPermission } = useAuth()
   const [creating, setCreating] = useState(false)
+  const [showCompleted, setShowCompleted] = useState(false)
   const canWrite = hasPermission('design_build_manage')
 
-  const rows = summaryQ.data || []
+  // Completed projects leave the list unless asked for; their stock has moved to Company inventory.
+  const rows = (summaryQ.data || []).filter((p) => showCompleted || p.status !== 'completed')
 
   return (
     <div>
       <PageHeader
         title="Design Build Projects"
         subtitle="Turnkey interior projects — inventory, supplier bills, and Internal Order job-work all roll up here."
-        actions={canWrite && <button className="btn-primary" onClick={() => setCreating(true)}>+ New Project</button>}
+        actions={(
+          <>
+            <button className="btn-ghost" onClick={() => setShowCompleted((v) => !v)}>
+              {showCompleted ? 'Hide completed' : 'Show completed'}
+            </button>
+            {canWrite && <button className="btn-primary" onClick={() => setCreating(true)}>+ New Project</button>}
+          </>
+        )}
       />
       <Card>
         {summaryQ.isLoading ? <LoadingBlock /> : !rows.length ? (
