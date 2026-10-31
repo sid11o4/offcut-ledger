@@ -78,9 +78,10 @@ function NewProjectModal({ onClose }) {
 
   async function submit(e) {
     e.preventDefault()
-    const code = form.code.trim()
     const name = form.name.trim()
-    if (!code || !name) return toast.error('Code and name are required.')
+    if (!name) return toast.error('Project name is required.')
+    // The code is optional; when it is left out, the project name is used as the code.
+    const code = form.code.trim() || name
     setSaving(true)
     const { error } = await supabase.from('design_projects').insert({
       code, name,
@@ -102,7 +103,7 @@ function NewProjectModal({ onClose }) {
       <form onSubmit={submit} className="card p-5 w-full max-w-md space-y-3">
         <div className="text-sm font-semibold text-ink-950">New Design Build project</div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Code"><Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="SAN-U02" /></Field>
+          <Field label="Code (optional)" hint="Leave blank and the project name is used as the code."><Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="SAN-U02" /></Field>
           <Field label="Start date"><Input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} /></Field>
         </div>
         <Field label="Name"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Sanctum Residence — Unit 02" /></Field>
