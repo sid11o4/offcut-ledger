@@ -46,14 +46,29 @@ const WORKSPACE_GROUPS = {
       ],
     },
   ],
+  // Same menu shape as Factory. Projects, Clients, Job Work, Estimates, Billing and the Daily Log are
+  // shared pages, so they appear here too; Expenses, Recurring Expenses and the ledger/statement are
+  // Design Build's own.
   design_build: [
     {
       label: 'Design Build',
       items: [
         { to: '/design-build', label: 'Dashboard', icon: 'dashboard', perm: 'design_build_manage', end: true },
-        { to: '/design-build/projects', label: 'Projects', icon: 'layers', perm: 'design_build_manage' },
+        { to: '/daily-log', label: 'Daily Log', icon: 'log' },
+        { to: '/job-work', label: 'Job Work Catalog', icon: 'tool' },
+        { to: '/projects', label: 'Projects', icon: 'project' },
+        { to: '/clients', label: 'Clients', icon: 'client' },
+        { to: '/estimates', label: 'Estimates', icon: 'estimate' },
+        { to: '/billing', label: 'Billing', icon: 'bill', perm: 'billing' },
+        { to: '/design-build/expenses', label: 'Expenses', icon: 'wallet', perm: 'design_build_manage' },
+        { to: '/design-build/recurring-expenses', label: 'Recurring Expenses', icon: 'recur', perm: 'design_build_manage' },
         { to: '/design-build/inventory', label: 'Company Inventory', icon: 'inventory', perm: 'inventory_operate' },
         { to: '/design-build/slip', label: 'Consumption / Transfer Slip', icon: 'transfer', perm: 'inventory_operate' },
+      ],
+    },
+    {
+      label: 'Reports',
+      items: [
         { to: '/design-build/ledger', label: 'Ledger & Statement', icon: 'ledger', perm: 'supplier_bills_manage' },
       ],
     },
@@ -78,8 +93,13 @@ const ADMIN_GROUP = {
   ],
 }
 
-function workspaceForPath(pathname) {
-  for (const [key, groups] of Object.entries(WORKSPACE_GROUPS)) {
+// The workspace that owns this path. The current workspace is checked first, so a shared page keeps
+// the menu the user is already in.
+function workspaceForPath(pathname, preferred) {
+  const order = [preferred, ...Object.keys(WORKSPACE_GROUPS).filter((k) => k !== preferred)]
+  for (const key of order) {
+    const groups = WORKSPACE_GROUPS[key]
+    if (!groups) continue
     for (const g of groups) {
       if (g.items.some((item) => pathname === item.to || pathname.startsWith(item.to + '/'))) return key
     }
@@ -171,8 +191,10 @@ export default function Layout() {
   // that page's own nav item highlighted, not leave the rail stuck on whichever workspace was
   // last picked by hand -- otherwise the active route silently disappears from the visible
   // menu. Derived from WORKSPACE_GROUPS itself so the two stay in sync automatically.
+  // Shared pages (Projects, Clients, Daily Log) sit in both menus, so only switch workspace when the
+  // current one does not already own this route.
   useEffect(() => {
-    const match = workspaceForPath(location.pathname)
+    const match = workspaceForPath(location.pathname, workspace)
     if (match) setWorkspace((w) => (w === match ? w : match))
   }, [location.pathname])
 
