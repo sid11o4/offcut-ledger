@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from './Toast'
 import { supabase } from '../lib/supabaseClient'
@@ -12,17 +12,13 @@ import Icon from './icons'
 // More destinations than the study ever tested, so the rail scrolls; each icon still carries a
 // tooltip and an accessible name per the house rule.
 //
-// Factory and Design Build are two different businesses sharing one app (owner's framing) --
-// their menus stay visually separate behind a workspace switch rather than one long merged
-// list, even though the data underneath (clients, inventory, the Internal Order bridge) is
-// already shared. Dashboard and Admin sit outside the switch: Dashboard reads across both
-// businesses at once, and Masters/Users/Audit Log are shared back-office regardless of which
-// workspace is active.
-const PINNED = { to: '/', label: 'Factory Dashboard', icon: 'dashboard', end: true }
-
+// Factory and Design Build are two different businesses sharing one app (owner's framing). The top
+// of the sidebar is only the workspace switch; choosing a workspace opens its dashboard and shows
+// its own menu, so each business has its own home and nothing from the other is on screen. Admin
+// sits outside the switch: Masters, Users and Audit Log are shared back-office.
 const WORKSPACES = [
-  { key: 'factory', label: 'Factory', icon: 'project' },
-  { key: 'design_build', label: 'Design Build', icon: 'layers' },
+  { key: 'factory', label: 'Factory', icon: 'project', home: '/' },
+  { key: 'design_build', label: 'Design Build', icon: 'layers', home: '/design-build' },
 ]
 
 const WORKSPACE_GROUPS = {
@@ -30,6 +26,7 @@ const WORKSPACE_GROUPS = {
     {
       label: 'Factory',
       items: [
+        { to: '/', label: 'Dashboard', icon: 'dashboard', end: true },
         { to: '/daily-log', label: 'Daily Log', icon: 'log' },
         { to: '/job-work', label: 'Job Work Catalog', icon: 'tool' },
         { to: '/projects', label: 'Projects', icon: 'project' },
@@ -168,6 +165,7 @@ export default function Layout() {
   const [workspace, setWorkspace] = useState(() => readStored('formgrid_workspace', 'factory'))
   const [railExpanded, setRailExpanded] = useState(() => readStored('formgrid_rail_expanded', '') === '1')
   const location = useLocation()
+  const navigate = useNavigate()
 
   // A direct link or browser-back into a page that belongs to the other workspace should show
   // that page's own nav item highlighted, not leave the rail stuck on whichever workspace was
@@ -178,9 +176,12 @@ export default function Layout() {
     if (match) setWorkspace((w) => (w === match ? w : match))
   }, [location.pathname])
 
+  // Picking a workspace opens its dashboard, so the page and the menu always describe the same
+  // business.
   function changeWorkspace(key) {
     setWorkspace(key)
     writeStored('formgrid_workspace', key)
+    navigate(WORKSPACES.find((w) => w.key === key).home)
   }
   function toggleRail() {
     setRailExpanded((v) => {
@@ -199,7 +200,6 @@ export default function Layout() {
           {railExpanded && <span className="font-medium text-white text-sm">Formgrid</span>}
         </div>
         <nav className="flex-1 flex flex-col items-center [&_.rail-item]:text-ink-400 [&_.rail-item:hover]:text-white [&_.rail-item:hover]:bg-white/10 [&_.rail-item.active]:text-white [&_.rail-item.active]:bg-white/10">
-          <RailGroups groups={[{ items: [PINNED] }]} labelled={railExpanded} />
           <WorkspaceSwitcher workspace={workspace} onChange={changeWorkspace} labelled={railExpanded} />
           <RailGroups groups={activeGroups} labelled={railExpanded} />
           <RailGroups groups={[ADMIN_GROUP]} labelled={railExpanded} firstBordered />
@@ -233,7 +233,6 @@ export default function Layout() {
               <GlobalSearch />
             </div>
             <nav className="[&_.rail-item]:text-ink-300 [&_.rail-item:hover]:text-white [&_.rail-item:hover]:bg-white/10 [&_.rail-item.active]:text-white [&_.rail-item.active]:bg-white/10">
-              <RailGroups groups={[{ items: [PINNED] }]} onNavigate={() => setMobileOpen(false)} labelled />
               <WorkspaceSwitcher workspace={workspace} onChange={changeWorkspace} labelled />
               <RailGroups groups={activeGroups} onNavigate={() => setMobileOpen(false)} labelled />
               <RailGroups groups={[ADMIN_GROUP]} onNavigate={() => setMobileOpen(false)} labelled firstBordered />
