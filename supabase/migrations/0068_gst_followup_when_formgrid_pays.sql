@@ -1,4 +1,4 @@
--- Whenever FORMGRID pays a bill that has taxed items (cash or RTGS/NEFT), the GST follow-up is raised.
+-- Whenever FORMGRID pays a bill that has taxed items by RTGS/NEFT, the GST follow-up is raised.
 -- It is checked again whenever a payment is recorded on an approved FORMGRID bill.
 create or replace function public.ensure_gst_followup(p_bill_id uuid)
 returns void
@@ -20,7 +20,7 @@ begin
   ) into v_has_gst;
   select exists (
     select 1 from public.supplier_bill_payments
-    where bill_id = p_bill_id and mode in ('cash', 'rtgs_neft') and allocated_amount > 0
+    where bill_id = p_bill_id and mode = 'rtgs_neft' and allocated_amount > 0
   ) into v_has_paid;
   select exists (select 1 from public.gst_invoice_followups where bill_id = p_bill_id) into v_already;
 
