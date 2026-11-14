@@ -136,7 +136,12 @@ async function extractBill(apiKey: string, mimeType: string, fileBase64: string,
     tool_choice: { type: 'tool', name: 'extract_bill_slip' },
     messages: [{
       role: 'user',
-      content: [fileBlock, { type: 'text', text: `${prompt}\n\nCall extract_bill_slip with everything found on the slip.` }],
+      content: [
+        // The prompt (with the known lists) is cached; it comes before the file so the cache can be reused.
+        { type: 'text', text: prompt, cache_control: { type: 'ephemeral' } },
+        fileBlock,
+        { type: 'text', text: 'Call extract_bill_slip with everything found on the slip.' },
+      ],
     }],
   })
   // deno-lint-ignore no-explicit-any
@@ -308,40 +313,45 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
       material_match?: string | null; material_confidence?: number; cost_head?: string | null
     }>
 
-    for (let i = 0; i < lineItems.length; i++) {
-      const li = lineItems[i]
-      const lineCostHead = li.cost_head && COST_HEADS.includes(li.cost_head) ? li.cost_head : null
+    const prepared = lineItems.map((li, i) => {
       const matchedItemId = li.material_match ? itemIdMap.get(li.material_match) ?? null : null
       const confidence = li.material_confidence ?? 0
-      const autoApply = matchedItemId && confidence >= 0.95
-
-      const { data: insertedItem, error: itemErr } = await admin.from('supplier_bill_items').insert({
-        bill_id: billId,
-        description: li.description,
-        description_text: li.description,
-        item_type: li.item_type,
-        inventory_item_id: autoApply ? matchedItemId : null,
-        unit_text: li.unit_text ?? null,
-        quantity: li.quantity,
-        rate_inclusive: li.rate_inclusive,
-        gst_percent: li.gst_percent,
-        field_confidence: { material_match: confidence },
-        cost_head: lineCostHead,
-        sort_order: i,
-      }).select().single()
-      if (itemErr) throw itemErr
-
-      if (matchedItemId && li.item_type === 'material') {
-        await admin.from('material_match_suggestions').insert({
-          supplier_bill_item_id: insertedItem.id,
-          suggested_inventory_item_id: matchedItemId,
-          confidence,
-          status: autoApply ? 'confirmed' : 'pending',
-          reasoning: `Matched "${li.description}" to "${li.material_match}".`,
-          decided_by: null,
-          decided_at: autoApply ? new Date().toISOString() : null,
-        })
+      const autoApply = !!matchedItemId && confidence >= 0.95
+      return {
+        li, matchedItemId, confidence, autoApply,
+        row: {
+          bill_id: billId,
+          description: li.description,
+          description_text: li.description,
+          item_type: li.item_type,
+          inventory_item_id: autoApply ? matchedItemId : null,
+          unit_text: li.unit_text ?? null,
+          quantity: li.quantity,
+          rate_inclusive: li.rate_inclusive,
+          gst_percent: li.gst_percent,
+          field_confidence: { material_match: confidence },
+          cost_head: li.cost_head && COST_HEADS.includes(li.cost_head) ? li.cost_head : null,
+          sort_order: i,
+        },
       }
+    })
+    if (prepared.length) {
+      const { data: insertedItems, error: itemErr } = await admin.from('supplier_bill_items')
+        .insert(prepared.map((p) => p.row)).select('id, sort_order')
+      if (itemErr) throw itemErr
+      const idBySort = new Map((insertedItems || []).map((r: { id: string; sort_order: number }) => [r.sort_order, r.id]))
+      const suggestions = prepared
+        .filter((p) => p.matchedItemId && p.li.item_type === 'material')
+        .map((p) => ({
+          supplier_bill_item_id: idBySort.get(p.row.sort_order),
+          suggested_inventory_item_id: p.matchedItemId,
+          confidence: p.confidence,
+          status: p.autoApply ? 'confirmed' : 'pending',
+          reasoning: `Matched "${p.li.description}" to "${p.li.material_match}".`,
+          decided_by: null,
+          decided_at: p.autoApply ? new Date().toISOString() : null,
+        }))
+      if (suggestions.length) await admin.from('material_match_suggestions').insert(suggestions)
     }
 
     // The bill's cost heads and expense nature now come from the line items, which were analysed one by
@@ -356,11 +366,11 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
     const payments = (extracted.payments || []) as Array<{
       mode: 'cash' | 'rtgs_neft' | 'credit'; amount: number; utr_reference?: string | null; received_by?: string | null
     }>
-    for (const p of payments) {
-      await admin.from('supplier_bill_payments').insert({
+    if (payments.length) {
+      await admin.from('supplier_bill_payments').insert(payments.map((p) => ({
         bill_id: billId, mode: p.mode, allocated_amount: p.amount,
         utr_reference: p.utr_reference ?? null, received_by: p.received_by ?? null, created_by: caller.id,
-      })
+      })))
     }
 
     return json({ ok: true, line_items: lineItems.length, payments: payments.length, grand_total: extracted.grand_total ?? null })
