@@ -1,0 +1,42 @@
+-- Design Build project expense is: factory internal-order earnings, labour and other non-stock bill
+-- costs, materials consumed from inventory, and miscellaneous expenses. Material bought into inventory
+-- is not an expense until it is consumed, so bill lines matched to a stock item are left out here;
+-- they are counted through materials consumed.
+drop function if exists public.report_design_project_financials(uuid);
+
+create or replace function public.report_design_project_financials(p_design_project_id uuid)
+returns table(
+  budget numeric, supplier_bills_total numeric, internal_order_total numeric,
+  current_inventory_value numeric, inventory_in_value numeric, direct_expenses_total numeric,
+  materials_consumed_total numeric, bill_expense_total numeric
+)
+language sql
+stable
+set search_path = public
+as $function$
+  select
+    dp.budget,
+    coalesce((select sum(b.grand_total) from public.supplier_bills b
+      where b.design_project_id = dp.id and b.status = 'approved'), 0),
+    coalesce((select sum(e.total_amount) from public.job_work_entries e
+      where e.project_id = dp.factory_project_id and e.billed and e.status = 'active'), 0),
+    coalesce((select sum(st.quantity * st.avg_unit_cost) from public.inventory_stock st
+      join public.inventory_locations loc on loc.id = st.location_id
+      where loc.design_project_id = dp.id), 0),
+    coalesce((select sum(t.total_cost) from public.inventory_transactions t
+      join public.inventory_locations loc on loc.id = t.location_id
+      where loc.design_project_id = dp.id and t.txn_type in ('purchase', 'transfer_in')), 0),
+    coalesce((select sum(x.amount) from public.design_build_expenses x
+      where x.design_project_id = dp.id and x.status = 'active'), 0),
+    coalesce((select sum(abs(t.total_cost)) from public.inventory_transactions t
+      join public.inventory_locations loc on loc.id = t.location_id
+      where loc.design_project_id = dp.id and t.txn_type = 'consumption'), 0),
+    coalesce((select sum(i.total_amount) from public.supplier_bill_items i
+      join public.supplier_bills b on b.id = i.bill_id
+      where b.design_project_id = dp.id and b.status = 'approved' and i.inventory_item_id is null), 0)
+  from public.design_projects dp
+  where dp.id = p_design_project_id;
+$function$;
+
+revoke all on function public.report_design_project_financials(uuid) from public, anon;
+grant execute on function public.report_design_project_financials(uuid) to authenticated;

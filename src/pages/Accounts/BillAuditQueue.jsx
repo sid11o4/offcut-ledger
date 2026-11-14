@@ -16,6 +16,11 @@ const COST_HEADS = [
 
 const ANNEX_KINDS = [['vendor_bill', 'Vendor bill'], ['gst_invoice', 'GST invoice'], ['other', 'Other']]
 
+// The scanner reads photos and PDFs. Other vendor papers (spreadsheets, Word files, text, other image
+// formats) are attached to their bill as they are, without being scanned.
+const SCANNABLE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf']
+const UPLOAD_ACCEPT = 'image/*,application/pdf,.csv,.xls,.xlsx,.doc,.docx,.txt'
+
 // Stores an uploaded file in the scan bucket and returns its path.
 async function storeBillFile(userId, file) {
   const path = `supplier-bills/${userId}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
@@ -98,14 +103,14 @@ export default function BillAuditQueue() {
   // read in full by the extraction function below -- a scanned slip with a back page, or a
   // front+back pair, is still one bill). Selecting several files at once queues each as its
   // own bill and extracts them one at a time; one bad file doesn't stop the rest.
-  async function createSlipBill(path) {
+  async function createSlipBill(path, kind = 'slip') {
     const { data: bill, error: billErr } = await supabase.from('supplier_bills').insert({
       internal_bill_number: `PENDING-${Date.now().toString().slice(-6)}`,
       bill_date: new Date().toISOString().slice(0, 10),
       expense_nature: 'material', scan_image_path: path, created_by: profile.id,
     }).select().single()
     if (billErr) throw billErr
-    const { data: fnResult, error: fnErr } = await supabase.functions.invoke('extract-supplier-bill-scan', { body: { bill_id: bill.id } })
+    const { data: fnResult, error: fnErr } = await supabase.functions.invoke('extract-supplier-bill-scan', { body: { bill_id: bill.id, kind } })
     if (fnErr) throw new Error(fnResult?.error || fnErr.message)
     if (fnResult?.error) throw new Error(fnResult.error)
     return bill
@@ -128,12 +133,18 @@ export default function BillAuditQueue() {
     for (const file of files) {
       try {
         const path = await storeBillFile(profile.id, file)
-        let c = { kind: 'formgrid_slip', formgrid_bill_number: null }
-        try {
-          c = await classifyBillFile(path, file.type)
-        } catch { /* unavailable: scan it as a slip */ }
+        const scannable = SCANNABLE_TYPES.includes(file.type)
+        let c = { kind: scannable ? 'formgrid_slip' : 'other', formgrid_bill_number: null }
+        if (scannable) {
+          try {
+            c = await classifyBillFile(path, file.type)
+          } catch { /* unavailable: scan it as a slip */ }
+        }
         if (c.kind === 'formgrid_slip') slipBills.push(await createSlipBill(path))
-        else docs.push({ path, file, kind: c.kind, number: c.formgrid_bill_number })
+        // A vendor's own bill with no FORMGRID number is a bill in its own right.
+        else if (scannable && (c.kind === 'vendor_bill' || c.kind === 'gst_invoice') && !billKey(c.formgrid_bill_number)) {
+          slipBills.push(await createSlipBill(path, 'vendor'))
+        } else docs.push({ path, file, kind: c.kind, number: c.formgrid_bill_number })
       } catch (err) {
         failed += 1
         toast.error(`${file.name}: ${err.message || err}`)
@@ -194,7 +205,7 @@ export default function BillAuditQueue() {
             <input
               ref={fileRef}
               type="file"
-              accept="image/png,image/jpeg,image/webp,application/pdf"
+              accept={UPLOAD_ACCEPT}
               multiple
               className="hidden"
               disabled={uploading}
@@ -495,7 +506,7 @@ function AuditPanel({ billId, onDone }) {
           </ul>
           <label className="btn-secondary mt-3 inline-flex cursor-pointer">
             {saving ? 'Attaching…' : 'Attach document'}
-            <input type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" className="hidden" disabled={saving} onChange={addAnnexures} />
+            <input type="file" multiple accept={UPLOAD_ACCEPT} className="hidden" disabled={saving} onChange={addAnnexures} />
           </label>
         </Card>
 
