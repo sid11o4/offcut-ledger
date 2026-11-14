@@ -11,7 +11,7 @@
 //
 // Requires the ANTHROPIC_API_KEY secret (Supabase dashboard -> Edge Functions -> Secrets).
 //
-// POST body: { bill_id }
+// POST body: { bill_id, kind? }
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { encodeBase64 } from 'jsr:@std/encoding@1/base64'
 
@@ -38,6 +38,10 @@ const COST_HEADS = [
 const EXTRACT_SCHEMA = {
   type: 'object',
   properties: {
+    document_type: {
+      type: 'string', enum: ['formgrid_slip', 'vendor_bill'],
+      description: 'What this document is. formgrid_slip: a FORMGRID "Bill / Payment Slip" (FORMGRID letterhead, Type of Expense and Cost Head checkboxes, Payment Details). vendor_bill: any other supplier\'s own bill or invoice, in its own layout.',
+    },
     bill_number: { type: ['string', 'null'], description: 'The handwritten/printed "Bill No." field.' },
     bill_number_confidence: { type: 'number', description: '0-1 confidence in the bill number reading.' },
     bill_date: { type: ['string', 'null'], description: 'The date field, as an ISO YYYY-MM-DD date.' },
@@ -95,7 +99,7 @@ const EXTRACT_SCHEMA = {
     grand_total: { type: ['number', 'null'] },
     remarks: { type: ['string', 'null'] },
   },
-  required: ['line_items', 'payments'],
+  required: ['document_type', 'line_items', 'payments'],
 }
 
 // Anthropic answers a transient overload with 529 (or 503); retry those with backoff.
@@ -144,7 +148,7 @@ async function extractBill(apiKey: string, mimeType: string, fileBase64: string,
 // A vendor's own bill or invoice: any layout, not the FORMGRID slip.
 function vendorBillPrompt(isPdf: boolean, suppliers: string[], projects: string[], items: string[]): string {
   const list = (xs: string[]) => xs.map((n) => `- ${n}`).join('\n') || '(none on file)'
-  return `This is ${isPdf ? 'a PDF (it may have more than one page -- read all of them)' : 'a photo'} of a vendor's own bill or invoice. It is a supplier's document, not a FORMGRID slip, so its layout can be anything.
+  return `First decide what this document is and report it as document_type. This is ${isPdf ? 'a PDF (it may have more than one page -- read all of them)' : 'a photo'} of a vendor's own bill or invoice. It is a supplier's document, not a FORMGRID slip, so its layout can be anything.
 
 Read the supplier's name, GSTIN, phone and address from the vendor's own letterhead. Never copy the FORMGRID company's details into the supplier fields.
 Read the bill or invoice number and the bill date (as an ISO YYYY-MM-DD date) into bill_number and bill_date.
@@ -215,7 +219,7 @@ Deno.serve(async (req) => {
     const projectIdMap = new Map((projects || []).map((p: { id: string; name: string }) => [p.name, p.id]))
     const itemIdMap = new Map((items || []).map((i: { id: string; name: string }) => [i.name, i.id]))
 
-    const slipPrompt = `This is ${isPdf ? 'a scanned PDF (it may have more than one page -- read all of them; a front+back slip or a multi-page scan is still one bill)' : 'a photo'} of a FORMGRID "Bill / Payment Slip" -- an internal record of a supplier purchase. It has:
+    const slipPrompt = `First decide what this document is and report it as document_type. This is ${isPdf ? 'a scanned PDF (it may have more than one page -- read all of them; a front+back slip or a multi-page scan is still one bill)' : 'a photo'} of a FORMGRID "Bill / Payment Slip" -- an internal record of a supplier purchase. It has:
 Header: Bill No., Date, Supplier Name, Project Name, Project Code, Type of Expense (checkboxes), Cost Head (checkboxes: Factory Labour, Site Labour, Laminate and Veneer, Employee Salary, Factory Consumables, Raw Boards, Fevicol/Adhesives, Other).
 A line-item table: S.No, Description of Goods/Services, Type, Unit, Quantity, Rate (inclusive of GST), Total Amount (inclusive of GST), GST %.
 Payment Details: a table of Payment Mode (Cash Paid / Account Transfer RTGS-NEFT / Added to Credit Account), Amount, Remarks -- and a separate Cash Payment Received section (amount, received by name) when a cash seal/stamp is present.
@@ -239,6 +243,16 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
       : slipPrompt
 
     const extracted = await extractBill(apiKey, mimeType, fileBase64, prompt)
+
+    const expected = vendorMode ? 'vendor_bill' : 'formgrid_slip'
+    if (extracted.document_type !== expected) {
+      await admin.from('supplier_bills').delete().eq('id', billId)
+      return json({
+        error: vendorMode
+          ? 'This is a FORMGRID Bill / Payment Slip. Use Scan FORMGRID bill for it.'
+          : 'This is a vendor\'s own bill, not a FORMGRID slip. Use Scan vendor bill for it.',
+      })
+    }
 
     const supplierId = extracted.supplier_match ? supplierIdMap.get(extracted.supplier_match) ?? null : null
     // A project name that is on file is used. A new name is created as a Design Build project under
