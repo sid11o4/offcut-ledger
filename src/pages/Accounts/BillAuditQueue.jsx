@@ -20,6 +20,7 @@ const ANNEX_KINDS = [['vendor_bill', 'Vendor bill'], ['gst_invoice', 'GST invoic
 // formats) are attached to their bill as they are, without being scanned.
 const SCANNABLE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf']
 const UPLOAD_ACCEPT = 'image/*,application/pdf,.csv,.xls,.xlsx,.doc,.docx,.txt'
+const SCAN_ACCEPT = 'image/png,image/jpeg,image/webp,application/pdf'
 
 // Stores an uploaded file in the scan bucket and returns its path.
 async function storeBillFile(userId, file) {
@@ -133,6 +134,30 @@ export default function BillAuditQueue() {
   // goes to the only bill it could belong to. Anything that matches no bill is not attached and is
   // listed, so it can be attached from that bill's details. If classification is unavailable, the
   // file is scanned as a slip, as it was before this step existed.
+  // A scan takes each file as the kind chosen: a FORMGRID slip, or a vendor's own bill.
+  async function handleScan(e, kind) {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    if (!files.length) return
+    setUploading(true)
+    const created = []
+    for (const file of files) {
+      try {
+        if (!SCANNABLE_TYPES.includes(file.type)) throw new Error('Only photos (PNG, JPG, WEBP) and PDFs can be scanned.')
+        const path = await storeBillFile(profile.id, file)
+        created.push(await createSlipBill(path, kind))
+      } catch (err) {
+        toast.error(`${file.name}: ${err.message || err}`)
+      }
+    }
+    setUploading(false)
+    qc.invalidateQueries({ queryKey: ['supplier_bills_queue'] })
+    if (created.length) {
+      toast.success(`${created.length} ${kind === 'vendor' ? 'vendor' : 'FORMGRID'} bill${created.length === 1 ? '' : 's'} scanned — review below.`)
+      setSelectedId(created[0].id)
+    }
+  }
+
   async function handleUpload(e) {
     const files = Array.from(e.target.files || [])
     e.target.value = ''
@@ -219,18 +244,30 @@ export default function BillAuditQueue() {
         title="Bill Audit Queue"
         subtitle={`${rows.length} bill${rows.length === 1 ? '' : 's'} pending review`}
         actions={
-          <label className="btn-primary cursor-pointer">
-            {uploading ? 'Uploading…' : '+ Scan bill'}
-            <input
-              ref={fileRef}
-              type="file"
-              accept={UPLOAD_ACCEPT}
-              multiple
-              className="hidden"
-              disabled={uploading}
-              onChange={handleUpload}
+          <div className="flex items-center gap-2">
+            <label className="btn-primary cursor-pointer">
+              {uploading ? 'Scanning…' : 'Scan FORMGRID bill'}
+              <input type="file" accept={SCAN_ACCEPT} multiple className="hidden" disabled={uploading}
+                onChange={(e) => handleScan(e, 'slip')} />
+            </label>
+            <label className="btn-primary cursor-pointer">
+              {uploading ? 'Scanning…' : 'Scan vendor bill'}
+              <input type="file" accept={SCAN_ACCEPT} multiple className="hidden" disabled={uploading}
+                onChange={(e) => handleScan(e, 'vendor')} />
+            </label>
+            <label className="btn-secondary cursor-pointer">
+              {uploading ? 'Uploading…' : 'Upload documents'}
+              <input
+                ref={fileRef}
+                type="file"
+                accept={UPLOAD_ACCEPT}
+                multiple
+                className="hidden"
+                disabled={uploading}
+                onChange={handleUpload}
             />
           </label>
+          </div>
         }
       />
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
