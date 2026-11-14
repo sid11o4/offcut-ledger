@@ -628,7 +628,7 @@ function AuditPanel({ billId, onDone }) {
         </Card>
 
         <Card title="Payment allocation">
-          <PaymentAllocation billId={billId} payments={paymentsQ.data || []} grandTotal={grandTotal} />
+          <PaymentAllocation billId={billId} payments={paymentsQ.data || []} grandTotal={grandTotal} waiverAllowed={b.bill_source === 'formgrid'} />
           <div className="flex justify-between mt-3 pt-3 border-t border-ink-100 text-xs">
             <span className="text-ink-500">Allocated {money(totalAllocated)} of {money(grandTotal)}</span>
             <Badge tone={reconciled ? 'ok' : 'warn'}>{reconciled ? 'Amounts match' : 'Does not reconcile'}</Badge>
@@ -708,7 +708,9 @@ function LineItemRow({ item, suggestions, billId }) {
   )
 }
 
-function PaymentAllocation({ billId, payments, grandTotal }) {
+const PAYMENT_LABEL = { cash: 'Cash', rtgs_neft: 'RTGS / NEFT', credit: 'Credit', waiver: 'Round off / waive off' }
+
+function PaymentAllocation({ billId, payments, grandTotal, waiverAllowed = false }) {
   const toast = useToast()
   const qc = useQueryClient()
   const [mode, setMode] = useState('cash')
@@ -732,7 +734,7 @@ function PaymentAllocation({ billId, payments, grandTotal }) {
     <div>
       {payments.map((p) => (
         <div key={p.id} className="flex items-center justify-between text-sm py-1.5 border-b border-ink-100 last:border-0">
-          <span className="capitalize text-ink-700">{p.mode.replace('_', '/')}</span>
+          <span className="text-ink-700">{PAYMENT_LABEL[p.mode] || p.mode}</span>
           <span className="tnum">{money(p.allocated_amount)}</span>
           <Badge tone={p.confirmed ? 'ok' : 'warn'}>{p.confirmed ? 'Confirmed' : p.mode === 'credit' ? 'Payable' : 'Instructed'}</Badge>
         </div>
@@ -740,6 +742,7 @@ function PaymentAllocation({ billId, payments, grandTotal }) {
       <form onSubmit={addPayment} className="flex items-end gap-2 mt-2">
         <Select value={mode} onChange={(e) => setMode(e.target.value)} className="!w-28">
           <option value="cash">Cash</option><option value="rtgs_neft">RTGS/NEFT</option><option value="credit">Credit</option>
+          {waiverAllowed && <option value="waiver">Round off / waive off</option>}
         </Select>
         <Input type="number" min="0" step="0.01" placeholder={`Remaining ${remaining.toFixed(0)}`} value={amount} onChange={(e) => setAmount(e.target.value)} className="w-28" />
         {mode === 'rtgs_neft' && <Input placeholder="UTR" value={utr} onChange={(e) => setUtr(e.target.value)} className="w-24" />}
