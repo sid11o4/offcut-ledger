@@ -22,6 +22,30 @@ const SCANNABLE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/p
 const UPLOAD_ACCEPT = 'image/*,application/pdf,.csv,.xls,.xlsx,.doc,.docx,.txt'
 const SCAN_ACCEPT = 'image/png,image/jpeg,image/webp,application/pdf'
 
+// A large photo is resized to at most 1800px on its long side before it is stored and scanned. The
+// scanner reads the same text at that size, with far fewer image tokens, so each scan is faster.
+async function shrinkForScan(file) {
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return file
+  try {
+    const bitmap = await createImageBitmap(file)
+    const scale = Math.min(1, 1800 / Math.max(bitmap.width, bitmap.height))
+    if (scale === 1) return file
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(bitmap.width * scale)
+    canvas.height = Math.round(bitmap.height * scale)
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    bitmap.close?.()
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9))
+    if (!blob) return file
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' })
+  } catch {
+    return file
+  }
+}
+
 // Stores an uploaded file in the scan bucket and returns its path.
 async function storeBillFile(userId, file) {
   const path = `supplier-bills/${userId}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
@@ -140,16 +164,18 @@ export default function BillAuditQueue() {
     e.target.value = ''
     if (!files.length) return
     setUploading(true)
-    const created = []
-    for (const file of files) {
+    // The files are scanned at the same time; each is reported on its own if it fails.
+    const results = await Promise.all(files.map(async (file) => {
       try {
         if (!SCANNABLE_TYPES.includes(file.type)) throw new Error('Only photos (PNG, JPG, WEBP) and PDFs can be scanned.')
-        const path = await storeBillFile(profile.id, file)
-        created.push(await createSlipBill(path, kind))
+        const path = await storeBillFile(profile.id, await shrinkForScan(file))
+        return await createSlipBill(path, kind)
       } catch (err) {
         toast.error(`${file.name}: ${err.message || err}`)
+        return null
       }
-    }
+    }))
+    const created = results.filter(Boolean)
     setUploading(false)
     qc.invalidateQueries({ queryKey: ['supplier_bills_queue'] })
     if (created.length) {
