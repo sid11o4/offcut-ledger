@@ -39,13 +39,14 @@ async function loadProjectReport(id) {
   const add = (name, amount) => byCategory.set(name, (byCategory.get(name) || 0) + Number(amount))
   add('Supplier bills', f.supplier_bills_total || 0)
   add('Internal Order (Factory job-work)', f.internal_order_total || 0)
+  add('Materials consumed', f.materials_consumed_total || 0)
   for (const x of expenses) add(x.expense_categories?.name || 'Uncategorised', x.amount)
   const categories = [...byCategory.entries()]
     .filter(([, amount]) => amount > 0)
     .map(([name, amount]) => ({ name, amount }))
     .sort((a, b) => b.amount - a.amount)
 
-  const spent = Number(f.supplier_bills_total || 0) + Number(f.internal_order_total || 0) + Number(f.direct_expenses_total || 0)
+  const spent = Number(f.supplier_bills_total || 0) + Number(f.internal_order_total || 0) + Number(f.direct_expenses_total || 0) + Number(f.materials_consumed_total || 0)
   const budget = Number(f.budget || 0)
   const headroom = budget - spent
   const ledgerTotal = ledger.reduce((s, r) => s + Number(r.amount), 0)
@@ -123,6 +124,7 @@ export default function DesignProjectReport() {
           <StatCard label="Supplier bills" value={money(f.supplier_bills_total)} money />
           <StatCard label="Internal Order" value={money(f.internal_order_total)} money />
           <StatCard label="Direct expenses" value={money(f.direct_expenses_total)} money />
+          <StatCard label="Materials consumed" value={money(f.materials_consumed_total)} money />
           <StatCard label="Inventory on hand" value={money(f.current_inventory_value)} money />
         </div>
       </Card>
