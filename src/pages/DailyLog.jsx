@@ -693,26 +693,20 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
 
   // A Factory expense stays in the Factory expenses; anything charged to Design Build goes to the
   // Design Build expenses, against the company or one of its projects.
-  // A Factory project that is an Internal Order has its own Design Build project, so a charge against
-  // it goes there rather than to the Factory expenses.
-  const linkedDesignProject = projectId ? (designProjectsQ.data || []).find((p) => p.factory_project_id === projectId) : null
-  const routedToDesignBuild = chargeTo === 'factory' && !!linkedDesignProject
-
   async function submit(e) {
     e.preventDefault()
     setSaving(true)
     const common = { expense_date: date, category_id: categoryId, amount: Number(amount), description: description || null }
-    const toDesignBuild = chargeTo !== 'factory' || routedToDesignBuild
-    const { error } = toDesignBuild
-      ? await supabase.from('design_build_expenses').insert({
+    const { error } = chargeTo === 'factory'
+      ? await supabase.from('expenses').insert({ ...common, project_id: projectId || null, created_by: profile?.id })
+      : await supabase.from('design_build_expenses').insert({
           ...common,
-          design_project_id: routedToDesignBuild ? linkedDesignProject.id : chargeTo.startsWith('dp:') ? chargeTo.slice(3) : null,
+          design_project_id: chargeTo.startsWith('dp:') ? chargeTo.slice(3) : null,
           created_by: profile?.id,
         })
-      : await supabase.from('expenses').insert({ ...common, project_id: projectId || null, created_by: profile?.id })
     setSaving(false)
     if (error) return toast.error(error.message)
-    toast.success(toDesignBuild ? 'Design Build expense logged.' : 'Factory expense logged.')
+    toast.success(chargeTo === 'factory' ? 'Factory expense logged.' : 'Design Build expense logged.')
     setCategoryId(''); setAmount(''); setDescription(''); setProjectId(''); setChargeTo('factory')
     onSaved()
   }
@@ -762,9 +756,6 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
               <option value="">Factory-wide</option>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
-            {routedToDesignBuild && (
-              <p className="mt-1 text-xs text-ink-500">This is an Internal Order project, so the expense is charged to its Design Build project, {linkedDesignProject.name}.</p>
-            )}
           </div>
         )}
         <button type="submit" disabled={saving} className="btn-primary w-full">{saving ? 'Saving…' : 'Add Expense'}</button>
