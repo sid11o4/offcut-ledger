@@ -108,11 +108,22 @@ export default function BillAuditQueue() {
       internal_bill_number: `PENDING-${Date.now().toString().slice(-6)}`,
       bill_date: new Date().toISOString().slice(0, 10),
       expense_nature: 'material', scan_image_path: path, created_by: profile.id,
+      bill_source: kind === 'vendor' ? 'vendor' : 'formgrid',
     }).select().single()
     if (billErr) throw billErr
     const { data: fnResult, error: fnErr } = await supabase.functions.invoke('extract-supplier-bill-scan', { body: { bill_id: bill.id, kind } })
     if (fnErr) throw new Error(fnResult?.error || fnErr.message)
     if (fnResult?.error) throw new Error(fnResult.error)
+    // A vendor bill's amount is owed to the vendor on credit until it is paid.
+    if (kind === 'vendor') {
+      const { data: scanned } = await supabase.from('supplier_bills').select('grand_total').eq('id', bill.id).single()
+      const total = Number(scanned?.grand_total || 0)
+      if (total > 0) {
+        await supabase.from('supplier_bill_payments').insert({
+          bill_id: bill.id, mode: 'credit', allocated_amount: total, created_by: profile.id,
+        })
+      }
+    }
     return bill
   }
 
