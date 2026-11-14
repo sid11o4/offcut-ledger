@@ -37,7 +37,7 @@ async function loadProjectReport(id) {
   // Expenses by category: the two bill-driven lines first, then each expense category.
   const byCategory = new Map()
   const add = (name, amount) => byCategory.set(name, (byCategory.get(name) || 0) + Number(amount))
-  add('Supplier bills', f.supplier_bills_total || 0)
+  add('Labour and other bills (non-stock)', f.bill_expense_total || 0)
   add('Internal Order (Factory job-work)', f.internal_order_total || 0)
   add('Materials consumed', f.materials_consumed_total || 0)
   for (const x of expenses) add(x.expense_categories?.name || 'Uncategorised', x.amount)
@@ -46,7 +46,7 @@ async function loadProjectReport(id) {
     .map(([name, amount]) => ({ name, amount }))
     .sort((a, b) => b.amount - a.amount)
 
-  const spent = Number(f.supplier_bills_total || 0) + Number(f.internal_order_total || 0) + Number(f.direct_expenses_total || 0) + Number(f.materials_consumed_total || 0)
+  const spent = Number(f.bill_expense_total || 0) + Number(f.internal_order_total || 0) + Number(f.direct_expenses_total || 0) + Number(f.materials_consumed_total || 0)
   const budget = Number(f.budget || 0)
   const headroom = budget - spent
   const ledgerTotal = ledger.reduce((s, r) => s + Number(r.amount), 0)
