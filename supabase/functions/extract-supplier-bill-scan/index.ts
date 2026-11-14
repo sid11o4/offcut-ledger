@@ -69,8 +69,12 @@ const EXTRACT_SCHEMA = {
           gst_percent: { type: 'number', description: 'The GST % for this line (0, 5, 12, 18, or whatever is written).' },
           material_match: { type: ['string', 'null'], description: 'For a material line: the EXACT name (character-for-character) from the known inventory item list, only if confident this is the same product under a different term. Otherwise null.' },
           material_confidence: { type: 'number', description: '0-1 confidence that material_match is the same product (0 if material_match is null).' },
+          cost_head: {
+            type: 'string', enum: COST_HEADS,
+            description: 'The single cost head this line belongs to, judged from THIS line\'s description and type (e.g. plywood or laminate -> raw_boards / laminate_veneer, fevicol or adhesive -> fevicol_adhesives, labour wages on site -> site_labour, factory helper wages -> factory_labour, salary -> employee_salary, anything else -> other). Ignore the slip-level Cost Head boxes for this decision: they are only a hint.',
+          },
         },
-        required: ['description', 'item_type', 'quantity', 'rate_inclusive', 'gst_percent'],
+        required: ['description', 'item_type', 'quantity', 'rate_inclusive', 'gst_percent', 'cost_head'],
       },
     },
     payments: {
@@ -195,7 +199,7 @@ A line-item table: S.No, Description of Goods/Services, Type, Unit, Quantity, Ra
 Payment Details: a table of Payment Mode (Cash Paid / Account Transfer RTGS-NEFT / Added to Credit Account), Amount, Remarks -- and a separate Cash Payment Received section (amount, received by name) when a cash seal/stamp is present.
 Amount in Words, Grand Total, Remarks, Prepared By.
 
-Extract every field. Rates and totals are GST-inclusive as printed -- report rate_inclusive exactly as written, do not compute anything yourself. Use null for any field that is blank or illegible.
+Extract every field. The Type of Expense and Cost Head boxes in the header are INDICATIVE only: report them as written, but do not let them decide the line items. Assign each line item its own cost_head from what that line is. Rates and totals are GST-inclusive as printed -- report rate_inclusive exactly as written, do not compute anything yourself. Use null for any field that is blank or illegible.
 
 If the supplier is not on the known list, still read supplier_text exactly as written, and read any GSTIN, phone and address printed for the supplier into supplier_gstin, supplier_phone and supplier_address. Never copy the FORMGRID company's own details into those fields.
 
@@ -211,7 +215,24 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
     const extracted = await extractBill(apiKey, mimeType, fileBase64, prompt)
 
     const supplierId = extracted.supplier_match ? supplierIdMap.get(extracted.supplier_match) ?? null : null
-    const designProjectId = extracted.project_match ? projectIdMap.get(extracted.project_match) ?? null : null
+    // A project name that is on file is used. A new name is created as a Design Build project under
+    // that name, so the bill is never left without a project just because the project was not set up yet.
+    const projectName = String(extracted.project_text ?? '').trim()
+    const isPlaceholder = projectName.length < 2 || /^(na|n\/a|none|nil|-+)$/i.test(projectName)
+    let designProjectId: string | null = extracted.project_match ? projectIdMap.get(extracted.project_match) ?? null : null
+    if (!designProjectId && !isPlaceholder) {
+      const existing = [...projectIdMap.entries()].find(([n]) => n.trim().toLowerCase() === projectName.toLowerCase())
+      if (existing) {
+        designProjectId = existing[1]
+      } else {
+        const { data: created, error: createErr } = await admin.from('design_projects')
+          .insert({ code: `DP-${crypto.randomUUID().slice(0, 6).toUpperCase()}`, name: projectName, created_by: caller.id })
+          .select('id, name').single()
+        if (createErr) throw new Error(`Could not create the project "${projectName}": ${createErr.message}`)
+        designProjectId = created.id
+        projectIdMap.set(created.name, created.id)
+      }
+    }
 
     const fieldConfidence = {
       bill_number: extracted.bill_number_confidence ?? null,
@@ -232,6 +253,7 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
         address: extracted.supplier_address ?? null,
       },
       design_project_id: designProjectId,
+      // Indicative only: replaced below by what the line items show, once they are read.
       expense_nature: extracted.expense_nature || 'material',
       cost_heads: (extracted.cost_heads || []).filter((h: string) => COST_HEADS.includes(h)),
       amount_in_words: extracted.amount_in_words ?? null,
@@ -243,11 +265,12 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
     const lineItems = (extracted.line_items || []) as Array<{
       description: string; item_type: 'material' | 'labour'; unit_text?: string | null
       quantity: number; rate_inclusive: number; gst_percent: number
-      material_match?: string | null; material_confidence?: number
+      material_match?: string | null; material_confidence?: number; cost_head?: string | null
     }>
 
     for (let i = 0; i < lineItems.length; i++) {
       const li = lineItems[i]
+      const lineCostHead = li.cost_head && COST_HEADS.includes(li.cost_head) ? li.cost_head : null
       const matchedItemId = li.material_match ? itemIdMap.get(li.material_match) ?? null : null
       const confidence = li.material_confidence ?? 0
       const autoApply = matchedItemId && confidence >= 0.95
@@ -263,6 +286,7 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
         rate_inclusive: li.rate_inclusive,
         gst_percent: li.gst_percent,
         field_confidence: { material_match: confidence },
+        cost_head: lineCostHead,
         sort_order: i,
       }).select().single()
       if (itemErr) throw itemErr
@@ -278,6 +302,15 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
           decided_at: autoApply ? new Date().toISOString() : null,
         })
       }
+    }
+
+    // The bill's cost heads and expense nature now come from the line items, which were analysed one by
+    // one. The slip's own boxes stay as a hint only, used when there are no lines to read.
+    if (lineItems.length) {
+      const heads = [...new Set(lineItems.map((li) => li.cost_head).filter((h): h is string => !!h && COST_HEADS.includes(h)))]
+      const types = new Set(lineItems.map((li) => li.item_type))
+      const nature = types.has('material') && types.has('labour') ? 'both' : types.has('labour') ? 'labour' : 'material'
+      await admin.from('supplier_bills').update({ cost_heads: heads, expense_nature: nature }).eq('id', billId)
     }
 
     const payments = (extracted.payments || []) as Array<{

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, StatCard, EmptyState, LoadingBlock, Field, Input, Select, Badge } from '../../components/ui'
 import { Link } from 'react-router-dom'
-import { useCompanyInventoryValue, useInventoryItems, useDesignProjectsSummary, invalidateInventory } from '../../lib/queries'
+import { useCompanyInventoryValue, useInventoryItems, useDesignProjectsSummary, useUnits, invalidateInventory } from '../../lib/queries'
 import { money, qty } from '../../lib/format'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
@@ -164,21 +164,38 @@ function PurchaseModal({ onClose }) {
   const toast = useToast()
   const qc = useQueryClient()
   const itemsQ = useInventoryItems()
-  const [form, setForm] = useState({ item_id: '', quantity: '', unit_cost: '', date: new Date().toISOString().slice(0, 10) })
+  const unitsQ = useUnits()
+  const NEW = '__new__'
+  const [form, setForm] = useState({ item_id: '', new_name: '', new_unit: 'SHEET', quantity: '', unit_cost: '', date: new Date().toISOString().slice(0, 10) })
   const [saving, setSaving] = useState(false)
+  const creating = form.item_id === NEW
 
   async function submit(e) {
     e.preventDefault()
     setSaving(true)
-    const { data: company } = await supabase.from('inventory_locations').select('id').eq('kind', 'company').single()
+    const { data: company, error: locErr } = await supabase.from('inventory_locations').select('id').eq('kind', 'company').single()
+    if (locErr) { setSaving(false); return toast.error(locErr.message) }
+
+    // A material that is not on the list yet is created here, in the unit chosen, then purchased.
+    let itemId = form.item_id
+    if (creating) {
+      const { data: newId, error: createErr } = await supabase.rpc('ensure_inventory_item', {
+        p_name: form.new_name, p_unit_code: form.new_unit,
+      })
+      if (createErr) { setSaving(false); return toast.error(createErr.message) }
+      itemId = newId
+    }
+
     const { error } = await supabase.rpc('record_inventory_purchase', {
-      p_item_id: form.item_id, p_location_id: company.id, p_quantity: Number(form.quantity),
+      p_item_id: itemId, p_location_id: company.id, p_quantity: Number(form.quantity),
       p_unit_cost: Number(form.unit_cost), p_txn_date: form.date, p_reference_type: 'adjustment', p_reference_id: null,
     })
     setSaving(false)
     if (error) return toast.error(error.message)
-    toast.success('Purchase recorded.')
+    toast.success(creating ? `${form.new_name} added and purchase recorded.` : 'Purchase recorded.')
+    invalidateInventory(qc)
     qc.invalidateQueries({ queryKey: ['company_inventory_value'] })
+    qc.invalidateQueries({ queryKey: ['inventory_items'] })
     onClose()
   }
 
@@ -189,9 +206,24 @@ function PurchaseModal({ onClose }) {
         <Field label="Material">
           <Select required value={form.item_id} onChange={(e) => setForm({ ...form, item_id: e.target.value })}>
             <option value="">Select…</option>
-            {(itemsQ.data || []).map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+            {(itemsQ.data || []).filter((i) => i.active !== false).map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+            <option value={NEW}>+ New material…</option>
           </Select>
         </Field>
+        {creating && (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-2">
+              <Field label="New material name">
+                <Input required autoFocus value={form.new_name} onChange={(e) => setForm({ ...form, new_name: e.target.value })} placeholder="e.g. Century 18MM MR" />
+              </Field>
+            </div>
+            <Field label="Unit">
+              <Select value={form.new_unit} onChange={(e) => setForm({ ...form, new_unit: e.target.value })}>
+                {(unitsQ.data || []).filter((u) => u.active !== false).map((u) => <option key={u.id} value={u.code}>{u.name || u.code}</option>)}
+              </Select>
+            </Field>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Quantity"><Input type="number" min="0.0001" step="0.0001" required value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></Field>
           <Field label="Unit cost (Rs.)"><Input type="number" min="0" step="0.01" required value={form.unit_cost} onChange={(e) => setForm({ ...form, unit_cost: e.target.value })} /></Field>
