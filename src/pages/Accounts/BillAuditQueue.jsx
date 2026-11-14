@@ -16,6 +16,11 @@ const COST_HEADS = [
 
 const ANNEX_KINDS = [['vendor_bill', 'Vendor bill'], ['gst_invoice', 'GST invoice'], ['other', 'Other']]
 
+// The scanner reads photos and PDFs. Other vendor papers (spreadsheets, Word files, text, other image
+// formats) are attached to their bill as they are, without being scanned.
+const SCANNABLE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf']
+const UPLOAD_ACCEPT = 'image/*,application/pdf,.csv,.xls,.xlsx,.doc,.docx,.txt'
+
 // Stores an uploaded file in the scan bucket and returns its path.
 async function storeBillFile(userId, file) {
   const path = `supplier-bills/${userId}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
@@ -128,10 +133,13 @@ export default function BillAuditQueue() {
     for (const file of files) {
       try {
         const path = await storeBillFile(profile.id, file)
-        let c = { kind: 'formgrid_slip', formgrid_bill_number: null }
-        try {
-          c = await classifyBillFile(path, file.type)
-        } catch { /* unavailable: scan it as a slip */ }
+        const scannable = SCANNABLE_TYPES.includes(file.type)
+        let c = { kind: scannable ? 'formgrid_slip' : 'other', formgrid_bill_number: null }
+        if (scannable) {
+          try {
+            c = await classifyBillFile(path, file.type)
+          } catch { /* unavailable: scan it as a slip */ }
+        }
         if (c.kind === 'formgrid_slip') slipBills.push(await createSlipBill(path))
         else docs.push({ path, file, kind: c.kind, number: c.formgrid_bill_number })
       } catch (err) {
@@ -194,7 +202,7 @@ export default function BillAuditQueue() {
             <input
               ref={fileRef}
               type="file"
-              accept="image/png,image/jpeg,image/webp,application/pdf"
+              accept={UPLOAD_ACCEPT}
               multiple
               className="hidden"
               disabled={uploading}
@@ -495,7 +503,7 @@ function AuditPanel({ billId, onDone }) {
           </ul>
           <label className="btn-secondary mt-3 inline-flex cursor-pointer">
             {saving ? 'Attaching…' : 'Attach document'}
-            <input type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" className="hidden" disabled={saving} onChange={addAnnexures} />
+            <input type="file" multiple accept={UPLOAD_ACCEPT} className="hidden" disabled={saving} onChange={addAnnexures} />
           </label>
         </Card>
 
