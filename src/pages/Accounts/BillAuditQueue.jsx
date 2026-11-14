@@ -144,7 +144,7 @@ export default function BillAuditQueue() {
         // A vendor's own bill with no FORMGRID number is a bill in its own right.
         else if (scannable && (c.kind === 'vendor_bill' || c.kind === 'gst_invoice') && !billKey(c.formgrid_bill_number)) {
           slipBills.push(await createSlipBill(path, 'vendor'))
-        } else docs.push({ path, file, kind: c.kind, number: c.formgrid_bill_number })
+        } else docs.push({ path, file, kind: c.kind, number: c.formgrid_bill_number, scannable })
       } catch (err) {
         failed += 1
         toast.error(`${file.name}: ${err.message || err}`)
@@ -157,7 +157,15 @@ export default function BillAuditQueue() {
     const unmatched = []
     for (const d of docs) {
       const target = matchBill(d.number, candidates)
-      if (!target) { unmatched.push(d.file.name); continue }
+      if (!target) {
+        // A vendor's own bill whose number matches no bill in this upload is a bill in its own right.
+        if (d.scannable && (d.kind === 'vendor_bill' || d.kind === 'gst_invoice')) {
+          try { slipBills.push(await createSlipBill(d.path, 'vendor')) } catch (err) { toast.error(`${d.file.name}: ${err.message || err}`) }
+          continue
+        }
+        unmatched.push(d.file.name)
+        continue
+      }
       if (!byBill.has(target.id)) byBill.set(target.id, [])
       byBill.get(target.id).push({
         bill_id: target.id,
