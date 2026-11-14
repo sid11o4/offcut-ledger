@@ -141,6 +141,27 @@ async function extractBill(apiKey: string, mimeType: string, fileBase64: string,
   return toolUse.input || {}
 }
 
+// A vendor's own bill or invoice: any layout, not the FORMGRID slip.
+function vendorBillPrompt(isPdf: boolean, suppliers: string[], projects: string[], items: string[]): string {
+  const list = (xs: string[]) => xs.map((n) => `- ${n}`).join('\n') || '(none on file)'
+  return `This is ${isPdf ? 'a PDF (it may have more than one page -- read all of them)' : 'a photo'} of a vendor's own bill or invoice. It is a supplier's document, not a FORMGRID slip, so its layout can be anything.
+
+Read the supplier's name, GSTIN, phone and address from the vendor's own letterhead. Never copy the FORMGRID company's details into the supplier fields.
+Read the bill or invoice number and the bill date (as an ISO YYYY-MM-DD date) into bill_number and bill_date.
+Read every line item: description verbatim, quantity, unit, rate, GST % and the line amount. Report rate_inclusive exactly as written, and do not compute anything yourself. Use null for anything blank or illegible.
+Report grand_total as printed. Leave payments empty unless the document shows payments already made.
+Assign each line its cost_head from what the line is, and item_type as material or labour.
+
+Known suppliers (supplier_match must be an exact copy from this list, or null):
+${list(suppliers)}
+
+Known Design Build projects (project_match only if the document names one exactly from this list, otherwise null):
+${list(projects)}
+
+Known inventory items (for each MATERIAL line, material_match must be an exact copy from this list, or null, with your genuine confidence that it is the same product):
+${list(items)}`
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -161,9 +182,10 @@ Deno.serve(async (req) => {
     return json({ error: 'ANTHROPIC_API_KEY is not set on this project. Add it under Supabase dashboard -> Edge Functions -> Secrets.' }, 500)
   }
 
-  let body: { bill_id?: string }
+  let body: { bill_id?: string; kind?: string }
   try { body = await req.json() } catch { return json({ error: 'Invalid JSON body.' }, 400) }
   const billId = String(body.bill_id ?? '')
+  const vendorMode = body.kind === 'vendor'
   if (!billId) return json({ error: 'bill_id is required.' }, 400)
 
   const admin = createClient(url, serviceKey)
@@ -193,7 +215,7 @@ Deno.serve(async (req) => {
     const projectIdMap = new Map((projects || []).map((p: { id: string; name: string }) => [p.name, p.id]))
     const itemIdMap = new Map((items || []).map((i: { id: string; name: string }) => [i.name, i.id]))
 
-    const prompt = `This is ${isPdf ? 'a scanned PDF (it may have more than one page -- read all of them; a front+back slip or a multi-page scan is still one bill)' : 'a photo'} of a FORMGRID "Bill / Payment Slip" -- an internal record of a supplier purchase. It has:
+    const slipPrompt = `This is ${isPdf ? 'a scanned PDF (it may have more than one page -- read all of them; a front+back slip or a multi-page scan is still one bill)' : 'a photo'} of a FORMGRID "Bill / Payment Slip" -- an internal record of a supplier purchase. It has:
 Header: Bill No., Date, Supplier Name, Project Name, Project Code, Type of Expense (checkboxes), Cost Head (checkboxes: Factory Labour, Site Labour, Laminate and Veneer, Employee Salary, Factory Consumables, Raw Boards, Fevicol/Adhesives, Other).
 A line-item table: S.No, Description of Goods/Services, Type, Unit, Quantity, Rate (inclusive of GST), Total Amount (inclusive of GST), GST %.
 Payment Details: a table of Payment Mode (Cash Paid / Account Transfer RTGS-NEFT / Added to Credit Account), Amount, Remarks -- and a separate Cash Payment Received section (amount, received by name) when a cash seal/stamp is present.
@@ -211,6 +233,10 @@ ${[...projectIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}
 
 Known inventory items (for each MATERIAL line, match its description against this list even when the wording differs -- e.g. "18mm MR Ply" and "Century Ply 18mm Marine Grade" can be the same product. material_match must be an exact copy from this list or null, with your genuine confidence 0-1 that it's the same product, not just a similar one):
 ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
+
+    const prompt = vendorMode
+      ? vendorBillPrompt(isPdf, [...supplierIdMap.keys()], [...projectIdMap.keys()], [...itemIdMap.keys()])
+      : slipPrompt
 
     const extracted = await extractBill(apiKey, mimeType, fileBase64, prompt)
 

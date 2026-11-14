@@ -103,14 +103,14 @@ export default function BillAuditQueue() {
   // read in full by the extraction function below -- a scanned slip with a back page, or a
   // front+back pair, is still one bill). Selecting several files at once queues each as its
   // own bill and extracts them one at a time; one bad file doesn't stop the rest.
-  async function createSlipBill(path) {
+  async function createSlipBill(path, kind = 'slip') {
     const { data: bill, error: billErr } = await supabase.from('supplier_bills').insert({
       internal_bill_number: `PENDING-${Date.now().toString().slice(-6)}`,
       bill_date: new Date().toISOString().slice(0, 10),
       expense_nature: 'material', scan_image_path: path, created_by: profile.id,
     }).select().single()
     if (billErr) throw billErr
-    const { data: fnResult, error: fnErr } = await supabase.functions.invoke('extract-supplier-bill-scan', { body: { bill_id: bill.id } })
+    const { data: fnResult, error: fnErr } = await supabase.functions.invoke('extract-supplier-bill-scan', { body: { bill_id: bill.id, kind } })
     if (fnErr) throw new Error(fnResult?.error || fnErr.message)
     if (fnResult?.error) throw new Error(fnResult.error)
     return bill
@@ -141,7 +141,10 @@ export default function BillAuditQueue() {
           } catch { /* unavailable: scan it as a slip */ }
         }
         if (c.kind === 'formgrid_slip') slipBills.push(await createSlipBill(path))
-        else docs.push({ path, file, kind: c.kind, number: c.formgrid_bill_number })
+        // A vendor's own bill with no FORMGRID number is a bill in its own right.
+        else if (scannable && (c.kind === 'vendor_bill' || c.kind === 'gst_invoice') && !billKey(c.formgrid_bill_number)) {
+          slipBills.push(await createSlipBill(path, 'vendor'))
+        } else docs.push({ path, file, kind: c.kind, number: c.formgrid_bill_number })
       } catch (err) {
         failed += 1
         toast.error(`${file.name}: ${err.message || err}`)
