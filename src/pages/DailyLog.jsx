@@ -123,7 +123,8 @@ export default function DailyLog() {
             toast={toast}
             onSaved={invalidate}
           />
-          <ExpenseEntryForm date={date} categories={expenseCategoriesQ.data || []} projects={activeProjects} profile={profile} toast={toast} onSaved={invalidate} />
+          <ExpenseEntryForm mode="labour" date={date} categories={expenseCategoriesQ.data || []} projects={activeProjects} profile={profile} toast={toast} onSaved={invalidate} />
+          <ExpenseEntryForm date={date} categories={(expenseCategoriesQ.data || []).filter((c) => c.name !== 'Labour')} projects={activeProjects} profile={profile} toast={toast} onSaved={invalidate} />
         </div>
 
         <div className="space-y-5">
@@ -697,7 +698,8 @@ function chargeOf(value) {
     : { side: 'factory', project_id: id || null, design_project_id: null }
 }
 
-function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved }) {
+// mode 'labour' is the Labour card (contractor, shifts and payments); otherwise an ordinary expense.
+function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved, mode = 'expense' }) {
   const qc = useQueryClient()
   const [categoryId, setCategoryId] = useState('')
   const [amount, setAmount] = useState('')
@@ -724,7 +726,7 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
   })
   const contractor = (contractorsQ.data || []).find((c) => c.id === contractorId)
   const rate = Number(contractor?.default_rate || 0)
-  const isLabour = categories.find((c) => c.id === categoryId)?.name === 'Labour'
+  const isLabour = mode === 'labour'
   // A shift row's total is its pay less any advance it repays.
   const rowTotal = (r) => Math.round((Number(r.shifts || 0) * rate - Number(r.recovery || 0)) * 100) / 100
   const labourTotal = rows.reduce((t, r) => t + rowTotal(r), 0)
@@ -820,7 +822,7 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
   )
 
   return (
-    <Card title="Add Expense">
+    <Card title={mode === 'labour' ? 'Labour' : 'Add Expense'}>
       {showNewProject && (
         <ProjectFormModal
           existing={null}
@@ -830,6 +832,7 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
       )}
       <form onSubmit={submit} className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
+          {!isLabour && (
           <div>
             <label className="field-label">Category *</label>
             <select className="field-input" required value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
@@ -837,6 +840,7 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
               {categories.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
+          )}
           {!isLabour && (
             <div>
               <label className="field-label">Amount (₹) *</label>
