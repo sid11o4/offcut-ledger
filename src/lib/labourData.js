@@ -80,8 +80,11 @@ export function summarize(entries, { start = '', end = '', groupBy = 'month' } =
   const inRange = entries.filter((e) => (!start || e.entry_date >= start) && (!end || e.entry_date <= end))
   const active = inRange.filter((e) => e.status === 'active')
   const total = active.reduce((s, e) => s + Number(e.amount), 0)
-  const shifts = active.reduce((s, e) => s + Number(e.shifts), 0)
-  const days = new Set(active.map((e) => e.entry_date))
+  const shiftRows = active.filter((e) => e.kind === 'shift')
+  const shiftAmount = shiftRows.reduce((s, e) => s + Number(e.amount), 0)
+  const paymentsTotal = total - shiftAmount
+  const shifts = shiftRows.reduce((s, e) => s + Number(e.shifts), 0)
+  const days = new Set(shiftRows.map((e) => e.entry_date))
   const projects = new Map()
   const periods = new Map()
   for (const e of active) {
@@ -105,11 +108,13 @@ export function summarize(entries, { start = '', end = '', groupBy = 'month' } =
     inRange,
     total,
     shifts,
-    avgPerShift: shifts ? total / shifts : 0,
+    avgPerShift: shifts ? shiftAmount / shifts : 0,
+    paymentsTotal,
     days: days.size,
     projectCount: projects.size,
-    avgShiftsPerWeek: days.size ? shifts / Math.max(1, new Set(active.map((e) => weekStart(e.entry_date))).size) : 0,
+    avgShiftsPerWeek: days.size ? shifts / Math.max(1, new Set(shiftRows.map((e) => weekStart(e.entry_date))).size) : 0,
     lastDate: active.reduce((m, e) => (!m || e.entry_date > m ? e.entry_date : m), null),
+    shiftAmount,
     byProject,
     byPeriod,
   }

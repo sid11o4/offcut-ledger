@@ -11,6 +11,7 @@ import { money, qty } from '../../lib/format'
 
 const PRESETS = [['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['all', 'All time'], ['custom', 'Custom']]
 const GROUPS = [['day', 'Day'], ['week', 'Week'], ['month', 'Month']]
+const KIND_LABEL = { shift: 'Shifts', bonus: 'Bonus', advance: 'Advance', other: 'Other payment' }
 
 // The dashboard for one contractor or mason: projects, payments by day, week or month, the full
 // payment history, and what the CEO needs to judge the labour.
@@ -73,8 +74,10 @@ export default function LabourContractorDashboard() {
         </div>
       </Card>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 mb-5">
         <StatCard label="Total paid" value={money(summary.total)} money />
+        <StatCard label="Shift pay" value={money(summary.shiftAmount)} money />
+        <StatCard label="Bonus and other" value={money(summary.paymentsTotal)} money />
         <StatCard label="Shifts" value={qty(summary.shifts)} />
         <StatCard label="Average per shift" value={money(summary.avgPerShift)} money />
         <StatCard label="Days worked" value={summary.days} />
@@ -141,14 +144,15 @@ export default function LabourContractorDashboard() {
         {!summary.inRange.length ? <EmptyState title="No labour entries in this period" /> : (
           <div className="overflow-x-auto">
             <table className="table-base">
-              <thead><tr><th>Date</th><th>Project</th><th className="num">Shifts</th><th className="num">Per shift</th><th className="num">Total</th><th>Notes</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>Date</th><th>Type</th><th>Project</th><th className="num">Shifts</th><th className="num">Per shift</th><th className="num">Amount</th><th>Remarks</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {summary.inRange.map((e) => (
                   <tr key={e.id} className={e.status === 'void' ? 'text-ink-400 line-through' : ''}>
                     <td>{displayDate(e.entry_date)}</td>
+                    <td>{KIND_LABEL[e.kind] || e.kind}</td>
                     <td>{projectNameOf(e)}</td>
-                    <td className="num">{qty(e.shifts)}</td>
-                    <td className="num">{money(e.rate_per_shift)}</td>
+                    <td className="num">{e.kind === 'shift' ? qty(e.shifts) : '—'}</td>
+                    <td className="num">{e.kind === 'shift' ? money(e.rate_per_shift) : '—'}</td>
                     <td className="num">{money(e.amount)}</td>
                     <td>{e.notes || '—'}</td>
                     <td className="capitalize">{e.status === 'void' ? `Void: ${e.void_reason || ''}` : 'Paid'}</td>
