@@ -1,4 +1,5 @@
 import { Fragment, useState } from 'react'
+import TradeSelect from '../../components/TradeSelect'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
@@ -7,9 +8,6 @@ import { PageHeader, Card, EmptyState, LoadingBlock, Field, Input } from '../../
 import { listContractors } from '../../lib/labourData'
 import { displayDate } from '../../lib/dates'
 import { money, qty } from '../../lib/format'
-
-// Common trades, offered as suggestions; any trade can be typed.
-export const TRADES = ['Carpenter', 'Painter', 'Mason', 'Electrician', 'Plumber', 'Tile worker', 'Polisher', 'Welder', 'Helper', 'General']
 
 function ContractorForm({ initial, onSave, onCancel, saving }) {
   const [form, setForm] = useState({
@@ -23,8 +21,7 @@ function ContractorForm({ initial, onSave, onCancel, saving }) {
     >
       <Field label="Name"><Input required disabled={!!initial} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
       <Field label="Trade">
-        <Input list="labour-trades" required value={form.trade} onChange={(e) => setForm({ ...form, trade: e.target.value })} />
-        <datalist id="labour-trades">{TRADES.map((t) => <option key={t} value={t} />)}</datalist>
+        <TradeSelect required value={form.trade} onChange={(trade) => setForm({ ...form, trade })} />
       </Field>
       <Field label="Rate per shift (₹)"><Input type="number" min="0" step="0.01" required value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} /></Field>
       <Field label="Phone"><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
@@ -57,6 +54,7 @@ export default function LabourContractors() {
     toast.success('Contractor added.')
     setAdding(false)
     qc.invalidateQueries({ queryKey: ['labour_contractors'] })
+    qc.invalidateQueries({ queryKey: ['labour_trades'] })
     qc.invalidateQueries({ queryKey: ['labour_contractors_active'] })
   }
 
@@ -70,6 +68,7 @@ export default function LabourContractors() {
     toast.success('Contractor updated.')
     setEditing(null)
     qc.invalidateQueries({ queryKey: ['labour_contractors'] })
+    qc.invalidateQueries({ queryKey: ['labour_trades'] })
     qc.invalidateQueries({ queryKey: ['labour_contractors_active'] })
     qc.invalidateQueries({ queryKey: ['labour_contractor'] })
   }
