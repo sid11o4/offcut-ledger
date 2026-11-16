@@ -190,14 +190,16 @@ const LAMINATION = {
   double: { title: 'Double side · 2 skins', hint: 'Each sheet uses one raw board and two laminates. Type the board as thickness, category and type (e.g. 16MM MR PLY) and each laminate as its code (e.g. 6965SUD); stock is matched from that.' },
   single: { title: 'Single side · 1 skin', hint: 'Each sheet uses one raw board and one laminate. Type the board as thickness, category and type (e.g. 16MM MR PLY) and the laminate as its code (e.g. 6965SUD); stock is matched from that.' },
   core: { title: 'Cutting · core', hint: 'Each sheet uses one core board. Type it as thickness, category and type (e.g. 16MM MR PLY).' },
+  edgeband: { title: 'Edge banding · R.m', hint: 'Each running metre uses one edgeband. Type its code (e.g. 2MM EB 6965SUD) as it is in stock; the R.m entered above is consumed from that edgeband.' },
 }
 
 function laminationFor(serviceName) {
   if (/double side/i.test(serviceName)) return 'double'
   if (/single side/i.test(serviceName)) return 'single'
   if (/cutting/i.test(serviceName)) return 'core'
-  // Edge banding and pasting consume a board and a laminate, so they take the same codes as a single-side job.
-  if (/edge|past/i.test(serviceName)) return 'single'
+  // Edge banding consumes running metres of one edgeband; pasting a board and a laminate, like a single-side job.
+  if (/edge/i.test(serviceName)) return 'edgeband'
+  if (/past/i.test(serviceName)) return 'single'
   return null
 }
 
@@ -278,6 +280,7 @@ function matchFor(kind, typed, items) {
 
 // The board and laminate(s) of a lamination job, each matched to stock.
 function matchLamination(lamKind, laminate, items) {
+  if (lamKind === 'edgeband') return { raw: matchFor('laminate', laminate.raw, items), skin1: null, skin2: null }
   return {
     raw: matchFor('raw', laminate.raw, items),
     skin1: lamKind !== 'core' ? matchFor('laminate', laminate.skin1, items) : null,
@@ -303,12 +306,12 @@ function hasDoubt(matches) {
 }
 
 // The lamination fields for the entry, creating any new item first. Each sheet uses one of each.
-async function laminationArgs(picks, quantity) {
+async function laminationArgs(picks, quantity, unitCode = 'SHEET') {
   const sheets = Number(quantity)
   const idOf = async (pick) => {
     if (!pick) return null
     if (pick.id) return pick.id
-    const { data, error } = await supabase.rpc('ensure_inventory_item', { p_name: pick.create, p_unit_code: 'SHEET' })
+    const { data, error } = await supabase.rpc('ensure_inventory_item', { p_name: pick.create, p_unit_code: unitCode })
     if (error) throw error
     return data
   }
@@ -382,7 +385,7 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
     let lamination = {}
     if (picks) {
       try {
-        lamination = await laminationArgs(picks, quantity)
+        lamination = await laminationArgs(picks, quantity, lamKind === 'edgeband' ? 'RM' : 'SHEET')
       } catch (err) {
         setSaving(false)
         toast.error(err.message || 'Could not record the laminate.')
@@ -434,9 +437,9 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
     // Lamination: the sheet count and the parts must be there, and every typed material is matched to
     // stock. A match that is not clear is put to the user, and nothing is saved until they answer.
     if (lamKind) {
-      if (!(Number(quantity) > 0)) { toast.error('Enter the quantity in sheets.'); return }
-      if (!laminate.raw.trim()) { toast.error(lamKind === 'core' ? 'Enter the core board.' : 'Enter the raw board.'); return }
-      if (lamKind !== 'core' && !laminate.skin1.trim()) { toast.error('Enter the skin 1 laminate code.'); return }
+      if (!(Number(quantity) > 0)) { toast.error(lamKind === 'edgeband' ? 'Enter the running metres.' : 'Enter the quantity in sheets.'); return }
+      if (!laminate.raw.trim()) { toast.error(lamKind === 'edgeband' ? 'Enter the edgeband code.' : lamKind === 'core' ? 'Enter the core board.' : 'Enter the raw board.'); return }
+      if (lamKind !== 'core' && lamKind !== 'edgeband' && !laminate.skin1.trim()) { toast.error('Enter the skin 1 laminate code.'); return }
       if (lamKind === 'double' && !laminate.skin2.trim()) { toast.error('Enter the skin 2 laminate code.'); return }
     }
     const matches = lamKind ? matchLamination(lamKind, laminate, inventoryItemsQ.data || []) : null
@@ -509,19 +512,19 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
               <div className="flex items-center gap-2 text-sm font-medium text-ink-900">
                 <Badge tone="brand">Design Build Order</Badge> {LAMINATION[lamKind].title}
               </div>
-              <span className="tnum text-xs text-ink-500">{quantity || 0} sheets</span>
+              <span className="tnum text-xs text-ink-500">{quantity || 0} {lamKind === 'edgeband' ? 'R.m' : 'sheets'}</span>
             </div>
 
             <div className={`grid gap-3 ${lamKind === 'double' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
               <div>
-                <label className="field-label">{lamKind === 'core' ? 'Core board' : 'Raw board'}</label>
+                <label className="field-label">{lamKind === 'edgeband' ? 'Edgeband code' : lamKind === 'core' ? 'Core board' : 'Raw board'}</label>
                 <input
                   className="field-input" list="inventory-materials"
-                  placeholder={lamKind === 'core' ? 'e.g. 16MM CORE' : 'e.g. 16MM MR PLY'}
+                  placeholder={lamKind === 'edgeband' ? 'e.g. 2MM EB 6965SUD' : lamKind === 'core' ? 'e.g. 16MM CORE' : 'e.g. 16MM MR PLY'}
                   value={laminate.raw} onChange={(e) => setLaminate({ ...laminate, raw: e.target.value })}
                 />
               </div>
-              {lamKind !== 'core' && (
+              {lamKind !== 'core' && lamKind !== 'edgeband' && (
                 <div>
                   <label className="field-label">Skin 1 laminate code</label>
                   <input
