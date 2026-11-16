@@ -659,10 +659,9 @@ function EntriesList({ entries, canCancel, toast, onChanged }) {
               <td>{qty(e.base_quantity)}</td>
               <td>{money(e.total_amount)}</td>
               <td>
-                {/* A Design Build Order is paid once billed to its Design Build project, and unpaid until then.
-                    Other job work shows no payment status. */}
+                {/* A Design Build Order is paid when it is logged. Other job work shows no payment status. */}
                 {e.status === 'cancelled' ? <Badge tone="bad">Cancelled</Badge>
-                  : e.projects?.rate_categories?.code === 'INTERNAL' ? (e.billed ? <Badge tone="ok">Paid</Badge> : <Badge tone="warn">Unpaid</Badge>)
+                  : e.projects?.rate_categories?.code === 'INTERNAL' ? <Badge tone="ok">Paid</Badge>
                   : <span className="text-ink-400">—</span>}
               </td>
               {canCancel && (
