@@ -21,15 +21,15 @@ export default function ProjectDashboard() {
   const companyLocationId = (companyLocationsQ.data || []).find((l) => l.kind === 'company')?.id
   const navigate = useNavigate()
 
-  // Leftover stock moves to Inventory and the project leaves the active lists. The database
+  // Leftover stock moves to Company inventory and the project leaves the active lists. The database
   // refuses while bills are still waiting for review.
   async function completeProject() {
-    if (!window.confirm(`Mark ${projectQ.data?.name} complete? Any stock left on the project moves to Inventory.`)) return
+    if (!window.confirm(`Mark ${projectQ.data?.name} complete? Any stock left on the project moves to Company inventory.`)) return
     const { data: moved, error } = await supabase.rpc('complete_design_project', { p_project_id: id })
     if (error) return toast.error(error.message)
     invalidateInventory(qc)
     qc.invalidateQueries({ queryKey: ['design_project', id] })
-    toast.success(moved ? `${projectQ.data?.name} completed. ${moved} stock line${moved === 1 ? '' : 's'} moved to Inventory.` : `${projectQ.data?.name} completed.`)
+    toast.success(moved ? `${projectQ.data?.name} completed. ${moved} stock line${moved === 1 ? '' : 's'} moved to Company inventory.` : `${projectQ.data?.name} completed.`)
     navigate('/design-build/projects')
   }
 
@@ -165,7 +165,7 @@ export default function ProjectDashboard() {
 
       <div className="grid lg:grid-cols-2 gap-5">
         <Card title="Project inventory on hand">
-          {!stockQ.data?.length ? <EmptyState title="No stock at this project" hint="Purchase directly into this project, or transfer from inventory." /> : (
+          {!stockQ.data?.length ? <EmptyState title="No stock at this project" hint="Purchase directly into this project, or transfer from company inventory." /> : (
             <table className="table-base">
               <thead><tr><th>Material</th><th className="num">Qty</th><th className="num">Avg cost</th><th className="num">Value</th><th /></tr></thead>
               <tbody>
@@ -219,12 +219,12 @@ export default function ProjectDashboard() {
 
       {returning && (
         <TransferModal
-          title="Move to inventory"
+          title="Move to company inventory"
           designProjectId={id}
           initial={{ item_id: returning.item_id, from: locationQ.data?.id, to: companyLocationId, quantity: returning.quantity }}
           onClose={() => setReturning(null)}
           onSaved={() => {
-            toast.success(`${returning.inventory_items?.name} returned to inventory.`)
+            toast.success(`${returning.inventory_items?.name} returned to company inventory.`)
             invalidateInventory(qc)
             setReturning(null)
           }}
