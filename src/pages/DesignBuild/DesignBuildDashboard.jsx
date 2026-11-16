@@ -4,10 +4,12 @@ import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, Tile, StatusBadge, EmptyState, LoadingBlock } from '../../components/ui'
 import { money } from '../../lib/format'
 import { displayDate } from '../../lib/dates'
+import { loadContractsByProject } from '../../lib/projectCollectionsData'
 
 // The Design Build dashboard: the interior business on its own. Completed projects drop out of
 // the project cards, though their stock is already in Company inventory and counted there.
 export default function DesignBuildDashboard() {
+  const contractsQ = useQuery({ queryKey: ['project_contracts'], queryFn: loadContractsByProject })
   const summaryQ = useQuery({
     queryKey: ['db-dash-projects'],
     queryFn: async () => {
@@ -79,8 +81,8 @@ export default function DesignBuildDashboard() {
             <div className="stagger grid gap-4 md:grid-cols-2">
               {live.map((p) => {
                 const spend = Number(p.supplier_bills_total || 0) + Number(p.internal_order_total || 0)
-                const budget = Number(p.budget || 0)
-                const progress = budget > 0 ? spend / budget : null
+                const contract = Number(contractsQ.data?.[p.id]?.contract || 0)
+                const progress = contract > 0 ? spend / contract : null
                 return (
                   <Link key={p.id} to={`/design-build/projects/${p.id}`} className="card card-interactive block p-5">
                     <div className="flex items-start justify-between gap-3">
@@ -101,12 +103,12 @@ export default function DesignBuildDashboard() {
                       </div>
                     </div>
                     {progress == null ? (
-                      <div className="mt-4 text-xs text-ink-400">No budget set</div>
+                      <div className="mt-4 text-xs text-ink-400">No contract value yet</div>
                     ) : (
                       <>
                         <div
                           role="img"
-                          aria-label={`${Math.round(progress * 100)}% of budget used`}
+                          aria-label={`${Math.round(progress * 100)}% of contract value spent`}
                           className="mt-4 h-1.5 overflow-hidden rounded-full bg-ink-100"
                         >
                           <div
@@ -114,7 +116,7 @@ export default function DesignBuildDashboard() {
                             style={{ width: `${Math.min(progress, 1) * 100}%` }}
                           />
                         </div>
-                        <div className="mt-2 text-xs text-ink-500">{Math.round(progress * 100)}% of {money(budget)} budget</div>
+                        <div className="mt-2 text-xs text-ink-500">{Math.round(progress * 100)}% of {money(contract)} contract value</div>
                       </>
                     )}
                   </Link>
