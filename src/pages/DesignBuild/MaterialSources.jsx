@@ -14,18 +14,10 @@ export default function MaterialSources({ itemId, projectId }) {
   const q = useQuery({
     queryKey: ['material_sources', itemId],
     queryFn: async () => {
-      const [itemsR, directR] = await Promise.all([
-        supabase.from('supplier_bill_items')
-          .select('id, quantity, rate_inclusive, total_amount, bill_id, supplier_bills(id, internal_bill_number, bill_date, status, bill_source, supplier_text, suppliers(name))')
-          .eq('inventory_item_id', itemId),
-        supabase.from('inventory_transactions')
-          .select('id, txn_date, quantity, unit_cost, total_cost, reversed_by, reference_type, location_id, inventory_locations(name, kind, design_projects(name))')
-          .eq('item_id', itemId).eq('txn_type', 'purchase').eq('reference_type', 'adjustment').is('reversed_by', null)
-          .order('txn_date', { ascending: false }),
-      ])
-      if (itemsR.error) throw itemsR.error
-      if (directR.error) throw directR.error
-      return { bills: itemsR.data || [], direct: directR.data || [] }
+      // Read through a function, so anyone who can operate inventory sees the sources.
+      const { data, error } = await supabase.rpc('material_sources', { p_item_id: itemId })
+      if (error) throw error
+      return { bills: data?.bills || [], direct: data?.direct || [] }
     },
   })
   if (q.isLoading) return <LoadingBlock />
