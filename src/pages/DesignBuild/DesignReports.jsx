@@ -12,7 +12,7 @@ import { loadProjectSummary, loadExpensesByCategory, loadMaterials, loadLabour, 
 // subheader: Projects, Expenses, Materials and Labour. Each section has a Download PDF button that
 // builds the PDF from the same data the page shows.
 export const DESIGN_REPORT_SECTIONS = {
-  projects: { title: 'Project summary', subtitle: 'Every Design Build project with its budget, spend and headroom.' },
+  projects: { title: 'Project summary', subtitle: 'Every Design Build project with its contract value, spend and what is left of the contract.' },
   expenses: { title: 'Expenses by category', subtitle: 'Design Build expenses grouped by category, with the split by project or company.' },
   materials: { title: 'Materials consumed', subtitle: 'Stock used on each project in the period, at average cost.' },
   labour: { title: 'Labour', subtitle: 'Labour bills and labour expenses in the period, by project.' },
@@ -66,30 +66,30 @@ export default function DesignReports({ section }) {
 function ProjectSummary({ rows }) {
   if (!rows.length) return <EmptyState title="No Design Build projects yet" />
   const totalSpent = rows.reduce((s, r) => s + r.spent, 0)
-  const totalBudget = rows.reduce((s, r) => s + r.budget, 0)
+  const totalContract = rows.reduce((s, r) => s + r.contract, 0)
   return (
     <>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
-        <StatCard label="Total budget" value={money(totalBudget)} />
+        <StatCard label="Total contract value" value={money(totalContract)} />
         <StatCard label="Total spent" value={money(totalSpent)} tone="bad" />
-        <StatCard label="Total headroom" value={money(totalBudget - totalSpent)} tone={totalBudget - totalSpent >= 0 ? 'ok' : 'bad'} />
+        <StatCard label="Total left of contract" value={money(totalContract - totalSpent)} tone={totalContract - totalSpent >= 0 ? 'ok' : 'bad'} />
       </div>
       <Card>
         <div className="overflow-x-auto -mx-4">
           <table className="table-base">
-            <thead><tr><th>Project</th><th>Client</th><th>Status</th><th className="num">Budget</th><th className="num">Supplier bills</th><th className="num">Internal Order</th><th className="num">Direct</th><th className="num">Spent</th><th className="num">Headroom</th><th /></tr></thead>
+            <thead><tr><th>Project</th><th>Client</th><th>Status</th><th className="num">Contract value</th><th className="num">Supplier bills</th><th className="num">Internal Order</th><th className="num">Direct</th><th className="num">Spent</th><th className="num">Left of contract</th><th /></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td className="font-medium">{r.name}</td>
                   <td>{r.client || '—'}</td>
                   <td className="capitalize">{r.status}</td>
-                  <td className="num">{r.budget ? money(r.budget) : '—'}</td>
+                  <td className="num">{r.contract ? money(r.contract) : '—'}</td>
                   <td className="num">{money(r.bills)}</td>
                   <td className="num">{money(r.internal)}</td>
                   <td className="num">{money(r.direct)}</td>
                   <td className="num font-medium">{money(r.spent)}</td>
-                  <td className={`num ${r.headroom >= 0 ? 'text-ok' : 'text-bad'}`}>{r.budget ? money(r.headroom) : '—'}</td>
+                  <td className={`num ${r.left >= 0 ? 'text-ok' : 'text-bad'}`}>{r.contract ? money(r.left) : '—'}</td>
                   <td className="text-right"><Link className="btn-ghost text-xs px-2" to={`/design-build/projects/${r.id}/report`}>Report</Link></td>
                 </tr>
               ))}

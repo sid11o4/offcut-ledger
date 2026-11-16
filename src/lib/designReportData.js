@@ -7,17 +7,22 @@ import { pdfMoney as money, qty } from './format'
 // figures on screen and in the PDF are the same numbers.
 
 export async function loadProjectSummary() {
-  const { data: projects, error } = await supabase.from('design_projects').select('id, name, code, status, budget, clients(name)').order('name')
+  const { data: projects, error } = await supabase.from('design_projects').select('id, name, code, status, clients(name)').order('name')
   if (error) throw error
   const fin = await Promise.all(projects.map(async (p) => {
-    const { data, error: fe } = await supabase.rpc('report_design_project_financials', { p_design_project_id: p.id })
-    if (fe) throw fe
-    return data?.[0] || {}
+    const [finR, conR] = await Promise.all([
+      supabase.rpc('report_design_project_financials', { p_design_project_id: p.id }),
+      supabase.rpc('project_contract_summary', { p_design_project_id: p.id }),
+    ])
+    if (finR.error) throw finR.error
+    if (conR.error) throw conR.error
+    return { f: finR.data?.[0] || {}, c: conR.data?.[0] || {} }
   }))
   return projects.map((p, i) => {
-    const f = fin[i]
+    const { f, c } = fin[i]
     const spent = Number(f.supplier_bills_total || 0) + Number(f.internal_order_total || 0) + Number(f.direct_expenses_total || 0)
-    return { id: p.id, name: p.name, code: p.code, status: p.status, client: p.clients?.name || '', budget: Number(p.budget || 0), bills: Number(f.supplier_bills_total || 0), internal: Number(f.internal_order_total || 0), direct: Number(f.direct_expenses_total || 0), spent, headroom: Number(p.budget || 0) - spent }
+    const contract = Number(c.contract_total || 0)
+    return { id: p.id, name: p.name, code: p.code, status: p.status, client: p.clients?.name || '', contract, bills: Number(f.supplier_bills_total || 0), internal: Number(f.internal_order_total || 0), direct: Number(f.direct_expenses_total || 0), spent, left: contract - spent }
   })
 }
 
@@ -96,16 +101,16 @@ export function designReportPdf(section, data, { title, subtitle, period }) {
   const meta = period ? [['Period', period]] : []
   if (section === 'projects') {
     const rows = data
-    const budget = rows.reduce((s, r) => s + r.budget, 0)
+    const contract = rows.reduce((s, r) => s + r.contract, 0)
     const spent = rows.reduce((s, r) => s + r.spent, 0)
     return buildTableDoc({
       title, subtitle, meta,
-      cards: [['Total budget', money(budget)], ['Total spent', money(spent)], ['Total headroom', money(budget - spent)]],
+      cards: [['Total contract value', money(contract)], ['Total spent', money(spent)], ['Total left of contract', money(contract - spent)]],
       sections: [{
         heading: 'Projects',
-        head: ['Project', 'Client', 'Status', 'Budget', 'Supplier bills', 'Internal Order', 'Direct', 'Spent', 'Headroom'],
-        body: rows.map((r) => [r.name, r.client || '—', r.status, r.budget ? money(r.budget) : '—', money(r.bills), money(r.internal), money(r.direct), money(r.spent), r.budget ? money(r.headroom) : '—']),
-        foot: ['Total', '', '', money(budget), '', '', '', money(spent), money(budget - spent)],
+        head: ['Project', 'Client', 'Status', 'Contract value', 'Supplier bills', 'Internal Order', 'Direct', 'Spent', 'Left of contract'],
+        body: rows.map((r) => [r.name, r.client || '—', r.status, r.contract ? money(r.contract) : '—', money(r.bills), money(r.internal), money(r.direct), money(r.spent), r.contract ? money(r.left) : '—']),
+        foot: ['Total', '', '', money(contract), '', '', '', money(spent), money(contract - spent)],
         columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' } },
       }],
     })

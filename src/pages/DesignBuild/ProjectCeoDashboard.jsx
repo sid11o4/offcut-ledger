@@ -69,10 +69,9 @@ export default function ProjectCeoDashboard() {
         <Kpi label="Contract value" value={money(data.kpis.contractValue)} />
         <Kpi label="Received from client" value={money(data.kpis.received)} />
         <Kpi label="Balance due" value={money(data.kpis.balanceDue)} tone={data.kpis.balanceDue > 0 ? undefined : undefined} />
-        <Kpi label="Budget" value={data.kpis.budget ? money(data.kpis.budget) : '—'} />
         <Kpi label="Spent" value={money(data.kpis.spent)} />
-        <Kpi label="Used" value={data.kpis.used == null ? '—' : `${Math.round(data.kpis.used * 100)}%`} tone={data.kpis.used > 1 ? 'bad' : undefined} />
-        <Kpi label="Remaining" value={data.kpis.remaining == null ? '—' : money(data.kpis.remaining)} tone={data.kpis.remaining < 0 ? 'bad' : undefined} />
+        <Kpi label="Spent of contract" value={data.kpis.used == null ? '—' : `${Math.round(data.kpis.used * 100)}%`} tone={data.kpis.used > 1 ? 'bad' : undefined} />
+        <Kpi label="Left of contract" value={data.kpis.remaining == null ? '—' : money(data.kpis.remaining)} tone={data.kpis.remaining < 0 ? 'bad' : undefined} />
         <Kpi label="Stock on hand" value={money(data.kpis.inventoryValue)} />
         <Kpi label="Vendors" value={data.kpis.vendorCount} />
         <Kpi label="Labour units" value={qty(data.kpis.labourQty)} />
@@ -398,15 +397,12 @@ function LedgerTab({ rows, loading, error }) {
 
 // The project PDF in the house layout, built from the same figures the dashboard shows.
 function downloadPdf(data, raw, ledger, settings) {
-  const budget = data.kpis.budget
   downloadDesignProjectReport({
     settings,
     project: data.project,
     data: {
       contract: { contract_total: data.kpis.contractValue, received_total: data.kpis.received, balance_due: data.kpis.balanceDue },
-      budget,
       spent: data.total,
-      headroom: budget ? budget - data.total : 0,
       categories: data.slices.map((s) => ({ name: s.label, amount: s.value })),
       materials: data.materials.map((m) => ({ name: m.name, unit: m.unit, quantity: m.quantity, cost: m.cost })),
       labour: data.labour.map((r) => ({ date: r.date, description: r.description || 'Labour', party: r.vendor, amount: Number(r.total_amount) })),

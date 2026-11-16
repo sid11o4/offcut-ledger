@@ -5,7 +5,7 @@ import { newReportDoc, sectionLabel, summaryCards, brandTable, brandFooter, save
 // One Design Build project report as a single branded PDF: dashboard, overall details and cash
 // position, expenses by category, materials consumed, labour, then the full ledger statement.
 export function buildDesignProjectReportDoc({ project, data }) {
-  const { financials: f = {}, contract = {}, budget, spent, headroom, categories, materials, labour, ledger, ledgerTotal } = data
+  const { financials: f = {}, contract = {}, spent, categories, materials, labour, ledger, ledgerTotal } = data
   const meta = [
     ['Code', project.code || '—'],
     ['Client', project.clients?.name || '—'],
@@ -31,8 +31,7 @@ export function buildDesignProjectReportDoc({ project, data }) {
   y = brandTable(doc, y, {
     body: [
       ['Total spent (all costs)', money(spent)],
-      ['Budget', budget ? money(budget) : 'No budget set'],
-      ['Budget headroom', budget ? `${money(headroom)} (${headroom >= 0 ? 'positive, under budget' : 'negative, over budget'})` : '—'],
+      ['Left of contract', money(Number(contract.contract_total || 0) - spent)],
       ['Paid out in the ledger', money(ledgerTotal)],
       ['Contract value', money(contract.contract_total)],
       ['Received from client', money(contract.received_total)],
