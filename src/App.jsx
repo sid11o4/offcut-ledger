@@ -32,6 +32,7 @@ import ManualSlip from './pages/DesignBuild/ManualSlip'
 import DesignExpensesList from './pages/DesignBuild/DesignExpensesList'
 import DesignRecurringExpenses from './pages/DesignBuild/DesignRecurringExpenses'
 import DesignProjectReport from './pages/DesignBuild/ProjectCeoDashboard'
+import ProjectCollections from './pages/DesignBuild/ProjectCollections'
 import DesignReports from './pages/DesignBuild/DesignReports'
 import SupplierReturns from './pages/DesignBuild/SupplierReturns'
 import { ConsolidatedReport, SupplierList } from './pages/DesignBuild/StatementPages'
@@ -93,6 +94,7 @@ export default function App() {
         <Route path="design-build/projects" element={<RequirePermission perm="design_build_manage"><DesignProjectsList /></RequirePermission>} />
         <Route path="design-build/projects/:id" element={<RequirePermission perm="design_build_manage"><DesignProjectDashboard /></RequirePermission>} />
         <Route path="design-build/projects/:id/report" element={<RequirePermission perm="design_build_manage"><DesignProjectReport /></RequirePermission>} />
+        <Route path="design-build/projects/:id/collections" element={<RequirePermission perm="design_build_manage"><ProjectCollections /></RequirePermission>} />
         <Route path="design-build/reports/projects" element={<RequirePermission perm="design_build_manage"><DesignReports section="projects" /></RequirePermission>} />
         <Route path="design-build/reports/expenses" element={<RequirePermission perm="design_build_manage"><DesignReports section="expenses" /></RequirePermission>} />
         <Route path="design-build/reports/materials" element={<RequirePermission perm="design_build_manage"><DesignReports section="materials" /></RequirePermission>} />
