@@ -54,8 +54,12 @@ export default function BankReconciliation() {
           const { error: insErr } = await supabase.from('bank_transactions').insert(rows)
           if (insErr && insErr.code !== '23505') throw insErr // 23505 = duplicate dedupe_key, expected on re-import
 
-          toast.success(`Imported ${rows.length} rows (duplicates skipped automatically).`)
+          // Payments that match a statement line at 95% or better are confirmed straight away.
+          const { data: matched, error: matchErr } = await supabase.rpc('auto_match_bank_transactions')
+          if (matchErr) throw matchErr
+          toast.success(`Imported ${rows.length} rows (duplicates skipped). ${matched || 0} RTGS/NEFT payment${matched === 1 ? '' : 's'} matched.`)
           qc.invalidateQueries({ queryKey: ['bank_unmatched'] })
+          qc.invalidateQueries({ queryKey: ['rtgs_payments'] })
         } catch (err) {
           toast.error(err.message || String(err))
         } finally {
@@ -69,7 +73,7 @@ export default function BankReconciliation() {
     <div>
       <PageHeader
         title="Bank Reconciliation"
-        subtitle="Import the SBI statement; confirm each proposed match before it counts as paid."
+        subtitle="Import the SBI statement. RTGS/NEFT payments that match a debit at 95% or better are confirmed automatically; anything else can be matched here."
         actions={
           <label className="btn-primary cursor-pointer">
             {importing ? 'Importing…' : '+ Import statement (CSV)'}
@@ -109,6 +113,7 @@ function BankRow({ txn }) {
     if (error) return toast.error(error.message)
     toast.success('Matched.')
     qc.invalidateQueries({ queryKey: ['bank_unmatched'] })
+    qc.invalidateQueries({ queryKey: ['rtgs_payments'] })
   }
 
   return (
@@ -123,7 +128,7 @@ function BankRow({ txn }) {
       {open && (
         <div className="mt-2 pt-2 border-t border-ink-100">
           {candidatesQ.isLoading ? <LoadingBlock /> : !candidatesQ.data?.length ? (
-            <div className="text-xs text-ink-500">No candidate within 1% of this amount.</div>
+            <div className="text-xs text-ink-500">No pending RTGS/NEFT payment within 95% of this amount.</div>
           ) : (
             <div className="space-y-1.5">
               {candidatesQ.data.map((c) => (
