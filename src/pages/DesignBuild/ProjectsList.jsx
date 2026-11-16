@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { loadContractsByProject } from '../../lib/projectCollectionsData'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import { useAuth } from '../../context/AuthContext'
@@ -10,6 +11,7 @@ import { money } from '../../lib/format'
 
 export default function DesignProjectsList() {
   const summaryQ = useDesignProjectsSummary()
+  const contractsQ = useQuery({ queryKey: ['project_contracts'], queryFn: loadContractsByProject })
   const { hasPermission } = useAuth()
   const [creating, setCreating] = useState(false)
   const [showCompleted, setShowCompleted] = useState(false)
@@ -41,7 +43,7 @@ export default function DesignProjectsList() {
               <thead>
                 <tr>
                   <th>Code</th><th>Project</th><th>Status</th>
-                  <th className="num">Budget</th><th className="num">Supplier Bills</th>
+                  <th className="num">Contract value</th><th className="num">Supplier Bills</th>
                   <th className="num">Internal Order</th><th className="num">Inventory on hand</th>
                 </tr>
               </thead>
@@ -51,7 +53,7 @@ export default function DesignProjectsList() {
                     <td className="font-mono text-xs text-ink-500">{p.code}</td>
                     <td><Link to={`/design-build/projects/${p.id}`} className="font-medium text-ink-950 hover:underline">{p.name}</Link></td>
                     <td><StatusBadge status={p.status} /></td>
-                    <td className="num">{p.budget ? money(p.budget) : <span className="text-ink-400">—</span>}</td>
+                    <td className="num">{contractsQ.data?.[p.id]?.contract ? money(contractsQ.data[p.id].contract) : <span className="text-ink-400">—</span>}</td>
                     <td className="num">{money(p.supplier_bills_total)}</td>
                     <td className="num">{money(p.internal_order_total)}</td>
                     <td className="num">{money(p.current_inventory_value)}</td>
@@ -119,7 +121,7 @@ function NewProjectModal({ onClose }) {
             {(projectsQ.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </Select>
         </Field>
-        <Field label="Budget (optional)"><Input type="number" min="0" step="0.01" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} /></Field>
+        <Field label="Contract value / estimate (optional, used until the scope or quotation is entered)"><Input type="number" min="0" step="0.01" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} /></Field>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
           <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Creating…' : 'Create'}</button>

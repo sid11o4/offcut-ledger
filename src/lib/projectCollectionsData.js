@@ -130,3 +130,21 @@ export async function applyQuotation({ quotation, rows }) {
   const { error } = await supabase.from('project_quotations').update({ applied_at: new Date().toISOString() }).eq('id', quotation.id)
   if (error) throw new Error(error.message)
 }
+
+// Contract value for every project, keyed by project id (used by the project list and home page).
+export async function loadContractsByProject() {
+  const { data: projects, error } = await supabase.from('design_projects').select('id')
+  if (error) throw error
+  const results = await Promise.all((projects || []).map((p) =>
+    supabase.rpc('project_contract_summary', { p_design_project_id: p.id }).then((r) => {
+      if (r.error) throw r.error
+      return [p.id, r.data?.[0] || {}]
+    })))
+  const out = {}
+  for (const [id, c] of results) {
+    const contract = Number(c.contract_total || 0)
+    const received = Number(c.received_total || 0)
+    out[id] = { contract, received, balance: contract - received }
+  }
+  return out
+}
