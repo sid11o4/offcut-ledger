@@ -510,7 +510,7 @@ function AuditPanel({ billId, onDone }) {
     setSaving(false)
     if (error) return toast.error(error.message)
     // Approval posts a stock purchase into the bill's project (or company pool) when its
-    // lines are matched to tracked inventory items -- without this, Company Inventory, the
+    // lines are matched to tracked inventory items -- without this, Inventory, the
     // project's own dashboard, and the projects list summary all kept showing pre-approval
     // numbers until something else happened to invalidate their queries.
     invalidateInventory(qc)

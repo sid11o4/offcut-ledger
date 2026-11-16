@@ -109,7 +109,7 @@ export function useCompanyInventoryValue() {
 // Any inventory-moving action (purchase, transfer, consumption, slip, supplier-bill approval)
 // can touch the company pool and/or any Design Build project's pool, and the page that just
 // caused it is rarely the only place displaying that data. Call this after every one of them
-// so Company Inventory, every Project Dashboard, and the projects list summary all go stale
+// so Inventory, every Project Dashboard, and the projects list summary all go stale
 // and refetch -- instead of each caller hand-picking which specific project query keys to
 // invalidate (easy to get wrong, and the actual bug this fixes: none of them were).
 export function invalidateInventory(qc) {

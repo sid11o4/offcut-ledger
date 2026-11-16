@@ -17,7 +17,7 @@ export default function DesignProjectsList() {
   const [showCompleted, setShowCompleted] = useState(false)
   const canWrite = hasPermission('design_build_manage')
 
-  // Completed projects leave the list unless asked for; their stock has moved to Company inventory.
+  // Completed projects leave the list unless asked for; their stock has moved to Inventory.
   const rows = (summaryQ.data || []).filter((p) => showCompleted || p.status !== 'completed')
 
   return (

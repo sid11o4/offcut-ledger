@@ -72,7 +72,7 @@ const WORKSPACE_GROUPS = {
     {
       label: 'Stock & vendors',
       items: [
-        { to: '/design-build/inventory', label: 'Company Inventory', icon: 'inventory', perm: 'inventory_operate' },
+        { to: '/design-build/inventory', label: 'Inventory', icon: 'inventory', perm: 'inventory_operate' },
         { to: '/design-build/returns', label: 'Returns & voids', icon: 'transfer', perm: 'inventory_operate' },
         { to: '/design-build/suppliers', label: 'Material Vendors', icon: 'users', perm: 'supplier_bills_manage' },
       ],

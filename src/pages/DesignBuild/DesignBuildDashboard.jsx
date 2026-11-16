@@ -8,7 +8,7 @@ import { displayDate } from '../../lib/dates'
 import { loadContractsByProject } from '../../lib/projectCollectionsData'
 
 // The Design Build dashboard: the interior business on its own. Completed projects drop out of
-// the project cards, though their stock is already in Company inventory and counted there.
+// the project cards, though their stock is already in Inventory and counted there.
 export default function DesignBuildDashboard() {
   const contractsQ = useQuery({ queryKey: ['project_contracts'], queryFn: loadContractsByProject })
   const summaryQ = useQuery({

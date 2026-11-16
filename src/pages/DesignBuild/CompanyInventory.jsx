@@ -26,7 +26,7 @@ export default function CompanyInventory() {
   return (
     <div>
       <PageHeader
-        title="Company Inventory"
+        title="Inventory"
         subtitle="The shared pool. Transferred to a project's own inventory on request; the cost moves with it."
         actions={canOperate && (
           <>
@@ -38,7 +38,7 @@ export default function CompanyInventory() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
         <Card>
-          <div className="text-xs text-ink-500">Company Inventory</div>
+          <div className="text-xs text-ink-500">Inventory</div>
           <div className="text-2xl font-medium tnum mt-1">{money(total)}</div>
           <div className="text-xs text-ink-500 mt-1">{rows.length} material{rows.length === 1 ? '' : 's'} in the shared pool</div>
         </Card>
@@ -211,7 +211,7 @@ function PurchaseModal({ onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <form onSubmit={submit} className="card p-5 w-full max-w-md space-y-3">
-        <div className="text-sm font-semibold text-ink-950">Record a direct purchase into company inventory</div>
+        <div className="text-sm font-semibold text-ink-950">Record a direct purchase into inventory</div>
         <Field label="Material">
           <Select required value={form.item_id} onChange={(e) => setForm({ ...form, item_id: e.target.value })}>
             <option value="">Select…</option>
