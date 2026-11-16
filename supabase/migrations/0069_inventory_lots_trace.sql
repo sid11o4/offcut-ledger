@@ -50,6 +50,7 @@ declare
   v_draw record;
   v_bill uuid;
   v_text text;
+  v_new_lot uuid;
 begin
   if p_txn.quantity > 0 then
     v_remaining := p_txn.quantity;
@@ -102,9 +103,9 @@ begin
       -- Not enough stock: a negative lot records the shortfall until stock comes in to settle it.
       insert into public.inventory_lots (item_id, location_id, vendor_text, unit_cost, remaining, source_txn_id)
         values (p_txn.item_id, p_txn.location_id, 'No purchase on record', 0, -v_remaining, p_txn.id)
-        returning id into v_lot.id;
+        returning id into v_new_lot;
       insert into public.inventory_lot_draws (txn_id, lot_id, quantity, unit_cost, vendor_text)
-        values (p_txn.id, v_lot.id, v_remaining, 0, 'No purchase on record');
+        values (p_txn.id, v_new_lot, v_remaining, 0, 'No purchase on record');
     end if;
   end if;
 end;
