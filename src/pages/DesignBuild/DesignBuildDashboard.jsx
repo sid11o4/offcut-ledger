@@ -1,3 +1,4 @@
+import PayReceiveCards from '../../components/PayReceiveCards'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
@@ -69,6 +70,8 @@ export default function DesignBuildDashboard() {
           <Tile label="Awaiting review" value={pending.length} sub={pending.length ? money(pendingTotal) : 'Nothing waiting'} to="/accounts/bills" />
         </div>
       )}
+
+      <PayReceiveCards />
 
       <div className="grid gap-5 lg:grid-cols-3">
         <section className="lg:col-span-2">
