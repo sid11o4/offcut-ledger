@@ -123,7 +123,8 @@ export default function DailyLog() {
             toast={toast}
             onSaved={invalidate}
           />
-          <ExpenseEntryForm date={date} categories={expenseCategoriesQ.data || []} projects={activeProjects} profile={profile} toast={toast} onSaved={invalidate} />
+          <ExpenseEntryForm mode="labour" date={date} categories={expenseCategoriesQ.data || []} projects={activeProjects} profile={profile} toast={toast} onSaved={invalidate} />
+          <ExpenseEntryForm date={date} categories={(expenseCategoriesQ.data || []).filter((c) => c.name !== 'Labour')} projects={activeProjects} profile={profile} toast={toast} onSaved={invalidate} />
         </div>
 
         <div className="space-y-5">
@@ -697,7 +698,8 @@ function chargeOf(value) {
     : { side: 'factory', project_id: id || null, design_project_id: null }
 }
 
-function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved }) {
+// mode 'labour' is the Labour card (contractor, shifts and payments); otherwise an ordinary expense.
+function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved, mode = 'expense' }) {
   const qc = useQueryClient()
   const [categoryId, setCategoryId] = useState('')
   const [amount, setAmount] = useState('')
@@ -708,7 +710,6 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
   // Labour: one contractor for the whole entry, at their rate per shift; then a row per project.
   const [contractorId, setContractorId] = useState('')
   const [rows, setRows] = useState([newLabourRow()])
-  const [payments, setPayments] = useState([newPaymentRow()])
   const [newContractor, setNewContractor] = useState({ name: '', trade: 'General', rate: '' })
   const [saving, setSaving] = useState(false)
   const [showNewProject, setShowNewProject] = useState(false)
@@ -724,10 +725,9 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
   })
   const contractor = (contractorsQ.data || []).find((c) => c.id === contractorId)
   const rate = Number(contractor?.default_rate || 0)
-  const isLabour = categories.find((c) => c.id === categoryId)?.name === 'Labour'
+  const isLabour = mode === 'labour'
   const rowTotal = (r) => Math.round(Number(r.shifts || 0) * rate * 100) / 100
   const labourTotal = rows.reduce((t, r) => t + rowTotal(r), 0)
-  const paymentTotal = payments.reduce((t, r) => t + (Math.round(Number(r.amount || 0) * 100) / 100), 0)
   // Factory projects that are not Design Build projects: Design Build projects are listed on their own side.
   const designLinkedFactoryIds = new Set(allDesignProjects.map((d) => d.factory_project_id).filter(Boolean))
   const nonDesignFactoryProjects = projects.filter((p) => !designLinkedFactoryIds.has(p.id))
@@ -743,14 +743,6 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
 
   function removeRow(key) {
     setRows((rs) => (rs.length > 1 ? rs.filter((r) => r.key !== key) : rs))
-  }
-
-  function updatePayment(key, patch) {
-    setPayments((ps) => ps.map((r) => (r.key === key ? { ...r, ...patch } : r)))
-  }
-
-  function removePayment(key) {
-    setPayments((ps) => (ps.length > 1 ? ps.filter((r) => r.key !== key) : ps))
   }
 
   // A new contractor or mason, with their trade and rate per shift, becomes the contractor for this entry.
@@ -783,16 +775,9 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
         if (!(Number(r.shifts) > 0)) { setSaving(false); return toast.error('Enter the shifts for every shift row.') }
         payload.push({ kind: 'shift', contractor_id: contractorId, side: c.side, project_id: c.project_id, design_project_id: c.design_project_id, shifts: Number(r.shifts), rate, notes: description || null })
       }
-      for (const r of payments) {
-        if (String(r.amount).trim() === '' && !r.charge) continue
-        const c = chargeOf(r.charge)
-        if (!c) { setSaving(false); return toast.error('Choose where every payment is charged.') }
-        if (!(Number(r.amount) > 0)) { setSaving(false); return toast.error('Enter the amount for every payment.') }
-        payload.push({ kind: r.kind, contractor_id: contractorId, side: c.side, project_id: c.project_id, design_project_id: c.design_project_id, amount: Number(r.amount), notes: r.remarks || null })
-      }
-      if (!payload.length) { setSaving(false); return toast.error('Enter shifts or a payment.') }
+      if (!payload.length) { setSaving(false); return toast.error('Enter the shifts for this labour.') }
       ;({ error } = await supabase.rpc('record_labour_entries', { p_entry_date: date, p_notes: description || null, p_rows: payload }))
-      message = `Labour logged for ${contractor.name}: ${money(labourTotal + paymentTotal)}.`
+      message = `Labour logged for ${contractor.name}: ${money(labourTotal)}.`
     } else {
       const common = { expense_date: date, category_id: categoryId, amount: Number(amount), description: description || null }
       ;({ error } = side === 'factory'
@@ -805,7 +790,6 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
     toast.success(message)
     setCategoryId(''); setAmount(''); setDescription(''); setTarget('')
     setRows([newLabourRow()])
-    setPayments([newPaymentRow()])
     onSaved()
   }
 
@@ -819,7 +803,7 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
   )
 
   return (
-    <Card title="Add Expense">
+    <Card title={mode === 'labour' ? 'Labour' : 'Add Expense'}>
       {showNewProject && (
         <ProjectFormModal
           existing={null}
@@ -829,6 +813,7 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
       )}
       <form onSubmit={submit} className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
+          {!isLabour && (
           <div>
             <label className="field-label">Category *</label>
             <select className="field-input" required value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
@@ -836,6 +821,7 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
               {categories.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
+          )}
           {!isLabour && (
             <div>
               <label className="field-label">Amount (₹) *</label>
@@ -897,44 +883,6 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
             </div>
             <button type="button" className="btn-secondary text-xs" onClick={() => setRows((rs) => [...rs, newLabourRow()])}>+ Add row</button>
 
-            <div className="border-t border-ink-200 pt-3">
-              <div className="mb-2 text-xs font-medium text-ink-700">Bonus, advance and other payments</div>
-              <div className="overflow-x-auto">
-                <table className="table-base">
-                  <thead>
-                    <tr><th>Charged to</th><th>Type</th><th className="num">Amount (₹)</th><th>Remarks</th><th /></tr>
-                  </thead>
-                  <tbody>
-                    {payments.map((r) => (
-                      <tr key={r.key}>
-                        <td>
-                          <select className="field-input" value={r.charge} onChange={(e) => updatePayment(r.key, { charge: e.target.value })}>
-                            <option value="">Select project…</option>
-                            {chargeOptions}
-                          </select>
-                        </td>
-                        <td>
-                          <select className="field-input" value={r.kind} onChange={(e) => updatePayment(r.key, { kind: e.target.value })}>
-                            <option value="bonus">Bonus</option>
-                            <option value="advance">Advance</option>
-                            <option value="other">Other payment</option>
-                          </select>
-                        </td>
-                        <td className="num"><input className="field-input w-28 text-right" type="number" min="0" step="0.01" value={r.amount} onChange={(e) => updatePayment(r.key, { amount: e.target.value })} /></td>
-                        <td><input className="field-input" placeholder="Reason or remarks" value={r.remarks} onChange={(e) => updatePayment(r.key, { remarks: e.target.value })} /></td>
-                        <td className="text-right">
-                          <button type="button" className="btn-ghost text-xs px-2" disabled={payments.length === 1} onClick={() => removePayment(r.key)}>Remove</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr><td colSpan={2} className="font-medium">Payments total</td><td className="num tnum font-medium">{money(paymentTotal)}</td><td colSpan={2} /></tr>
-                  </tfoot>
-                </table>
-              </div>
-              <button type="button" className="btn-secondary mt-2 text-xs" onClick={() => setPayments((ps) => [...ps, newPaymentRow()])}>+ Add payment</button>
-            </div>
           </div>
         )}
 

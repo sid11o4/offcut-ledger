@@ -1,3 +1,4 @@
+import PayReceiveCards from '../../components/PayReceiveCards'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
@@ -119,6 +120,8 @@ export default function DesignProjectReport() {
           </div>
         }
       />
+
+      <PayReceiveCards projectId={id} />
 
       <Card title="Dashboard" className="mb-5">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">

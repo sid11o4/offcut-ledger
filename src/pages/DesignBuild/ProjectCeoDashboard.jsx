@@ -1,3 +1,4 @@
+import PayReceiveCards from '../../components/PayReceiveCards'
 import { Fragment, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -64,6 +65,8 @@ export default function ProjectCeoDashboard() {
           <button className="btn-ghost text-sm" onClick={() => setRange({ start: '', end: '' })}>All time</button>
         </div>
       </Card>
+
+      <PayReceiveCards projectId={id} />
 
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 mb-5">
         <Kpi label="Contract value" value={money(data.kpis.contractValue)} />

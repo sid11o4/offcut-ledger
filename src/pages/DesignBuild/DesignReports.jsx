@@ -1,3 +1,4 @@
+import PayReceiveCards from '../../components/PayReceiveCards'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -48,6 +49,7 @@ export default function DesignReports({ section }) {
         subtitle={meta.subtitle}
         actions={q.data && <button className="btn-secondary text-xs" onClick={downloadPdf}>Download PDF</button>}
       />
+      <PayReceiveCards />
       {section !== 'projects' && (
         <Card className="mb-5"><DateRangePicker start={start} end={end} onChange={(s, e) => { setStart(s); setEnd(e) }} /></Card>
       )}
