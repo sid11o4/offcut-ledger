@@ -27,7 +27,7 @@ export async function loadProjectRaw(projectId) {
     project.factory_project_id
       ? supabase.from('job_work_entries')
         .select('id, entry_date, base_quantity, total_amount, job_work_services(name), units(code)')
-        .eq('project_id', project.factory_project_id).eq('billed', true).eq('status', 'active')
+        .eq('project_id', project.factory_project_id).eq('status', 'active')
       : Promise.resolve({ data: [], error: null }),
     supabase.rpc('report_design_project_financials', { p_design_project_id: projectId }),
     supabase.rpc('project_contract_summary', { p_design_project_id: projectId }),
