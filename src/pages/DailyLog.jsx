@@ -674,17 +674,59 @@ function EntriesList({ entries, canCancel, toast, onChanged }) {
   )
 }
 
+let labourRowSeq = 0
+function newLabourRow() {
+  labourRowSeq += 1
+  return { key: `row-${labourRowSeq}`, charge: '', shifts: '' }
+}
+
+// A bonus, advance or other payment to the contractor: an amount with remarks, not shifts.
+function newPaymentRow() {
+  labourRowSeq += 1
+  return { key: `pay-${labourRowSeq}`, charge: '', kind: 'bonus', amount: '', remarks: '' }
+}
+
+// Where a labour row or an ordinary expense is charged, as one choice: "db:" is the Design Build
+// company, "db:<id>" a Design Build project, "f:" Factory-wide, "f:<id>" a factory project.
+function chargeOf(value) {
+  const [code, id] = String(value || '').split(':')
+  if (!code || !(code === 'db' || code === 'f')) return null
+  return code === 'db'
+    ? { side: 'design_build', project_id: null, design_project_id: id || null }
+    : { side: 'factory', project_id: id || null, design_project_id: null }
+}
+
 function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved }) {
+  const qc = useQueryClient()
   const [categoryId, setCategoryId] = useState('')
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
-  // Two choices: Design Build or Factory. The second choice is the company-wide option or one project.
+  // Ordinary expenses: Design Build or Factory, then the company-wide option or one project.
   const [side, setSide] = useState('factory')
   const [target, setTarget] = useState('')
+  // Labour: one contractor for the whole entry, at their rate per shift; then a row per project.
+  const [contractorId, setContractorId] = useState('')
+  const [rows, setRows] = useState([newLabourRow()])
+  const [payments, setPayments] = useState([newPaymentRow()])
+  const [newContractor, setNewContractor] = useState({ name: '', trade: 'General', rate: '' })
   const [saving, setSaving] = useState(false)
   const [showNewProject, setShowNewProject] = useState(false)
   const designProjectsQ = useDesignProjects()
   const allDesignProjects = designProjectsQ.data || []
+  const contractorsQ = useQuery({
+    queryKey: ['labour_contractors_active'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('labour_contractors').select('id, name, trade, default_rate').eq('active', true).order('name')
+      if (error) throw error
+      return data || []
+    },
+  })
+  const contractor = (contractorsQ.data || []).find((c) => c.id === contractorId)
+  const rate = Number(contractor?.default_rate || 0)
+  const isLabour = categories.find((c) => c.id === categoryId)?.name === 'Labour'
+  const rowTotal = (r) => Math.round(Number(r.shifts || 0) * rate * 100) / 100
+  const labourTotal = rows.reduce((t, r) => t + rowTotal(r), 0)
+  const paymentTotal = payments.reduce((t, r) => t + (Math.round(Number(r.amount || 0) * 100) / 100), 0)
   // Factory projects that are not Design Build projects: Design Build projects are listed on their own side.
   const designLinkedFactoryIds = new Set(allDesignProjects.map((d) => d.factory_project_id).filter(Boolean))
   const nonDesignFactoryProjects = projects.filter((p) => !designLinkedFactoryIds.has(p.id))
@@ -694,20 +736,85 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
     setTarget('')
   }
 
-  // Design Build expenses go to the company or one Design Build project; Factory expenses to factory-wide or one factory project.
+  function updateRow(key, patch) {
+    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)))
+  }
+
+  function removeRow(key) {
+    setRows((rs) => (rs.length > 1 ? rs.filter((r) => r.key !== key) : rs))
+  }
+
+  function updatePayment(key, patch) {
+    setPayments((ps) => ps.map((r) => (r.key === key ? { ...r, ...patch } : r)))
+  }
+
+  function removePayment(key) {
+    setPayments((ps) => (ps.length > 1 ? ps.filter((r) => r.key !== key) : ps))
+  }
+
+  // A new contractor or mason, with their trade and rate per shift, becomes the contractor for this entry.
+  async function addContractor() {
+    if (!newContractor.name.trim()) return toast.error('Enter the name.')
+    if (!(Number(newContractor.rate) >= 0) || newContractor.rate === '') return toast.error('Enter the rate per shift.')
+    const { data, error } = await supabase.rpc('create_labour_contractor', {
+      p_name: newContractor.name, p_trade: newContractor.trade, p_rate: Number(newContractor.rate), p_phone: null, p_notes: null,
+    })
+    if (error) return toast.error(error.message)
+    setContractorId(data.id)
+    setNewContractor({ name: '', trade: 'General', rate: '' })
+    qc.invalidateQueries({ queryKey: ['labour_contractors_active'] })
+    qc.invalidateQueries({ queryKey: ['labour_contractors'] })
+  }
+
   async function submit(e) {
     e.preventDefault()
     setSaving(true)
-    const common = { expense_date: date, category_id: categoryId, amount: Number(amount), description: description || null }
-    const { error } = side === 'factory'
-      ? await supabase.from('expenses').insert({ ...common, project_id: target || null, created_by: profile?.id })
-      : await supabase.from('design_build_expenses').insert({ ...common, design_project_id: target || null, created_by: profile?.id })
+    let error
+    let message
+    if (isLabour) {
+      if (!contractorId) { setSaving(false); return toast.error('Choose the contractor or mason.') }
+      const payload = []
+      for (const r of rows) {
+        if (String(r.shifts).trim() === '' && !r.charge) continue
+        const c = chargeOf(r.charge)
+        if (!c) { setSaving(false); return toast.error('Choose where every shift row is charged.') }
+        if (!(Number(r.shifts) > 0)) { setSaving(false); return toast.error('Enter the shifts for every shift row.') }
+        payload.push({ kind: 'shift', contractor_id: contractorId, side: c.side, project_id: c.project_id, design_project_id: c.design_project_id, shifts: Number(r.shifts), rate, notes: description || null })
+      }
+      for (const r of payments) {
+        if (String(r.amount).trim() === '' && !r.charge) continue
+        const c = chargeOf(r.charge)
+        if (!c) { setSaving(false); return toast.error('Choose where every payment is charged.') }
+        if (!(Number(r.amount) > 0)) { setSaving(false); return toast.error('Enter the amount for every payment.') }
+        payload.push({ kind: r.kind, contractor_id: contractorId, side: c.side, project_id: c.project_id, design_project_id: c.design_project_id, amount: Number(r.amount), notes: r.remarks || null })
+      }
+      if (!payload.length) { setSaving(false); return toast.error('Enter shifts or a payment.') }
+      ;({ error } = await supabase.rpc('record_labour_entries', { p_entry_date: date, p_notes: description || null, p_rows: payload }))
+      message = `Labour logged for ${contractor.name}: ${money(labourTotal + paymentTotal)}.`
+    } else {
+      const common = { expense_date: date, category_id: categoryId, amount: Number(amount), description: description || null }
+      ;({ error } = side === 'factory'
+        ? await supabase.from('expenses').insert({ ...common, project_id: target || null, created_by: profile?.id })
+        : await supabase.from('design_build_expenses').insert({ ...common, design_project_id: target || null, created_by: profile?.id }))
+      message = side === 'factory' ? 'Factory expense logged.' : 'Design Build expense logged.'
+    }
     setSaving(false)
     if (error) return toast.error(error.message)
-    toast.success(side === 'factory' ? 'Factory expense logged.' : 'Design Build expense logged.')
+    toast.success(message)
     setCategoryId(''); setAmount(''); setDescription(''); setTarget('')
+    setRows([newLabourRow()])
+    setPayments([newPaymentRow()])
     onSaved()
   }
+
+  const chargeOptions = (
+    <>
+      <option value="db:">Design Build · company</option>
+      {allDesignProjects.map((p) => <option key={p.id} value={`db:${p.id}`}>Design Build · {p.name}</option>)}
+      <option value="f:">Factory · Factory wide</option>
+      {nonDesignFactoryProjects.map((p) => <option key={p.id} value={`f:${p.id}`}>Factory · {p.name}</option>)}
+    </>
+  )
 
   return (
     <Card title="Add Expense">
@@ -727,45 +834,148 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
               {categories.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-          <div>
-            <label className="field-label">Amount (₹) *</label>
-            <input className="field-input" type="number" min="0" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} />
-          </div>
-        </div>
-        <div>
-          <label className="field-label">Description</label>
-          <input className="field-input" value={description} onChange={(e) => setDescription(e.target.value)} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="field-label">Charge to *</label>
-            <select className="field-input" value={side} onChange={(e) => chooseSide(e.target.value)}>
-              <option value="design_build">Design Build</option>
-              <option value="factory">Factory</option>
-            </select>
-          </div>
-          {side === 'design_build' ? (
+          {!isLabour && (
             <div>
-              <label className="field-label">Design Build</label>
-              <select className="field-input" value={target} onChange={(e) => setTarget(e.target.value)}>
-                <option value="">Design Build company</option>
-                {allDesignProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
-          ) : (
-            <div>
-              <div className="flex items-center justify-between">
-                <label className="field-label mb-0">Factory</label>
-                <button type="button" className="btn-ghost text-xs px-2 text-brand-700" onClick={() => setShowNewProject(true)}>+ New</button>
-              </div>
-              <select className="field-input" value={target} onChange={(e) => setTarget(e.target.value)}>
-                <option value="">Factory wide</option>
-                {nonDesignFactoryProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              <label className="field-label">Amount (₹) *</label>
+              <input className="field-input" type="number" min="0" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} />
             </div>
           )}
         </div>
-        <button type="submit" disabled={saving} className="btn-primary w-full">{saving ? 'Saving…' : 'Add Expense'}</button>
+
+        {isLabour && (
+          <div className="space-y-3 rounded-lg border border-ink-200 p-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="field-label">Contractor / mason *</label>
+                <select className="field-input" required value={contractorId} onChange={(e) => setContractorId(e.target.value)}>
+                  <option value="">Select…</option>
+                  {(contractorsQ.data || []).map((c) => <option key={c.id} value={c.id}>{c.name} · {c.trade}</option>)}
+                </select>
+                {contractor && (
+                  <div className="mt-1 text-xs text-ink-500">{contractor.trade} · {money(rate)} per shift (change it in Labour contractors → Settings)</div>
+                )}
+              </div>
+              <div>
+                <label className="field-label">Or add a new contractor</label>
+                <div className="grid grid-cols-3 gap-1">
+                  <input className="field-input text-xs" placeholder="Name" value={newContractor.name} onChange={(e) => setNewContractor({ ...newContractor, name: e.target.value })} />
+                  <input className="field-input text-xs" list="labour-trade-options" placeholder="Trade" value={newContractor.trade} onChange={(e) => setNewContractor({ ...newContractor, trade: e.target.value })} />
+                  <input className="field-input text-xs" type="number" min="0" step="0.01" placeholder="Rate / shift" value={newContractor.rate} onChange={(e) => setNewContractor({ ...newContractor, rate: e.target.value })} />
+                </div>
+                <datalist id="labour-trade-options">
+                  {['Carpenter', 'Painter', 'Mason', 'Electrician', 'Plumber', 'Tile worker', 'Polisher', 'Welder', 'Helper', 'General'].map((t) => <option key={t} value={t} />)}
+                </datalist>
+                <button type="button" className="btn-ghost text-xs px-2 mt-1" onClick={addContractor}>Add contractor</button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="table-base">
+                <thead>
+                  <tr><th>Charged to</th><th className="num">Shifts</th><th className="num">Total (₹)</th><th /></tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.key}>
+                      <td>
+                        <select className="field-input" value={r.charge} onChange={(e) => updateRow(r.key, { charge: e.target.value })}>
+                          <option value="">Select project…</option>
+                          {chargeOptions}
+                        </select>
+                      </td>
+                      <td className="num"><input className="field-input w-24 text-right" type="number" min="0.01" step="0.01" value={r.shifts} onChange={(e) => updateRow(r.key, { shifts: e.target.value })} /></td>
+                      <td className="num tnum">{money(rowTotal(r))}</td>
+                      <td className="text-right">
+                        <button type="button" className="btn-ghost text-xs px-2" disabled={rows.length === 1} onClick={() => removeRow(r.key)}>Remove</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr><td className="font-medium">Total for the day</td><td /><td className="num tnum font-medium">{money(labourTotal)}</td><td /></tr>
+                </tfoot>
+              </table>
+            </div>
+            <button type="button" className="btn-secondary text-xs" onClick={() => setRows((rs) => [...rs, newLabourRow()])}>+ Add row</button>
+
+            <div className="border-t border-ink-200 pt-3">
+              <div className="mb-2 text-xs font-medium text-ink-700">Bonus, advance and other payments</div>
+              <div className="overflow-x-auto">
+                <table className="table-base">
+                  <thead>
+                    <tr><th>Charged to</th><th>Type</th><th className="num">Amount (₹)</th><th>Remarks</th><th /></tr>
+                  </thead>
+                  <tbody>
+                    {payments.map((r) => (
+                      <tr key={r.key}>
+                        <td>
+                          <select className="field-input" value={r.charge} onChange={(e) => updatePayment(r.key, { charge: e.target.value })}>
+                            <option value="">Select project…</option>
+                            {chargeOptions}
+                          </select>
+                        </td>
+                        <td>
+                          <select className="field-input" value={r.kind} onChange={(e) => updatePayment(r.key, { kind: e.target.value })}>
+                            <option value="bonus">Bonus</option>
+                            <option value="advance">Advance</option>
+                            <option value="other">Other payment</option>
+                          </select>
+                        </td>
+                        <td className="num"><input className="field-input w-28 text-right" type="number" min="0" step="0.01" value={r.amount} onChange={(e) => updatePayment(r.key, { amount: e.target.value })} /></td>
+                        <td><input className="field-input" placeholder="Reason or remarks" value={r.remarks} onChange={(e) => updatePayment(r.key, { remarks: e.target.value })} /></td>
+                        <td className="text-right">
+                          <button type="button" className="btn-ghost text-xs px-2" disabled={payments.length === 1} onClick={() => removePayment(r.key)}>Remove</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr><td colSpan={2} className="font-medium">Payments total</td><td className="num tnum font-medium">{money(paymentTotal)}</td><td colSpan={2} /></tr>
+                  </tfoot>
+                </table>
+              </div>
+              <button type="button" className="btn-secondary mt-2 text-xs" onClick={() => setPayments((ps) => [...ps, newPaymentRow()])}>+ Add payment</button>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <label className="field-label">Description{isLabour ? ' (applies to every row)' : ''}</label>
+          <input className="field-input" value={description} onChange={(e) => setDescription(e.target.value)} />
+        </div>
+
+        {!isLabour && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="field-label">Charge to *</label>
+              <select className="field-input" value={side} onChange={(e) => chooseSide(e.target.value)}>
+                <option value="design_build">Design Build</option>
+                <option value="factory">Factory</option>
+              </select>
+            </div>
+            {side === 'design_build' ? (
+              <div>
+                <label className="field-label">Design Build</label>
+                <select className="field-input" value={target} onChange={(e) => setTarget(e.target.value)}>
+                  <option value="">Design Build company</option>
+                  {allDesignProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="field-label mb-0">Factory</label>
+                  <button type="button" className="btn-ghost text-xs px-2 text-brand-700" onClick={() => setShowNewProject(true)}>+ New</button>
+                </div>
+                <select className="field-input" value={target} onChange={(e) => setTarget(e.target.value)}>
+                  <option value="">Factory wide</option>
+                  {nonDesignFactoryProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
+        <button type="submit" disabled={saving} className="btn-primary w-full">{saving ? 'Saving…' : isLabour ? 'Save labour' : 'Add Expense'}</button>
       </form>
     </Card>
   )
