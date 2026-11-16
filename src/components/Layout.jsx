@@ -22,19 +22,22 @@ const WORKSPACES = [
 ]
 
 const WORKSPACE_GROUPS = {
+  // Factory: daily work first, then projects and billing, reports, and setup last.
   factory: [
     {
-      label: 'Factory',
+      label: 'Daily work',
       items: [
         { to: '/', label: 'Dashboard', icon: 'dashboard', end: true },
         { to: '/daily-log', label: 'Daily Log', icon: 'log' },
-        { to: '/job-work', label: 'Job Work Catalog', icon: 'tool' },
-        { to: '/projects', label: 'Projects', icon: 'project' },
-        { to: '/clients', label: 'Clients', icon: 'client' },
-        { to: '/estimates', label: 'Estimates', icon: 'estimate' },
-        { to: '/billing', label: 'Billing', icon: 'bill', perm: 'billing' },
         { to: '/expenses', label: 'Expenses', icon: 'wallet' },
-        { to: '/recurring-expenses', label: 'Recurring Expenses', icon: 'recur', perm: 'expense_manage' },
+      ],
+    },
+    {
+      label: 'Projects & billing',
+      items: [
+        { to: '/projects', label: 'Projects', icon: 'project' },
+        { to: '/billing', label: 'Billing', icon: 'bill', perm: 'billing' },
+        { to: '/estimates', label: 'Estimates', icon: 'estimate' },
       ],
     },
     {
@@ -45,68 +48,69 @@ const WORKSPACE_GROUPS = {
         { to: '/statement', label: 'Income / Expense', icon: 'statement', perm: 'financial_reports' },
       ],
     },
+    {
+      label: 'Setup',
+      items: [
+        { to: '/clients', label: 'Clients', icon: 'client' },
+        { to: '/job-work', label: 'Job Work Catalog', icon: 'tool' },
+        { to: '/recurring-expenses', label: 'Recurring Expenses', icon: 'recur', perm: 'expense_manage' },
+      ],
+    },
   ],
-  // Same menu shape as Factory. Projects, Clients, Job Work, Estimates, Billing and the Daily Log are
-  // shared pages, so they appear here too; Expenses, Recurring Expenses and the ledger/statement are
-  // Design Build's own.
+  // Design Build: daily work, then stock and vendors, bills and accounts, projects, reports, setup.
   design_build: [
     {
-      label: 'Design Build',
+      label: 'Daily work',
       items: [
         { to: '/design-build', label: 'Dashboard', icon: 'dashboard', perm: 'design_build_manage', end: true },
         { to: '/daily-log', label: 'Daily Log', icon: 'log' },
-        { to: '/job-work', label: 'Job Work Catalog', icon: 'tool' },
-        { to: '/projects', label: 'Projects', icon: 'project' },
-        { to: '/clients', label: 'Clients', icon: 'client' },
-        { to: '/estimates', label: 'Estimates', icon: 'estimate' },
-        { to: '/billing', label: 'Billing', icon: 'bill', perm: 'billing' },
-        { to: '/design-build/expenses', label: 'Expenses', icon: 'wallet', perm: 'design_build_manage' },
-        { to: '/design-build/recurring-expenses', label: 'Recurring Expenses', icon: 'recur', perm: 'design_build_manage' },
-        { to: '/design-build/inventory', label: 'Company Inventory', icon: 'inventory', perm: 'inventory_operate' },
         { to: '/design-build/slip', label: 'Consumption / Transfer Slip', icon: 'transfer', perm: 'inventory_operate' },
-        { to: '/design-build/returns', label: 'Returns & voids', icon: 'transfer', perm: 'inventory_operate' },
+        { to: '/design-build/expenses', label: 'Expenses', icon: 'wallet', perm: 'design_build_manage' },
       ],
     },
-    // Each subheader is its own group, so the expanded rail shows it as a heading over its reports.
     {
-      label: 'Ledgers',
+      label: 'Stock & vendors',
       items: [
+        { to: '/design-build/inventory', label: 'Company Inventory', icon: 'inventory', perm: 'inventory_operate' },
+        { to: '/design-build/returns', label: 'Returns & voids', icon: 'transfer', perm: 'inventory_operate' },
+        { to: '/design-build/suppliers', label: 'Material Vendors', icon: 'users', perm: 'supplier_bills_manage' },
+      ],
+    },
+    {
+      label: 'Bills & accounts',
+      items: [
+        { to: '/accounts/bills', label: 'Bill Audit Queue', icon: 'bill', perm: 'supplier_bills_manage' },
+        { to: '/accounts/gst', label: 'GST Follow-up', icon: 'compliance', perm: 'gst_compliance' },
+        { to: '/accounts', label: 'Accounts Overview', icon: 'queue', perm: 'supplier_bills_manage', end: true },
+        { to: '/accounts/bank', label: 'Bank Reconciliation', icon: 'bank', perm: 'bank_reconciliation' },
+      ],
+    },
+    {
+      label: 'Projects',
+      items: [
+        { to: '/design-build/projects', label: 'Projects', icon: 'project', perm: 'design_build_manage' },
+        { to: '/projects', label: 'Factory projects', icon: 'project' },
+        { to: '/billing', label: 'Billing', icon: 'bill', perm: 'billing' },
+        { to: '/estimates', label: 'Estimates', icon: 'estimate' },
+      ],
+    },
+    {
+      label: 'Reports',
+      items: [
+        { to: '/design-build/reports/projects', label: 'Project summary', icon: 'layers', perm: 'design_build_manage' },
+        { to: '/design-build/reports/consolidated', label: 'Consolidated report', icon: 'report', perm: 'design_build_manage' },
+        { to: '/design-build/reports/expenses', label: 'Expenses by category', icon: 'wallet', perm: 'design_build_manage' },
+        { to: '/design-build/reports/materials', label: 'Materials consumed', icon: 'inventory', perm: 'design_build_manage' },
+        { to: '/design-build/reports/labour', label: 'Labour', icon: 'tool', perm: 'design_build_manage' },
         { to: '/design-build/ledger', label: 'Ledger & Statement', icon: 'ledger', perm: 'supplier_bills_manage' },
       ],
     },
     {
-      label: 'Project reports',
+      label: 'Setup',
       items: [
-        { to: '/design-build/reports/projects', label: 'Project summary', icon: 'layers', perm: 'design_build_manage' },
-        { to: '/design-build/reports/consolidated', label: 'Consolidated report', icon: 'report', perm: 'design_build_manage' },
-      ],
-    },
-    {
-      label: 'Suppliers & contractors',
-      items: [
-        { to: '/design-build/suppliers', label: 'Statements', icon: 'users', perm: 'supplier_bills_manage' },
-      ],
-    },
-    {
-      label: 'Expense reports',
-      items: [
-        { to: '/design-build/reports/expenses', label: 'By category', icon: 'wallet', perm: 'design_build_manage' },
-      ],
-    },
-    {
-      label: 'Material & labour reports',
-      items: [
-        { to: '/design-build/reports/materials', label: 'Materials consumed', icon: 'inventory', perm: 'design_build_manage' },
-        { to: '/design-build/reports/labour', label: 'Labour', icon: 'tool', perm: 'design_build_manage' },
-      ],
-    },
-    {
-      label: 'Accounts',
-      items: [
-        { to: '/accounts', label: 'Accounts Overview', icon: 'queue', perm: 'supplier_bills_manage', end: true },
-        { to: '/accounts/bills', label: 'Bill Audit Queue', icon: 'bill', perm: 'supplier_bills_manage' },
-        { to: '/accounts/bank', label: 'Bank Reconciliation', icon: 'bank', perm: 'bank_reconciliation' },
-        { to: '/accounts/gst', label: 'GST Follow-up', icon: 'compliance', perm: 'gst_compliance' },
+        { to: '/clients', label: 'Clients', icon: 'client' },
+        { to: '/job-work', label: 'Job Work Catalog', icon: 'tool' },
+        { to: '/design-build/recurring-expenses', label: 'Recurring Expenses', icon: 'recur', perm: 'design_build_manage' },
       ],
     },
   ],
