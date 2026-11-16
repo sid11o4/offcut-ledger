@@ -47,7 +47,7 @@ export async function loadProjectRaw(projectId) {
   const consR = locationId
     ? await supabase.from('inventory_transactions')
       .select('id, txn_date, created_at, quantity, total_cost, unit_cost, item_id, location_id, inventory_items(name, units(code))')
-      .eq('location_id', locationId).eq('txn_type', 'consumption')
+      .eq('location_id', locationId).eq('txn_type', 'consumption').is('reversed_by', null)
     : { data: [], error: null }
   if (consR.error) throw consR.error
   const consIds = (consR.data || []).map((c) => c.id)

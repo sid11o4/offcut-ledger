@@ -93,6 +93,29 @@ export default function ProjectDashboard() {
     },
   })
 
+  // A mistaken entry is reversed, not deleted. Bill purchases and factory consumption are corrected
+  // where they were made, so they cannot be reversed here.
+  function canReverse(t) {
+    if (t.reversed_by) return false
+    if (t.reference_type === 'supplier_bill' || t.reference_type === 'internal_order') return false
+    if (t.reference_type === 'adjustment' && t.reference_id) return false
+    return true
+  }
+
+  async function reverseEntry(t) {
+    const reason = window.prompt(`Reverse this entry: ${t.inventory_items?.name} ${t.quantity > 0 ? '+' : ''}${qty(t.quantity)}. Why? (It stays in the record, marked reversed.)`)
+    if (!reason) return
+    const { error } = await supabase.rpc('reverse_inventory_transaction', { p_txn_id: t.id, p_reason: reason })
+    if (error) return toast.error(error.message)
+    toast.success('Entry reversed.')
+    invalidateInventory(qc)
+    qc.invalidateQueries({ queryKey: ['design_project_txns', id] })
+    qc.invalidateQueries({ queryKey: ['design_project_stock', id] })
+    qc.invalidateQueries({ queryKey: ['design_project', id] })
+    qc.invalidateQueries({ queryKey: ['design_project_financials', id] })
+    qc.invalidateQueries({ queryKey: ['project_ceo_raw', id] })
+  }
+
   if (projectQ.isLoading) return <LoadingBlock />
   const p = projectQ.data
   const f = financialsQ.data || {}
@@ -155,12 +178,20 @@ export default function ProjectDashboard() {
               {txnQ.data.map((t) => (
                 <li key={t.id} className="py-2 text-sm flex items-center justify-between gap-2">
                   <div>
-                    <div className="text-ink-900">{t.inventory_items?.name}</div>
-                    <div className="text-xs text-ink-500">{t.txn_type.replace('_', ' ')} · {displayDate(t.txn_date)}</div>
+                    <div className={`text-ink-900 ${t.reversed_by ? 'line-through text-ink-500' : ''}`}>{t.inventory_items?.name}</div>
+                    <div className="text-xs text-ink-500">
+                      {t.reference_type === 'adjustment' && t.reference_id ? 'reversal' : t.txn_type.replace('_', ' ')} · {displayDate(t.txn_date)}
+                      {t.reversed_by && ' · reversed'}
+                    </div>
                   </div>
-                  <span className={`num font-medium ${t.quantity < 0 ? 'text-bad' : 'text-ok'}`}>
-                    {t.quantity > 0 ? '+' : ''}{qty(t.quantity)}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`num font-medium ${t.quantity < 0 ? 'text-bad' : 'text-ok'}`}>
+                      {t.quantity > 0 ? '+' : ''}{qty(t.quantity)}
+                    </span>
+                    {canReverse(t) && (
+                      <button className="btn-ghost text-xs px-2" onClick={() => reverseEntry(t)}>Reverse</button>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
