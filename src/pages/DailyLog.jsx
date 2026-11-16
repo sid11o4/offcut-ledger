@@ -35,7 +35,7 @@ export default function DailyLog() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('job_work_entries')
-        .select('*, projects(name,code), job_work_services(name), job_work_entry_components(*, job_work_services(name), machines(name))')
+        .select('*, projects(name,code, rate_categories(code)), job_work_services(name), job_work_entry_components(*, job_work_services(name), machines(name))')
         .eq('entry_date', date)
         .order('created_at')
       if (error) throw error
@@ -659,7 +659,11 @@ function EntriesList({ entries, canCancel, toast, onChanged }) {
               <td>{qty(e.base_quantity)}</td>
               <td>{money(e.total_amount)}</td>
               <td>
-                {e.status === 'cancelled' ? <Badge tone="bad">Cancelled</Badge> : e.billed ? <Badge tone="ok">Billed</Badge> : <Badge tone="warn">Unbilled</Badge>}
+                {/* A Design Build Order is paid once billed to its Design Build project, and unpaid until then.
+                    Other job work shows no payment status. */}
+                {e.status === 'cancelled' ? <Badge tone="bad">Cancelled</Badge>
+                  : e.projects?.rate_categories?.code === 'INTERNAL' ? (e.billed ? <Badge tone="ok">Paid</Badge> : <Badge tone="warn">Unpaid</Badge>)
+                  : <span className="text-ink-400">—</span>}
               </td>
               {canCancel && (
                 <td>
