@@ -66,6 +66,9 @@ export default function ProjectCeoDashboard() {
       </Card>
 
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 mb-5">
+        <Kpi label="Contract value" value={money(data.kpis.contractValue)} />
+        <Kpi label="Received from client" value={money(data.kpis.received)} />
+        <Kpi label="Balance due" value={money(data.kpis.balanceDue)} tone={data.kpis.balanceDue > 0 ? undefined : undefined} />
         <Kpi label="Budget" value={data.kpis.budget ? money(data.kpis.budget) : '—'} />
         <Kpi label="Spent" value={money(data.kpis.spent)} />
         <Kpi label="Used" value={data.kpis.used == null ? '—' : `${Math.round(data.kpis.used * 100)}%`} tone={data.kpis.used > 1 ? 'bad' : undefined} />
@@ -400,6 +403,7 @@ function downloadPdf(data, raw, ledger, settings) {
     settings,
     project: data.project,
     data: {
+      contract: { contract_total: data.kpis.contractValue, received_total: data.kpis.received, balance_due: data.kpis.balanceDue },
       budget,
       spent: data.total,
       headroom: budget ? budget - data.total : 0,

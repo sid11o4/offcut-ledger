@@ -16,7 +16,7 @@ export async function loadProjectRaw(projectId) {
   if (projectR.error) throw projectR.error
   const project = projectR.data
 
-  const [locR, billsR, expR, jobR, finR] = await Promise.all([
+  const [locR, billsR, expR, jobR, finR, contractR] = await Promise.all([
     supabase.from('inventory_locations').select('id').eq('design_project_id', projectId).maybeSingle(),
     supabase.from('supplier_bills')
       .select('id, internal_bill_number, bill_date, supplier_text, bill_source, cost_heads, grand_total, suppliers(name)')
@@ -30,8 +30,9 @@ export async function loadProjectRaw(projectId) {
         .eq('project_id', project.factory_project_id).eq('billed', true).eq('status', 'active')
       : Promise.resolve({ data: [], error: null }),
     supabase.rpc('report_design_project_financials', { p_design_project_id: projectId }),
+    supabase.rpc('project_contract_summary', { p_design_project_id: projectId }),
   ])
-  for (const r of [locR, billsR, expR, jobR, finR]) if (r.error) throw r.error
+  for (const r of [locR, billsR, expR, jobR, finR, contractR]) if (r.error) throw r.error
 
   const locationId = locR.data?.id || null
   const bills = billsR.data || []
@@ -70,6 +71,7 @@ export async function loadProjectRaw(projectId) {
     project,
     locationId,
     financials: finR.data?.[0] || {},
+    contract: contractR.data?.[0] || {},
     bills,
     billItems: itemsR.data || [],
     expenses: expR.data || [],
@@ -196,11 +198,16 @@ export function computeProjectCeo(raw, { start = '', end = '' } = {}) {
   const trend = [...months.values()].sort((a, b) => a.month.localeCompare(b.month))
 
   const budget = num(raw.project.budget)
+  const contractValue = num(raw.contract.contract_total)
+  const received = num(raw.contract.received_total)
   const inventoryValue = num(raw.financials.current_inventory_value)
 
   return {
     project: raw.project,
     kpis: {
+      contractValue,
+      received,
+      balanceDue: contractValue - received,
       budget,
       spent: total,
       used: budget ? total / budget : null,

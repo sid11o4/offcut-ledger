@@ -5,7 +5,7 @@ import { newReportDoc, sectionLabel, summaryCards, brandTable, brandFooter, save
 // One Design Build project report as a single branded PDF: dashboard, overall details and cash
 // position, expenses by category, materials consumed, labour, then the full ledger statement.
 export function buildDesignProjectReportDoc({ project, data }) {
-  const { financials: f = {}, budget, spent, headroom, categories, materials, labour, ledger, ledgerTotal } = data
+  const { financials: f = {}, contract = {}, budget, spent, headroom, categories, materials, labour, ledger, ledgerTotal } = data
   const meta = [
     ['Code', project.code || '—'],
     ['Client', project.clients?.name || '—'],
@@ -18,7 +18,9 @@ export function buildDesignProjectReportDoc({ project, data }) {
   let y = top
 
   y = summaryCards(doc, y, [
-    ['Budget', budget ? money(budget) : '—'],
+    ['Contract value', money(contract.contract_total)],
+    ['Received', money(contract.received_total)],
+    ['Balance due', money(contract.balance_due)],
     ['Supplier bills', money(f.supplier_bills_total)],
     ['Internal Order', money(f.internal_order_total)],
     ['Direct expenses', money(f.direct_expenses_total)],
@@ -32,7 +34,9 @@ export function buildDesignProjectReportDoc({ project, data }) {
       ['Budget', budget ? money(budget) : 'No budget set'],
       ['Budget headroom', budget ? `${money(headroom)} (${headroom >= 0 ? 'positive, under budget' : 'negative, over budget'})` : '—'],
       ['Paid out in the ledger', money(ledgerTotal)],
-      ['Client receipts', 'Not recorded for Design Build projects'],
+      ['Contract value', money(contract.contract_total)],
+      ['Received from client', money(contract.received_total)],
+      ['Balance due from client', money(contract.balance_due)],
     ],
     columnStyles: { 0: { cellWidth: 70 }, 1: { halign: 'right' } },
   })
