@@ -30,6 +30,8 @@ import CompanyInventory from './pages/DesignBuild/CompanyInventory'
 import AccountsLedger from './pages/DesignBuild/AccountsLedger'
 import ManualSlip from './pages/DesignBuild/ManualSlip'
 import DesignExpensesList from './pages/DesignBuild/DesignExpensesList'
+import LabourContractors from './pages/Labour/LabourContractors'
+import LabourContractorDashboard from './pages/Labour/LabourContractorDashboard'
 import DesignRecurringExpenses from './pages/DesignBuild/DesignRecurringExpenses'
 import DesignProjectReport from './pages/DesignBuild/ProjectCeoDashboard'
 import ProjectCollections from './pages/DesignBuild/ProjectCollections'
@@ -62,6 +64,8 @@ export default function App() {
       >
         <Route index element={<Dashboard />} />
         <Route path="daily-log" element={<DailyLog />} />
+        <Route path="labour" element={<LabourContractors />} />
+        <Route path="labour/:id" element={<LabourContractorDashboard />} />
         <Route path="projects" element={<ProjectsList />} />
         <Route path="projects/:id" element={<ProjectDetail />} />
         <Route path="clients" element={<ClientsList />} />

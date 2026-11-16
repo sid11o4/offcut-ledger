@@ -44,6 +44,7 @@ const WORKSPACE_GROUPS = {
       label: 'Reports',
       items: [
         { to: '/reports', label: 'Reports', icon: 'report' },
+        { to: '/labour', label: 'Labour contractors', icon: 'tool' },
         { to: '/ledger', label: 'Ledger', icon: 'ledger', perm: 'financial_reports' },
         { to: '/statement', label: 'Income / Expense', icon: 'statement', perm: 'financial_reports' },
       ],
@@ -102,6 +103,7 @@ const WORKSPACE_GROUPS = {
         { to: '/design-build/reports/expenses', label: 'Expenses by category', icon: 'wallet', perm: 'design_build_manage' },
         { to: '/design-build/reports/materials', label: 'Materials consumed', icon: 'inventory', perm: 'design_build_manage' },
         { to: '/design-build/reports/labour', label: 'Labour', icon: 'tool', perm: 'design_build_manage' },
+        { to: '/labour', label: 'Labour contractors', icon: 'tool', perm: 'design_build_manage' },
         { to: '/design-build/ledger', label: 'Ledger & Statement', icon: 'ledger', perm: 'supplier_bills_manage' },
       ],
     },

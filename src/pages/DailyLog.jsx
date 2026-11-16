@@ -675,16 +675,32 @@ function EntriesList({ entries, canCancel, toast, onChanged }) {
 }
 
 function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved }) {
+  const qc = useQueryClient()
   const [categoryId, setCategoryId] = useState('')
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
   // Two choices: Design Build or Factory. The second choice is the company-wide option or one project.
   const [side, setSide] = useState('factory')
   const [target, setTarget] = useState('')
+  // Labour is recorded as contractor, shifts and amount per shift; the total is computed.
+  const [contractorId, setContractorId] = useState('')
+  const [shifts, setShifts] = useState('')
+  const [rate, setRate] = useState('')
+  const [newContractor, setNewContractor] = useState('')
   const [saving, setSaving] = useState(false)
   const [showNewProject, setShowNewProject] = useState(false)
   const designProjectsQ = useDesignProjects()
   const allDesignProjects = designProjectsQ.data || []
+  const contractorsQ = useQuery({
+    queryKey: ['labour_contractors_active'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('labour_contractors').select('id, name, role').eq('active', true).order('name')
+      if (error) throw error
+      return data || []
+    },
+  })
+  const isLabour = categories.find((c) => c.id === categoryId)?.name === 'Labour'
+  const labourTotal = Math.round(Number(shifts || 0) * Number(rate || 0) * 100) / 100
   // Factory projects that are not Design Build projects: Design Build projects are listed on their own side.
   const designLinkedFactoryIds = new Set(allDesignProjects.map((d) => d.factory_project_id).filter(Boolean))
   const nonDesignFactoryProjects = projects.filter((p) => !designLinkedFactoryIds.has(p.id))
@@ -694,18 +710,40 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
     setTarget('')
   }
 
-  // Design Build expenses go to the company or one Design Build project; Factory expenses to factory-wide or one factory project.
+  async function addContractor() {
+    if (!newContractor.trim()) return
+    const { data, error } = await supabase.rpc('create_labour_contractor', { p_name: newContractor, p_role: 'Contractor', p_phone: null, p_notes: null })
+    if (error) return toast.error(error.message)
+    setContractorId(data.id)
+    setNewContractor('')
+    qc.invalidateQueries({ queryKey: ['labour_contractors_active'] })
+    qc.invalidateQueries({ queryKey: ['labour_contractors'] })
+  }
+
+  // Labour goes through record_labour_entry, which writes the expense and the shifts together.
+  // Other expenses are written directly to the Factory or Design Build expenses.
   async function submit(e) {
     e.preventDefault()
     setSaving(true)
-    const common = { expense_date: date, category_id: categoryId, amount: Number(amount), description: description || null }
-    const { error } = side === 'factory'
-      ? await supabase.from('expenses').insert({ ...common, project_id: target || null, created_by: profile?.id })
-      : await supabase.from('design_build_expenses').insert({ ...common, design_project_id: target || null, created_by: profile?.id })
+    let error
+    if (isLabour) {
+      ;({ error } = await supabase.rpc('record_labour_entry', {
+        p_entry_date: date, p_contractor_id: contractorId, p_side: side,
+        p_project_id: side === 'factory' ? (target || null) : null,
+        p_design_project_id: side === 'design_build' ? (target || null) : null,
+        p_shifts: Number(shifts), p_rate: Number(rate), p_notes: description || null,
+      }))
+    } else {
+      const common = { expense_date: date, category_id: categoryId, amount: Number(amount), description: description || null }
+      ;({ error } = side === 'factory'
+        ? await supabase.from('expenses').insert({ ...common, project_id: target || null, created_by: profile?.id })
+        : await supabase.from('design_build_expenses').insert({ ...common, design_project_id: target || null, created_by: profile?.id }))
+    }
     setSaving(false)
     if (error) return toast.error(error.message)
-    toast.success(side === 'factory' ? 'Factory expense logged.' : 'Design Build expense logged.')
+    toast.success(isLabour ? `Labour logged: ${labourTotal ? money(labourTotal) : ''}` : side === 'factory' ? 'Factory expense logged.' : 'Design Build expense logged.')
     setCategoryId(''); setAmount(''); setDescription(''); setTarget('')
+    setContractorId(''); setShifts(''); setRate('')
     onSaved()
   }
 
@@ -727,11 +765,43 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
               {categories.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-          <div>
-            <label className="field-label">Amount (₹) *</label>
-            <input className="field-input" type="number" min="0" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} />
-          </div>
+          {isLabour ? (
+            <div>
+              <label className="field-label">Total (₹)</label>
+              <div className="field-input tnum bg-ink-50">{money(labourTotal)}</div>
+            </div>
+          ) : (
+            <div>
+              <label className="field-label">Amount (₹) *</label>
+              <input className="field-input" type="number" min="0" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </div>
+          )}
         </div>
+
+        {isLabour && (
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="field-label">Contractor / mason *</label>
+              <select className="field-input" required value={contractorId} onChange={(e) => setContractorId(e.target.value)}>
+                <option value="">Select…</option>
+                {(contractorsQ.data || []).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.role})</option>)}
+              </select>
+              <div className="mt-1 flex gap-1">
+                <input className="field-input text-xs" placeholder="Or add new" value={newContractor} onChange={(e) => setNewContractor(e.target.value)} />
+                <button type="button" className="btn-ghost text-xs px-2" onClick={addContractor}>Add</button>
+              </div>
+            </div>
+            <div>
+              <label className="field-label">No. of shifts *</label>
+              <input className="field-input" type="number" min="0.01" step="0.01" required value={shifts} onChange={(e) => setShifts(e.target.value)} />
+            </div>
+            <div>
+              <label className="field-label">Amount per shift (₹) *</label>
+              <input className="field-input" type="number" min="0" step="0.01" required value={rate} onChange={(e) => setRate(e.target.value)} />
+            </div>
+          </div>
+        )}
+
         <div>
           <label className="field-label">Description</label>
           <input className="field-input" value={description} onChange={(e) => setDescription(e.target.value)} />
