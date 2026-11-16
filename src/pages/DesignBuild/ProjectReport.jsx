@@ -13,7 +13,7 @@ const FAR_FUTURE = '2100-01-01'
 
 // Everything the project report needs, gathered once so the page and the PDF show the same numbers.
 async function loadProjectReport(id) {
-  const [projectR, financialsR, ledgerR, expensesR, locationR, billsR] = await Promise.all([
+  const [projectR, financialsR, ledgerR, expensesR, locationR, billsR, contractR] = await Promise.all([
     supabase.from('design_projects').select('*, clients(name)').eq('id', id).single(),
     supabase.rpc('report_design_project_financials', { p_design_project_id: id }),
     supabase.rpc('design_build_ledger', { p_start: FAR_PAST, p_end: FAR_FUTURE }),
@@ -22,8 +22,9 @@ async function loadProjectReport(id) {
     supabase.from('inventory_locations').select('id').eq('design_project_id', id).maybeSingle(),
     supabase.from('supplier_bills').select('id, bill_date, supplier_text, remarks, grand_total, expense_nature, suppliers(name)')
       .eq('design_project_id', id).eq('status', 'approved'),
+    supabase.rpc('project_contract_summary', { p_design_project_id: id }),
   ])
-  for (const r of [projectR, financialsR, ledgerR, expensesR, locationR, billsR]) {
+  for (const r of [projectR, financialsR, ledgerR, expensesR, locationR, billsR, contractR]) {
     if (r.error) throw r.error
   }
 
@@ -84,6 +85,7 @@ async function loadProjectReport(id) {
   return {
     project, budget, spent, headroom, categories, materials, labour, ledger, ledgerTotal,
     financials: f,
+    contract: contractR.data?.[0] || {},
     mixedBillCount: bills.filter((b) => b.expense_nature === 'both').length,
   }
 }
@@ -120,6 +122,9 @@ export default function DesignProjectReport() {
 
       <Card title="Dashboard" className="mb-5">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <StatCard label="Contract value" value={money(r.contract?.contract_total)} money />
+          <StatCard label="Received from client" value={money(r.contract?.received_total)} money />
+          <StatCard label="Balance due" value={money(r.contract?.balance_due)} money />
           <StatCard label="Budget" value={r.budget ? money(r.budget) : '—'} money />
           <StatCard label="Supplier bills" value={money(f.supplier_bills_total)} money />
           <StatCard label="Internal Order" value={money(f.internal_order_total)} money />
