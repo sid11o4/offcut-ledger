@@ -1,3 +1,4 @@
+import { matchBankPayments, matchSummary } from '../../lib/bankMatch'
 import { useState } from 'react'
 import Papa from 'papaparse'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -54,10 +55,9 @@ export default function BankReconciliation() {
           const { error: insErr } = await supabase.from('bank_transactions').insert(rows)
           if (insErr && insErr.code !== '23505') throw insErr // 23505 = duplicate dedupe_key, expected on re-import
 
-          // Payments that match a statement line at 95% or better are confirmed straight away.
-          const { data: matched, error: matchErr } = await supabase.rpc('auto_match_bank_transactions')
-          if (matchErr) throw matchErr
-          toast.success(`Imported ${rows.length} rows (duplicates skipped). ${matched || 0} RTGS/NEFT payment${matched === 1 ? '' : 's'} matched.`)
+          // Matched by UTR, then payee name (AI), then amount at 95% when no name is found.
+          const res = await matchBankPayments()
+          toast.success(`Imported ${rows.length} rows (duplicates skipped). ${matchSummary(res)}`)
           qc.invalidateQueries({ queryKey: ['bank_unmatched'] })
           qc.invalidateQueries({ queryKey: ['rtgs_payments'] })
         } catch (err) {
@@ -73,7 +73,7 @@ export default function BankReconciliation() {
     <div>
       <PageHeader
         title="Bank Reconciliation"
-        subtitle="Import the SBI statement. RTGS/NEFT payments that match a debit at 95% or better are confirmed automatically; anything else can be matched here."
+        subtitle="Import the SBI statement. RTGS/NEFT payments are matched automatically by payee name (AI), and by amount at 95% only when no name is found; anything else can be matched here."
         actions={
           <label className="btn-primary cursor-pointer">
             {importing ? 'Importing…' : '+ Import statement (CSV)'}

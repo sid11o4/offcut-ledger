@@ -1,3 +1,4 @@
+import { matchBankPayments, matchSummary } from '../../lib/bankMatch'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -44,10 +45,10 @@ export default function RtgsPayments() {
 
   async function matchNow() {
     setMatching(true)
-    const { data, error } = await supabase.rpc('auto_match_bank_transactions')
+    let res
+    try { res = await matchBankPayments() } catch (e) { setMatching(false); return toast.error(e.message) }
     setMatching(false)
-    if (error) return toast.error(error.message)
-    toast.success(data ? `${data} payment${data === 1 ? '' : 's'} matched with the bank statement.` : 'No new payments matched the uploaded statements.')
+    toast.success(matchSummary(res))
     qc.invalidateQueries({ queryKey: ['rtgs_payments'] })
     qc.invalidateQueries({ queryKey: ['bank_unmatched'] })
   }
