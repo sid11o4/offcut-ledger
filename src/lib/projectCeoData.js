@@ -108,7 +108,7 @@ export function computeProjectCeo(raw, { start = '', end = '' } = {}) {
     materialsCost += cost
     const name = c.inventory_items?.name || 'Unknown material'
     const unit = c.inventory_items?.units?.code || ''
-    const row = matMap.get(name) || { name, unit, quantity: 0, cost: 0, vendors: new Map() }
+    const row = matMap.get(name) || { name, unit, itemId: c.item_id, quantity: 0, cost: 0, vendors: new Map() }
     row.quantity += qtyAbs
     row.cost += cost
     matMap.set(name, row)

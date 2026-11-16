@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabaseClient'
 import BankStatement from '../../components/BankStatement'
 import { useAppSettings } from '../../lib/queries'
 import { downloadDesignProjectReport } from '../../lib/designProjectReportPdf'
+import MaterialSources from './MaterialSources'
 import { loadProjectRaw, computeProjectCeo } from '../../lib/projectCeoData'
 import { displayDate } from '../../lib/dates'
 import { PieChart, Pie as PieSlices, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts'
@@ -85,7 +86,7 @@ export default function ProjectCeoDashboard() {
       </div>
 
       {tab === 'overview' && <Overview data={data} onOpen={setTab} />}
-      {tab === 'materials' && <Materials data={data} />}
+      {tab === 'materials' && <Materials data={data} projectId={id} />}
       {tab === 'labour' && <Labour data={data} />}
       {tab === 'factory' && <Factory data={data} />}
       {tab === 'misc' && <MiscOther data={data} />}
@@ -188,7 +189,7 @@ function Bars({ rows, onClick }) {
   )
 }
 
-function Materials({ data }) {
+function Materials({ data, projectId }) {
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(null)
   const rows = data.materials.filter((m) => !search || m.name.toLowerCase().includes(search.toLowerCase()))
@@ -216,13 +217,15 @@ function Materials({ data }) {
                   {open === m.name && (
                     <tr key={`${m.name}-v`}>
                       <td colSpan={4} className="bg-ink-50">
-                        <table className="table-base">
+                        <div className="text-xs font-medium text-ink-600 mb-1">Consumed here, by vendor</div>
+                        <table className="table-base mb-4">
                           <tbody>
                             {[...m.vendors.entries()].sort((a, b) => b[1] - a[1]).map(([v, amt]) => (
                               <tr key={v}><td>{v}</td><td className="num">{money(amt)}</td></tr>
                             ))}
                           </tbody>
                         </table>
+                        {m.itemId && <MaterialSources itemId={m.itemId} projectId={projectId} />}
                       </td>
                     </tr>
                   )}
