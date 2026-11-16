@@ -7,6 +7,7 @@ import { useConfirm } from '../components/ConfirmDialog'
 import { useAuth } from '../context/AuthContext'
 import { Card, StatCard, Badge, EmptyState, LoadingBlock, PageHeader } from '../components/ui'
 import ProjectFormModal from '../components/ProjectFormModal'
+import TradeSelect from '../components/TradeSelect'
 import { useProjects, useJobWorkServices, useJobWorkComponents, useRates, useExpenseCategories, useUnits, useInventoryItems, useDesignProjects } from '../lib/queries'
 import { previewEntry, availableUnitsForService } from '../lib/calc'
 import { today, displayDate } from '../lib/dates'
@@ -764,6 +765,7 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
     setNewContractor({ name: '', trade: 'General', rate: '' })
     qc.invalidateQueries({ queryKey: ['labour_contractors_active'] })
     qc.invalidateQueries({ queryKey: ['labour_contractors'] })
+    qc.invalidateQueries({ queryKey: ['labour_trades'] })
   }
 
   async function submit(e) {
@@ -859,12 +861,9 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved 
                 <label className="field-label">Or add a new contractor</label>
                 <div className="grid grid-cols-3 gap-1">
                   <input className="field-input text-xs" placeholder="Name" value={newContractor.name} onChange={(e) => setNewContractor({ ...newContractor, name: e.target.value })} />
-                  <input className="field-input text-xs" list="labour-trade-options" placeholder="Trade" value={newContractor.trade} onChange={(e) => setNewContractor({ ...newContractor, trade: e.target.value })} />
+                  <TradeSelect value={newContractor.trade} onChange={(trade) => setNewContractor({ ...newContractor, trade })} />
                   <input className="field-input text-xs" type="number" min="0" step="0.01" placeholder="Rate / shift" value={newContractor.rate} onChange={(e) => setNewContractor({ ...newContractor, rate: e.target.value })} />
                 </div>
-                <datalist id="labour-trade-options">
-                  {['Carpenter', 'Painter', 'Mason', 'Electrician', 'Plumber', 'Tile worker', 'Polisher', 'Welder', 'Helper', 'General'].map((t) => <option key={t} value={t} />)}
-                </datalist>
                 <button type="button" className="btn-ghost text-xs px-2 mt-1" onClick={addContractor}>Add contractor</button>
               </div>
             </div>
