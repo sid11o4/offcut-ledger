@@ -29,7 +29,7 @@ export default function GstFollowUp() {
 
   return (
     <div>
-      <PageHeader title="GST Invoice Follow-up" subtitle="Triggered when a bill has a GST line and an RTGS/NEFT allocation, until the official invoice is received and verified." />
+      <PageHeader title="GST Invoice Follow-up" subtitle="Raised when an RTGS/NEFT payment on a bill with a GST line is confirmed against the bank statement, until the official invoice is received and verified." />
 
       <Card title="Open follow-ups" className="mb-5">
         {followupsQ.isLoading ? <LoadingBlock /> : !followupsQ.data?.length ? (

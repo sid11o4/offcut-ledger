@@ -1,3 +1,4 @@
+import { matchBankPayments, matchSummary } from '../../lib/bankMatch'
 import { useState } from 'react'
 import Papa from 'papaparse'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -54,8 +55,11 @@ export default function BankReconciliation() {
           const { error: insErr } = await supabase.from('bank_transactions').insert(rows)
           if (insErr && insErr.code !== '23505') throw insErr // 23505 = duplicate dedupe_key, expected on re-import
 
-          toast.success(`Imported ${rows.length} rows (duplicates skipped automatically).`)
+          // Matched by UTR, then payee name (AI), then amount at 95% when no name is found.
+          const res = await matchBankPayments()
+          toast.success(`Imported ${rows.length} rows (duplicates skipped). ${matchSummary(res)}`)
           qc.invalidateQueries({ queryKey: ['bank_unmatched'] })
+          qc.invalidateQueries({ queryKey: ['rtgs_payments'] })
         } catch (err) {
           toast.error(err.message || String(err))
         } finally {
@@ -69,7 +73,7 @@ export default function BankReconciliation() {
     <div>
       <PageHeader
         title="Bank Reconciliation"
-        subtitle="Import the SBI statement; confirm each proposed match before it counts as paid."
+        subtitle="Import the SBI statement. RTGS/NEFT payments are matched automatically by payee name (AI), and by amount at 95% only when no name is found; anything else can be matched here."
         actions={
           <label className="btn-primary cursor-pointer">
             {importing ? 'Importing…' : '+ Import statement (CSV)'}
@@ -109,6 +113,7 @@ function BankRow({ txn }) {
     if (error) return toast.error(error.message)
     toast.success('Matched.')
     qc.invalidateQueries({ queryKey: ['bank_unmatched'] })
+    qc.invalidateQueries({ queryKey: ['rtgs_payments'] })
   }
 
   return (
@@ -123,7 +128,7 @@ function BankRow({ txn }) {
       {open && (
         <div className="mt-2 pt-2 border-t border-ink-100">
           {candidatesQ.isLoading ? <LoadingBlock /> : !candidatesQ.data?.length ? (
-            <div className="text-xs text-ink-500">No candidate within 1% of this amount.</div>
+            <div className="text-xs text-ink-500">No pending RTGS/NEFT payment within 95% of this amount.</div>
           ) : (
             <div className="space-y-1.5">
               {candidatesQ.data.map((c) => (
