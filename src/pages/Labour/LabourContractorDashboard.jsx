@@ -81,11 +81,15 @@ export default function LabourContractorDashboard() {
         </div>
       </Card>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 mb-5">
+      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-500">Money</div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <StatCard label="Total paid" value={money(summary.total)} money />
         <StatCard label="Shift pay" value={money(summary.shiftAmount)} money />
         <StatCard label="Bonus and other" value={money(summary.paymentsTotal)} money />
         <StatCard label="Advance still owed" value={money(advanceOutstanding)} tone={advanceOutstanding > 0 ? 'bad' : 'neutral'} money />
+      </div>
+      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-500">Work</div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <StatCard label="Shifts" value={qty(summary.shifts)} />
         <StatCard label="Average per shift" value={money(summary.avgPerShift)} money />
         <StatCard label="Days worked" value={summary.days} />

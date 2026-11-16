@@ -679,7 +679,7 @@ function EntriesList({ entries, canCancel, toast, onChanged }) {
 let labourRowSeq = 0
 function newLabourRow() {
   labourRowSeq += 1
-  return { key: `row-${labourRowSeq}`, charge: '', shifts: '', recovery: '' }
+  return { key: `row-${labourRowSeq}`, charge: '', shifts: '' }
 }
 
 // A bonus, advance or other payment to the contractor: an amount with remarks, not shifts.
@@ -710,7 +710,6 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved,
   // Labour: one contractor for the whole entry, at their rate per shift; then a row per project.
   const [contractorId, setContractorId] = useState('')
   const [rows, setRows] = useState([newLabourRow()])
-  const [payments, setPayments] = useState([newPaymentRow()])
   const [newContractor, setNewContractor] = useState({ name: '', trade: 'General', rate: '' })
   const [saving, setSaving] = useState(false)
   const [showNewProject, setShowNewProject] = useState(false)
@@ -727,10 +726,8 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved,
   const contractor = (contractorsQ.data || []).find((c) => c.id === contractorId)
   const rate = Number(contractor?.default_rate || 0)
   const isLabour = mode === 'labour'
-  // A shift row's total is its pay less any advance it repays.
-  const rowTotal = (r) => Math.round((Number(r.shifts || 0) * rate - Number(r.recovery || 0)) * 100) / 100
+  const rowTotal = (r) => Math.round(Number(r.shifts || 0) * rate * 100) / 100
   const labourTotal = rows.reduce((t, r) => t + rowTotal(r), 0)
-  const paymentTotal = payments.reduce((t, r) => t + (Math.round(Number(r.amount || 0) * 100) / 100), 0)
   // Factory projects that are not Design Build projects: Design Build projects are listed on their own side.
   const designLinkedFactoryIds = new Set(allDesignProjects.map((d) => d.factory_project_id).filter(Boolean))
   const nonDesignFactoryProjects = projects.filter((p) => !designLinkedFactoryIds.has(p.id))
@@ -746,14 +743,6 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved,
 
   function removeRow(key) {
     setRows((rs) => (rs.length > 1 ? rs.filter((r) => r.key !== key) : rs))
-  }
-
-  function updatePayment(key, patch) {
-    setPayments((ps) => ps.map((r) => (r.key === key ? { ...r, ...patch } : r)))
-  }
-
-  function removePayment(key) {
-    setPayments((ps) => (ps.length > 1 ? ps.filter((r) => r.key !== key) : ps))
   }
 
   // A new contractor or mason, with their trade and rate per shift, becomes the contractor for this entry.
@@ -784,18 +773,11 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved,
         const c = chargeOf(r.charge)
         if (!c) { setSaving(false); return toast.error('Choose where every shift row is charged.') }
         if (!(Number(r.shifts) > 0)) { setSaving(false); return toast.error('Enter the shifts for every shift row.') }
-        payload.push({ kind: 'shift', contractor_id: contractorId, side: c.side, project_id: c.project_id, design_project_id: c.design_project_id, shifts: Number(r.shifts), rate, recovery: Number(r.recovery || 0), notes: description || null })
+        payload.push({ kind: 'shift', contractor_id: contractorId, side: c.side, project_id: c.project_id, design_project_id: c.design_project_id, shifts: Number(r.shifts), rate, notes: description || null })
       }
-      for (const r of payments) {
-        if (String(r.amount).trim() === '' && !r.charge) continue
-        const c = chargeOf(r.charge)
-        if (!c) { setSaving(false); return toast.error('Choose where every payment is charged.') }
-        if (!(Number(r.amount) > 0)) { setSaving(false); return toast.error('Enter the amount for every payment.') }
-        payload.push({ kind: r.kind, contractor_id: contractorId, side: c.side, project_id: c.project_id, design_project_id: c.design_project_id, amount: Number(r.amount), notes: r.remarks || null })
-      }
-      if (!payload.length) { setSaving(false); return toast.error('Enter shifts or a payment.') }
+      if (!payload.length) { setSaving(false); return toast.error('Enter the shifts for this labour.') }
       ;({ error } = await supabase.rpc('record_labour_entries', { p_entry_date: date, p_notes: description || null, p_rows: payload }))
-      message = `Labour logged for ${contractor.name}: ${money(labourTotal + paymentTotal)}.`
+      message = `Labour logged for ${contractor.name}: ${money(labourTotal)}.`
     } else {
       const common = { expense_date: date, category_id: categoryId, amount: Number(amount), description: description || null }
       ;({ error } = side === 'factory'
@@ -808,7 +790,6 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved,
     toast.success(message)
     setCategoryId(''); setAmount(''); setDescription(''); setTarget('')
     setRows([newLabourRow()])
-    setPayments([newPaymentRow()])
     onSaved()
   }
 
@@ -876,7 +857,7 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved,
             <div className="overflow-x-auto">
               <table className="table-base">
                 <thead>
-                  <tr><th>Charged to</th><th className="num">Shifts</th><th className="num">Advance repaid (₹)</th><th className="num">Total (₹)</th><th /></tr>
+                  <tr><th>Charged to</th><th className="num">Shifts</th><th className="num">Total (₹)</th><th /></tr>
                 </thead>
                 <tbody>
                   {rows.map((r) => (
@@ -888,7 +869,6 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved,
                         </select>
                       </td>
                       <td className="num"><input className="field-input w-24 text-right" type="number" min="0.01" step="0.01" value={r.shifts} onChange={(e) => updateRow(r.key, { shifts: e.target.value })} /></td>
-                      <td className="num"><input className="field-input w-28 text-right" type="number" min="0" step="0.01" placeholder="0" value={r.recovery} onChange={(e) => updateRow(r.key, { recovery: e.target.value })} /></td>
                       <td className="num tnum">{money(rowTotal(r))}</td>
                       <td className="text-right">
                         <button type="button" className="btn-ghost text-xs px-2" disabled={rows.length === 1} onClick={() => removeRow(r.key)}>Remove</button>
@@ -897,50 +877,12 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved,
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr><td className="font-medium">Total for the day</td><td /><td /><td className="num tnum font-medium">{money(labourTotal)}</td><td /></tr>
+                  <tr><td className="font-medium">Total for the day</td><td /><td className="num tnum font-medium">{money(labourTotal)}</td><td /></tr>
                 </tfoot>
               </table>
             </div>
             <button type="button" className="btn-secondary text-xs" onClick={() => setRows((rs) => [...rs, newLabourRow()])}>+ Add row</button>
 
-            <div className="border-t border-ink-200 pt-3">
-              <div className="mb-2 text-xs font-medium text-ink-700">Bonus, advance and other payments</div>
-              <div className="overflow-x-auto">
-                <table className="table-base">
-                  <thead>
-                    <tr><th>Charged to</th><th>Type</th><th className="num">Amount (₹)</th><th>Remarks</th><th /></tr>
-                  </thead>
-                  <tbody>
-                    {payments.map((r) => (
-                      <tr key={r.key}>
-                        <td>
-                          <select className="field-input" value={r.charge} onChange={(e) => updatePayment(r.key, { charge: e.target.value })}>
-                            <option value="">Select project…</option>
-                            {chargeOptions}
-                          </select>
-                        </td>
-                        <td>
-                          <select className="field-input" value={r.kind} onChange={(e) => updatePayment(r.key, { kind: e.target.value })}>
-                            <option value="bonus">Bonus (not repaid)</option>
-                            <option value="advance">Advance (to be repaid from shift pay)</option>
-                            <option value="other">Other payment</option>
-                          </select>
-                        </td>
-                        <td className="num"><input className="field-input w-28 text-right" type="number" min="0" step="0.01" value={r.amount} onChange={(e) => updatePayment(r.key, { amount: e.target.value })} /></td>
-                        <td><input className="field-input" placeholder="Reason or remarks" value={r.remarks} onChange={(e) => updatePayment(r.key, { remarks: e.target.value })} /></td>
-                        <td className="text-right">
-                          <button type="button" className="btn-ghost text-xs px-2" disabled={payments.length === 1} onClick={() => removePayment(r.key)}>Remove</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr><td colSpan={2} className="font-medium">Payments total</td><td className="num tnum font-medium">{money(paymentTotal)}</td><td colSpan={2} /></tr>
-                  </tfoot>
-                </table>
-              </div>
-              <button type="button" className="btn-secondary mt-2 text-xs" onClick={() => setPayments((ps) => [...ps, newPaymentRow()])}>+ Add payment</button>
-            </div>
           </div>
         )}
 
