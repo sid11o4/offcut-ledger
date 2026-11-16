@@ -44,6 +44,8 @@ function useRefresh(itemId, projectId) {
     invalidateInventory(qc)
     qc.invalidateQueries({ queryKey: ['material_sources', itemId] })
     qc.invalidateQueries({ queryKey: ['project_ceo_raw', projectId] })
+    qc.invalidateQueries({ queryKey: ['company_inventory_value'] })
+    qc.invalidateQueries({ queryKey: ['design_project_stock'] })
     qc.invalidateQueries({ queryKey: ['supplier_bills_queue'] })
     qc.invalidateQueries({ queryKey: ['supplier_bill'] })
   }

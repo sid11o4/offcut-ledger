@@ -7,7 +7,8 @@ import { displayDate } from '../../lib/dates'
 import { useToast } from '../../components/Toast'
 import TransferModal from '../../components/TransferModal'
 import { invalidateInventory, useInventoryLocations } from '../../lib/queries'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
+import MaterialSources from './MaterialSources'
 
 export default function ProjectDashboard() {
   const { id } = useParams()
@@ -15,6 +16,7 @@ export default function ProjectDashboard() {
   const qc = useQueryClient()
   const [transferOpen, setTransferOpen] = useState(false)
   const [returning, setReturning] = useState(null)
+  const [openItem, setOpenItem] = useState(null)
   const companyLocationsQ = useInventoryLocations()
   const companyLocationId = (companyLocationsQ.data || []).find((l) => l.kind === 'company')?.id
   const navigate = useNavigate()
@@ -159,13 +161,20 @@ export default function ProjectDashboard() {
               <thead><tr><th>Material</th><th className="num">Qty</th><th className="num">Avg cost</th><th className="num">Value</th><th /></tr></thead>
               <tbody>
                 {stockQ.data.map((s) => (
-                  <tr key={s.item_id}>
-                    <td>{s.inventory_items?.name}</td>
+                  <Fragment key={s.item_id}>
+                  <tr className="cursor-pointer" onClick={() => setOpenItem(openItem === s.item_id ? null : s.item_id)}>
+                    <td>{s.inventory_items?.name} <span className="text-xs text-ink-500">{openItem === s.item_id ? '· hide sources' : '· sources'}</span></td>
                     <td className="num">{qty(s.quantity)} {s.inventory_items?.units?.code}</td>
                     <td className="num">{money(s.avg_unit_cost)}</td>
                     <td className="num font-medium">{money(s.quantity * s.avg_unit_cost)}</td>
-                    <td className="text-right whitespace-nowrap"><button className="btn-ghost text-xs px-2" onClick={() => setReturning(s)}>Move to company</button><button className="btn-ghost text-xs px-2" onClick={() => navigate(`/design-build/returns?location=${locationQ.data?.id ?? ''}&item=${s.item_id}&qty=${s.quantity}`)}>Return to vendor</button></td>
+                    <td className="text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}><button className="btn-ghost text-xs px-2" onClick={() => setReturning(s)}>Move to company</button><button className="btn-ghost text-xs px-2" onClick={() => navigate(`/design-build/returns?location=${locationQ.data?.id ?? ''}&item=${s.item_id}&qty=${s.quantity}`)}>Return to vendor</button></td>
                   </tr>
+                  {openItem === s.item_id && (
+                    <tr>
+                      <td colSpan={5} className="bg-ink-50"><MaterialSources itemId={s.item_id} projectId={id} /></td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

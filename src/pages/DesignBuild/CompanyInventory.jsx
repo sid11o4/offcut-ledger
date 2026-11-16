@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
+import MaterialSources from './MaterialSources'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, StatCard, EmptyState, LoadingBlock, Field, Input, Select, Badge } from '../../components/ui'
@@ -15,6 +16,7 @@ export default function CompanyInventory() {
   const { hasPermission } = useAuth()
   const qc = useQueryClient()
   const [transferOpen, setTransferOpen] = useState(false)
+  const [openItem, setOpenItem] = useState(null)
   const [purchaseOpen, setPurchaseOpen] = useState(false)
   const canOperate = hasPermission('inventory_operate')
 
@@ -60,13 +62,20 @@ export default function CompanyInventory() {
               {rows.map((r) => {
                 const low = r.quantity < 10
                 return (
-                  <tr key={r.item_id}>
-                    <td>{r.item_name}</td>
-                    <td className="num">{qty(r.quantity)}</td>
-                    <td className="num">{money(r.avg_unit_cost)}</td>
-                    <td className="num font-medium">{money(r.value)}</td>
-                    <td className="num">{low && <Badge tone="warn">Low</Badge>}</td>
-                  </tr>
+                  <Fragment key={r.item_id}>
+                    <tr className="cursor-pointer" onClick={() => setOpenItem(openItem === r.item_id ? null : r.item_id)}>
+                      <td>{r.item_name} <span className="text-xs text-ink-500">{openItem === r.item_id ? '· hide sources' : '· sources'}</span></td>
+                      <td className="num">{qty(r.quantity)}</td>
+                      <td className="num">{money(r.avg_unit_cost)}</td>
+                      <td className="num font-medium">{money(r.value)}</td>
+                      <td className="num">{low && <Badge tone="warn">Low</Badge>}</td>
+                    </tr>
+                    {openItem === r.item_id && (
+                      <tr>
+                        <td colSpan={5} className="bg-ink-50"><MaterialSources itemId={r.item_id} /></td>
+                      </tr>
+                    )}
+                  </Fragment>
                 )
               })}
             </tbody>
