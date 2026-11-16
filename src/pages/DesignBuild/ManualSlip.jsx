@@ -66,7 +66,7 @@ export default function ManualSlip() {
 
   return (
     <div>
-      <PageHeader title="Manual Consumption / Transfer Slip" subtitle="For site consumption or a stock move not already captured by an Internal Order bill." />
+      <PageHeader title="Manual Consumption / Transfer Slip" subtitle="For site consumption or a stock move not already captured by an Design Build Order bill." />
       <Card>
         <form onSubmit={submit} className="space-y-4">
           <div className="grid grid-cols-3 gap-3">

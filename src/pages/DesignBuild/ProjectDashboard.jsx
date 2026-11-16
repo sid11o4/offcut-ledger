@@ -151,14 +151,14 @@ export default function ProjectDashboard() {
         <div className="grid grid-cols-2 md:grid-cols-6 gap-4 divide-x divide-ink-200">
           <div><StatCard label="Contract value" value={money(contractQ.data?.contract_total)} money /></div>
           <div className="pl-4"><StatCard label="Supplier Bills" value={money(f.supplier_bills_total)} money /></div>
-          <div className="pl-4"><StatCard label="Internal Order (Factory job-work)" value={money(f.internal_order_total)} money /></div>
+          <div className="pl-4"><StatCard label="Design Build Order (Factory job-work)" value={money(f.internal_order_total)} money /></div>
           <div className="pl-4"><StatCard label="Direct expenses" value={money(f.direct_expenses_total)} money /></div>
           <div className="pl-4"><StatCard label="Materials consumed" value={money(f.materials_consumed_total)} money /></div>
           <div className="pl-4"><StatCard label="Inventory on hand" value={money(f.current_inventory_value)} money /></div>
         </div>
         {p?.projects && (
           <div className="mt-4 pt-3 border-t border-ink-100 text-xs text-ink-500">
-            Linked Factory project: <Link to={`/projects/${p.projects.id}`} className="text-ink-900 hover:underline">{p.projects.name}</Link> — job-work billed under Internal Order auto-posts material consumption here.
+            Linked Factory project: <Link to={`/projects/${p.projects.id}`} className="text-ink-900 hover:underline">{p.projects.name}</Link> — job-work billed under Design Build Order auto-posts material consumption here.
           </div>
         )}
       </Card>

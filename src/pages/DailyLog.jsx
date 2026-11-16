@@ -184,7 +184,7 @@ export default function DailyLog() {
   )
 }
 
-// What an Internal Order job uses per sheet, read from the job's name: a double-side job uses a raw
+// What an Design Build Order job uses per sheet, read from the job's name: a double-side job uses a raw
 // board and two laminates, a single-side job a raw board and one laminate, and plain cutting a core.
 const LAMINATION = {
   double: { title: 'Double side · 2 skins', hint: 'Each sheet uses one raw board and two laminates. Type the board as thickness, category and type (e.g. 16MM MR PLY) and each laminate as its code (e.g. 6965SUD); stock is matched from that.' },
@@ -196,6 +196,8 @@ function laminationFor(serviceName) {
   if (/double side/i.test(serviceName)) return 'double'
   if (/single side/i.test(serviceName)) return 'single'
   if (/cutting/i.test(serviceName)) return 'core'
+  // Edge banding and pasting consume a board and a laminate, so they take the same codes as a single-side job.
+  if (/edge|past/i.test(serviceName)) return 'single'
   return null
 }
 
@@ -335,7 +337,7 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
   const [overrides, setOverrides] = useState({}) // componentServiceId -> {rate, reason}
   const [saving, setSaving] = useState(false)
   const [showNewProject, setShowNewProject] = useState(false)
-  // Internal Order lamination: the board and laminate codes for the job. How many of each is the
+  // Design Build Order lamination: the board and laminate codes for the job. How many of each is the
   // sheet quantity entered above, and which fields show is set by the job's name.
   const [laminate, setLaminate] = useState({ raw: '', skin1: '', skin2: '' })
   // Set while a material is not a clear match to stock: the entry waits here until the user picks.
@@ -345,7 +347,7 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
 
   const project = projects.find((p) => p.id === projectId)
   const service = services.find((s) => s.id === serviceId)
-  // Internal Order (spec): billing for this rate category captures Raw Material/Skin1/Skin2,
+  // Design Build Order (spec): billing for this rate category captures Raw Material/Skin1/Skin2,
   // and that quantity is added to the linked Design Build project's consumption automatically.
   const isInternalOrder = project?.rate_categories?.code === 'INTERNAL'
   const lamKind = isInternalOrder && service ? laminationFor(service.name) : null
@@ -505,7 +507,7 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
           <div className="space-y-3 rounded-lg border border-ink-200 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-sm font-medium text-ink-900">
-                <Badge tone="brand">Internal Order</Badge> {LAMINATION[lamKind].title}
+                <Badge tone="brand">Design Build Order</Badge> {LAMINATION[lamKind].title}
               </div>
               <span className="tnum text-xs text-ink-500">{quantity || 0} sheets</span>
             </div>

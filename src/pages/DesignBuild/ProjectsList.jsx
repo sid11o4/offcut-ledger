@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, StatusBadge, EmptyState, LoadingBlock, Field, Input, Select } from '../../components/ui'
-import { useDesignProjectsSummary, useClients, useProjects } from '../../lib/queries'
+import { useDesignProjectsSummary, useClients } from '../../lib/queries'
 import { money } from '../../lib/format'
 
 export default function DesignProjectsList() {
@@ -24,7 +24,7 @@ export default function DesignProjectsList() {
     <div>
       <PageHeader
         title="Design Build Projects"
-        subtitle="Turnkey interior projects — inventory, supplier bills, and Internal Order job-work all roll up here."
+        subtitle="Turnkey interior projects — inventory, supplier bills, and Design Build Order job-work all roll up here."
         actions={(
           <>
             <button className="btn-ghost" onClick={() => setShowCompleted((v) => !v)}>
@@ -44,7 +44,7 @@ export default function DesignProjectsList() {
                 <tr>
                   <th>Code</th><th>Project</th><th>Status</th>
                   <th className="num">Contract value</th><th className="num">Supplier Bills</th>
-                  <th className="num">Internal Order</th><th className="num">Inventory on hand</th>
+                  <th className="num">Design Build Order</th><th className="num">Inventory on hand</th>
                 </tr>
               </thead>
               <tbody className="stagger">
@@ -74,8 +74,7 @@ function NewProjectModal({ onClose }) {
   const toast = useToast()
   const qc = useQueryClient()
   const clientsQ = useClients()
-  const projectsQ = useProjects()
-  const [form, setForm] = useState({ code: '', name: '', client_id: '', factory_project_id: '', budget: '', start_date: new Date().toISOString().slice(0, 10) })
+  const [form, setForm] = useState({ code: '', name: '', client_id: '', budget: '', start_date: new Date().toISOString().slice(0, 10) })
   const [saving, setSaving] = useState(false)
 
   async function submit(e) {
@@ -88,7 +87,6 @@ function NewProjectModal({ onClose }) {
     const { error } = await supabase.from('design_projects').insert({
       code, name,
       client_id: form.client_id || null,
-      factory_project_id: form.factory_project_id || null,
       budget: form.budget ? Number(form.budget) : null,
       start_date: form.start_date,
     })
@@ -113,12 +111,6 @@ function NewProjectModal({ onClose }) {
           <Select value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })}>
             <option value="">—</option>
             {(clientsQ.data || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </Select>
-        </Field>
-        <Field label="Factory project (for Internal Order job-work)" hint="Links this project to a Factory-side project so Internal Order billing posts material consumption here automatically.">
-          <Select value={form.factory_project_id} onChange={(e) => setForm({ ...form, factory_project_id: e.target.value })}>
-            <option value="">— none yet —</option>
-            {(projectsQ.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </Select>
         </Field>
         <Field label="Contract value / estimate (optional, used until the scope or quotation is entered)"><Input type="number" min="0" step="0.01" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} /></Field>

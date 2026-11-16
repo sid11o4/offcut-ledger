@@ -77,7 +77,7 @@ function ProjectSummary({ rows }) {
       <Card>
         <div className="overflow-x-auto -mx-4">
           <table className="table-base">
-            <thead><tr><th>Project</th><th>Client</th><th>Status</th><th className="num">Contract value</th><th className="num">Supplier bills</th><th className="num">Internal Order</th><th className="num">Direct</th><th className="num">Spent</th><th className="num">Left of contract</th><th /></tr></thead>
+            <thead><tr><th>Project</th><th>Client</th><th>Status</th><th className="num">Contract value</th><th className="num">Supplier bills</th><th className="num">Design Build Order</th><th className="num">Direct</th><th className="num">Spent</th><th className="num">Left of contract</th><th /></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
