@@ -18,7 +18,7 @@ export default function RtgsPayments() {
   const toast = useToast()
   const qc = useQueryClient()
   const { hasPermission } = useAuth()
-  const [filter, setFilter] = useState('all')
+  const [filter, setFilter] = useState('pending')
   const [matching, setMatching] = useState(false)
 
   const q = useQuery({
