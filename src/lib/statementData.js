@@ -53,8 +53,8 @@ export async function loadConsolidated({ start, end, projectId }) {
     const heads = headsOf(b)
     for (const h of heads) add(`Supplier bills — ${COST_HEAD_LABEL[h] || h}`, Number(b.grand_total) / heads.length)
   }
-  for (const r of ledgerAll.filter((r) => r.category === 'Internal Order' && inPeriod(r.txn_date, start, end))) {
-    add('Internal Order (Factory job-work)', Number(r.amount))
+  for (const r of ledgerAll.filter((r) => r.category === 'Design Build Order' && inPeriod(r.txn_date, start, end))) {
+    add('Design Build Order (Factory job-work)', Number(r.amount))
   }
   for (const x of expenses) add(`Expense — ${x.expense_categories?.name || 'Uncategorised'}`, Number(x.amount))
 

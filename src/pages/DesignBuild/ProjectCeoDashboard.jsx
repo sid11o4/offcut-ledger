@@ -280,7 +280,7 @@ function Labour({ data }) {
 function Factory({ data }) {
   return (
     <div className="space-y-5">
-      <Card title="Factory job-work (internal order), by service">
+      <Card title="Factory job-work (design build order), by service">
         {!data.jobs.length ? <EmptyState title="No factory job-work billed to this project" /> : (
           <table className="table-base">
             <thead><tr><th>Service</th><th className="num">Entries</th><th className="num">Quantity</th><th className="num">Billed</th></tr></thead>

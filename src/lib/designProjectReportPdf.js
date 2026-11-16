@@ -22,7 +22,7 @@ export function buildDesignProjectReportDoc({ project, data }) {
     ['Received', money(contract.received_total)],
     ['Balance due', money(contract.balance_due)],
     ['Supplier bills', money(f.supplier_bills_total)],
-    ['Internal Order', money(f.internal_order_total)],
+    ['Design Build Order', money(f.internal_order_total)],
     ['Direct expenses', money(f.direct_expenses_total)],
     ['Inventory on hand', money(f.current_inventory_value)],
   ])

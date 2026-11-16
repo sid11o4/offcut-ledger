@@ -139,7 +139,7 @@ export function computeProjectCeo(raw, { start = '', end = '' } = {}) {
   const labourQty = labour.reduce((s, r) => s + num(r.quantity), 0)
   const otherCost = other.reduce((s, r) => s + num(r.total_amount), 0)
 
-  // Factory job-work (internal order)
+  // Factory job-work (design build order)
   const jobs = raw.jobWork.filter((j) => inRange(j.entry_date))
   const factoryCost = jobs.reduce((s, j) => s + num(j.total_amount), 0)
   const jobMap = new Map()

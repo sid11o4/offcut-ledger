@@ -9,7 +9,7 @@ import { displayDate } from '../../lib/dates'
 
 const FAR_PAST = '2000-01-01'
 
-// Design Build's own books, kept separate from Factory's. Internal Order job-work is a Factory
+// Design Build's own books, kept separate from Factory's. Design Build Order job-work is a Factory
 // income and a Design Build cost against the specific project it was done for.
 export default function AccountsLedger() {
   const preset = presetRanges()['This month']
@@ -71,14 +71,14 @@ export default function AccountsLedger() {
     <div>
       <PageHeader
         title="Design Build Ledger & Statement"
-        subtitle="Design Build's own bank-style statement: money out for supplier payments, Internal Order job-work and direct expenses, with the balance after each line."
+        subtitle="Design Build's own bank-style statement: money out for supplier payments, Design Build Order job-work and direct expenses, with the balance after each line."
       />
 
       <Card className="mb-5"><DateRangePicker start={start} end={end} onChange={(s, e) => { setStart(s); setEnd(e) }} /></Card>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <StatCard label="Supplier bills (approved)" value={money(totalBills)} />
-        <StatCard label="Internal Order cost" value={money(totalInternal)} />
+        <StatCard label="Design Build Order cost" value={money(totalInternal)} />
         <StatCard label="Direct expenses" value={money(totalDirect)} />
         <StatCard label="Total expense" value={money(totalExpense)} tone="bad" />
       </div>
@@ -87,7 +87,7 @@ export default function AccountsLedger() {
         {statementQ.isLoading ? <LoadingBlock /> : !statement.length ? <EmptyState title="No Design Build projects yet" /> : (
           <div className="overflow-x-auto -mx-4">
             <table className="table-base">
-              <thead><tr><th>Project</th><th className="num">Supplier bills</th><th className="num">Internal Order</th><th className="num">Direct</th><th className="num">Total</th></tr></thead>
+              <thead><tr><th>Project</th><th className="num">Supplier bills</th><th className="num">Design Build Order</th><th className="num">Direct</th><th className="num">Total</th></tr></thead>
               <tbody>
                 {statement.map((r) => (
                   <tr key={r.design_project_id ?? 'company'}>

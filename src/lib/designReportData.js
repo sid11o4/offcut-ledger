@@ -108,7 +108,7 @@ export function designReportPdf(section, data, { title, subtitle, period }) {
       cards: [['Total contract value', money(contract)], ['Total spent', money(spent)], ['Total left of contract', money(contract - spent)]],
       sections: [{
         heading: 'Projects',
-        head: ['Project', 'Client', 'Status', 'Contract value', 'Supplier bills', 'Internal Order', 'Direct', 'Spent', 'Left of contract'],
+        head: ['Project', 'Client', 'Status', 'Contract value', 'Supplier bills', 'Design Build Order', 'Direct', 'Spent', 'Left of contract'],
         body: rows.map((r) => [r.name, r.client || '—', r.status, r.contract ? money(r.contract) : '—', money(r.bills), money(r.internal), money(r.direct), money(r.spent), r.contract ? money(r.left) : '—']),
         foot: ['Total', '', '', money(contract), '', '', '', money(spent), money(contract - spent)],
         columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' } },
