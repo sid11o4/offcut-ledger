@@ -12,6 +12,9 @@ import TransferModal from '../../components/TransferModal'
 
 export default function CompanyInventory() {
   const valueQ = useCompanyInventoryValue()
+  const itemsQ = useInventoryItems()
+  // Each material's unit, to show beside its quantity.
+  const unitOf = new Map((itemsQ.data || []).map((i) => [i.id, i.units?.name || i.units?.code]))
   const projectsQ = useDesignProjectsSummary()
   const { hasPermission } = useAuth()
   const qc = useQueryClient()
@@ -57,7 +60,7 @@ export default function CompanyInventory() {
           <EmptyState title="No stock in the company pool" hint={canOperate ? 'Record a purchase to add material.' : undefined} />
         ) : (
           <table className="table-base">
-            <thead><tr><th>Material</th><th className="num">Quantity</th><th className="num">Avg cost</th><th className="num">Value</th><th className="num"></th></tr></thead>
+            <thead><tr><th>Material</th><th className="num">Quantity</th><th>Unit</th><th className="num">Avg cost</th><th className="num">Value</th><th className="num"></th></tr></thead>
             <tbody>
               {rows.map((r) => {
                 const low = r.quantity < 10
@@ -66,13 +69,14 @@ export default function CompanyInventory() {
                     <tr className="cursor-pointer" onClick={() => setOpenItem(openItem === r.item_id ? null : r.item_id)}>
                       <td>{r.item_name} <span className="text-xs text-ink-500">{openItem === r.item_id ? '· hide sources' : '· sources'}</span></td>
                       <td className="num">{qty(r.quantity)}</td>
+                      <td>{unitOf.get(r.item_id) || '—'}</td>
                       <td className="num">{money(r.avg_unit_cost)}</td>
                       <td className="num font-medium">{money(r.value)}</td>
                       <td className="num">{low && <Badge tone="warn">Low</Badge>}</td>
                     </tr>
                     {openItem === r.item_id && (
                       <tr>
-                        <td colSpan={5} className="bg-ink-50"><MaterialSources itemId={r.item_id} /></td>
+                        <td colSpan={6} className="bg-ink-50"><MaterialSources itemId={r.item_id} /></td>
                       </tr>
                     )}
                   </Fragment>
@@ -175,7 +179,8 @@ function PurchaseModal({ onClose }) {
   const itemsQ = useInventoryItems()
   const unitsQ = useUnits()
   const NEW = '__new__'
-  const [form, setForm] = useState({ item_id: '', new_name: '', new_unit: 'SHEET', quantity: '', unit_cost: '', date: new Date().toISOString().slice(0, 10) })
+  const NEW_UNIT = '__new_unit__'
+  const [form, setForm] = useState({ item_id: '', new_name: '', new_unit: 'SHEET', new_unit_name: '', quantity: '', unit_cost: '', date: new Date().toISOString().slice(0, 10) })
   const [saving, setSaving] = useState(false)
   const creating = form.item_id === NEW
 
@@ -188,8 +193,16 @@ function PurchaseModal({ onClose }) {
     // A material that is not on the list yet is created here, in the unit chosen, then purchased.
     let itemId = form.item_id
     if (creating) {
+      // A unit that is not in the list is added first, then used for the material.
+      let unitCode = form.new_unit
+      if (unitCode === NEW_UNIT) {
+        const { data: unit, error: unitErr } = await supabase.rpc('add_inventory_unit', { p_name: form.new_unit_name })
+        if (unitErr) { setSaving(false); return toast.error(unitErr.message) }
+        unitCode = unit.code
+        qc.invalidateQueries({ queryKey: ['units'] })
+      }
       const { data: newId, error: createErr } = await supabase.rpc('ensure_inventory_item', {
-        p_name: form.new_name, p_unit_code: form.new_unit,
+        p_name: form.new_name, p_unit_code: unitCode,
       })
       if (createErr) { setSaving(false); return toast.error(createErr.message) }
       itemId = newId
@@ -215,7 +228,7 @@ function PurchaseModal({ onClose }) {
         <Field label="Material">
           <Select required value={form.item_id} onChange={(e) => setForm({ ...form, item_id: e.target.value })}>
             <option value="">Select…</option>
-            {(itemsQ.data || []).filter((i) => i.active !== false).map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+            {(itemsQ.data || []).filter((i) => i.active !== false).map((i) => <option key={i.id} value={i.id}>{i.name}{i.units ? ` (${i.units.name || i.units.code})` : ''}</option>)}
             <option value={NEW}>+ New material…</option>
           </Select>
         </Field>
@@ -228,9 +241,17 @@ function PurchaseModal({ onClose }) {
             </div>
             <Field label="Unit">
               <Select value={form.new_unit} onChange={(e) => setForm({ ...form, new_unit: e.target.value })}>
-                {(unitsQ.data || []).filter((u) => u.active !== false).map((u) => <option key={u.id} value={u.code}>{u.name || u.code}</option>)}
+                {(unitsQ.data || []).filter((u) => u.active !== false && u.inventory_unit).map((u) => <option key={u.id} value={u.code}>{u.name || u.code}</option>)}
+                <option value={NEW_UNIT}>+ Add new unit…</option>
               </Select>
             </Field>
+            {form.new_unit === NEW_UNIT && (
+              <div className="col-span-3">
+                <Field label="New unit name">
+                  <Input required value={form.new_unit_name} onChange={(e) => setForm({ ...form, new_unit_name: e.target.value })} placeholder="e.g. Bag" />
+                </Field>
+              </div>
+            )}
           </div>
         )}
         <div className="grid grid-cols-2 gap-3">
