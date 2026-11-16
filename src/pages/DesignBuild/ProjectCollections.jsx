@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import { PageHeader, Card, StatCard, EmptyState, LoadingBlock } from '../../components/ui'
-import { loadCollections, downloadReceipt } from '../../lib/projectCollectionsData'
+import { loadCollections, downloadReceipt, readQuotation, revisionRows, applyQuotation } from '../../lib/projectCollectionsData'
 import { displayDate } from '../../lib/dates'
 import { money, qty } from '../../lib/format'
 
@@ -40,7 +40,7 @@ export default function ProjectCollections() {
       </div>
 
       <div className="grid lg:grid-cols-2 gap-5 mb-5">
-        <QuotationCard projectId={id} quotations={d.quotations} onSaved={refresh} />
+        <QuotationCard projectId={id} quotations={d.quotations} scope={d.scope} onSaved={refresh} />
         <RecordPayment projectId={id} onSaved={refresh} toast={toast} />
       </div>
 
@@ -76,28 +76,41 @@ export default function ProjectCollections() {
   )
 }
 
-function QuotationCard({ projectId, quotations, onSaved }) {
+function QuotationCard({ projectId, quotations, scope, onSaved }) {
   const toast = useToast()
   const [label, setLabel] = useState('Quotation')
   const [total, setTotal] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState('')
+  const latest = quotations[0]
 
   async function upload(e) {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
-    setBusy(true)
+    setBusy('Uploading…')
     const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
     const path = `design-quotations/${projectId}/${Date.now()}_${safe}`
     const { error: upErr } = await supabase.storage.from('scan-uploads').upload(path, file)
-    if (upErr) { setBusy(false); return toast.error(upErr.message) }
-    const { error } = await supabase.from('project_quotations').insert({
+    if (upErr) { setBusy(''); return toast.error(upErr.message) }
+    const { data: row, error } = await supabase.from('project_quotations').insert({
       design_project_id: projectId, label: label || 'Quotation', quoted_total: Number(total || 0), file_path: path, file_name: file.name,
-    })
-    setBusy(false)
-    if (error) return toast.error(error.message)
-    toast.success('Quotation saved.')
-    onSaved()
+    }).select('id').single()
+    if (error) { setBusy(''); return toast.error(error.message) }
+    await readAndSave(row.id)
+    setTotal('')
+  }
+
+  async function readAndSave(id) {
+    setBusy('Reading quotation with Claude…')
+    try {
+      await readQuotation(id)
+      toast.success('Quotation read. Review the scope changes below.')
+    } catch (err) {
+      toast.error(`Could not read quotation: ${err.message}`)
+    } finally {
+      setBusy('')
+      onSaved()
+    }
   }
 
   async function open(q) {
@@ -110,25 +123,101 @@ function QuotationCard({ projectId, quotations, onSaved }) {
     <Card title="Quotation">
       <div className="grid grid-cols-2 gap-2 mb-3">
         <label className="text-xs">Label<input className="field-input mt-1" value={label} onChange={(e) => setLabel(e.target.value)} /></label>
-        <label className="text-xs">Quoted total (Rs.)<input type="number" min="0" step="0.01" className="field-input mt-1" value={total} onChange={(e) => setTotal(e.target.value)} /></label>
+        <label className="text-xs">Quoted total (Rs.) <span className="text-ink-400">optional</span><input type="number" min="0" step="0.01" className="field-input mt-1" value={total} onChange={(e) => setTotal(e.target.value)} /></label>
       </div>
-      <label className="btn-primary cursor-pointer inline-block">
-        {busy ? 'Uploading…' : 'Upload quotation'}
-        <input type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx" className="hidden" disabled={busy} onChange={upload} />
+      <label className={`btn-primary cursor-pointer inline-block ${busy ? 'opacity-60 pointer-events-none' : ''}`}>
+        {busy || (latest ? 'Upload updated quotation' : 'Upload quotation')}
+        <input type="file" accept="image/*,application/pdf" className="hidden" disabled={!!busy} onChange={upload} />
       </label>
-      <div className="mt-4">
-        {!quotations.length ? <EmptyState title="No quotation uploaded yet" /> : (
-          <ul className="divide-y divide-ink-100">
-            {quotations.map((x) => (
-              <li key={x.id} className="py-2 flex items-center justify-between text-sm">
-                <span>{x.label} · {displayDate(x.quoted_on)} · {money(x.quoted_total)}</span>
-                {x.file_path && <button className="btn-ghost text-xs px-2" onClick={() => open(x)}>Open {x.file_name}</button>}
-              </li>
-            ))}
-          </ul>
-        )}
+      <p className="text-xs text-ink-500 mt-2">Each upload is read by Claude. Its lines are shown for review before they change the scope of work.</p>
+
+      <div className="mt-4 space-y-3">
+        {!quotations.length ? <EmptyState title="No quotation uploaded yet" /> : quotations.map((x, i) => (
+          <QuotationRevision
+            key={x.id}
+            quotation={x}
+            isLatest={i === 0}
+            scope={scope}
+            busy={busy}
+            onOpen={() => open(x)}
+            onReread={() => readAndSave(x.id)}
+            onApplied={onSaved}
+          />
+        ))}
       </div>
     </Card>
+  )
+}
+
+function QuotationRevision({ quotation: x, isLatest, scope, busy, onOpen, onReread, onApplied }) {
+  const toast = useToast()
+  const [applying, setApplying] = useState(false)
+  const rows = x.extracted ? revisionRows({ scope, quotation: x, label: x.label }) : []
+  const net = rows.reduce((t, r) => t + Number(r.amount), 0)
+
+  async function apply() {
+    setApplying(true)
+    try {
+      await applyQuotation({ quotation: x, rows })
+      toast.success(rows.length ? `Scope updated with ${rows.length} change${rows.length === 1 ? '' : 's'}.` : 'Quotation matches the scope already.')
+      onApplied()
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  return (
+    <div className="border border-ink-100 rounded-md p-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <span className="font-medium">{x.label}</span>
+          <span className="text-ink-500"> · {displayDate(x.quoted_on)} · {money(x.quoted_total)}</span>
+          {isLatest && <span className="ml-2 text-xs text-ink-500">latest</span>}
+        </div>
+        <div className="flex gap-2">
+          {x.file_path && <button className="btn-ghost text-xs px-2" onClick={onOpen}>Open {x.file_name}</button>}
+          <button className="btn-ghost text-xs px-2" disabled={!!busy} onClick={onReread}>{x.extracted ? 'Read again' : 'Read'}</button>
+        </div>
+      </div>
+
+      {!x.extracted && <p className="text-xs text-ink-500 mt-2">Not read yet.</p>}
+
+      {x.extracted && (
+        <div className="mt-3">
+          <div className="text-xs text-ink-500 mb-2">
+            {x.extracted.quote_number ? `Quote ${x.extracted.quote_number} · ` : ''}{x.extracted.items?.length || 0} line{(x.extracted.items?.length || 0) === 1 ? '' : 's'} read
+            {x.extracted.notes ? ` · ${x.extracted.notes}` : ''}
+          </div>
+          {x.applied_at ? (
+            <p className="text-xs">Applied to the scope of work on {displayDate(x.applied_at.slice(0, 10))}.</p>
+          ) : !rows.length ? (
+            <p className="text-xs">Nothing changes in the scope of work from this quotation.</p>
+          ) : (
+            <>
+              <table className="table-base mb-2">
+                <thead><tr><th>Change</th><th>Description</th><th className="num">Amount</th></tr></thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr key={i}>
+                      <td className="capitalize">{r.kind}</td>
+                      <td>{r.description}</td>
+                      <td className={`num ${r.amount < 0 ? 'text-bad' : ''}`}>{money(r.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot><tr><td colSpan={2} className="font-medium">Net change to contract value</td><td className="num font-medium">{money(net)}</td></tr></tfoot>
+              </table>
+              <button className="btn-primary" disabled={applying || !isLatest} onClick={apply}>
+                {applying ? 'Applying…' : scope.length ? 'Apply these changes to scope' : 'Set as scope of work'}
+              </button>
+              {!isLatest && <span className="text-xs text-ink-500 ml-2">Only the latest quotation can be applied.</span>}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
