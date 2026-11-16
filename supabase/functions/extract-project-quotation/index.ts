@@ -4,6 +4,8 @@
 // applies them from the Collections page.
 //
 // Requires the ANTHROPIC_API_KEY secret. POST body: { quotation_id }
+// Deployed with verify_jwt off: the function authenticates the caller itself (getUser and
+// is_active_user), and the gateway's JWT check rejected valid signed-in sessions with 401.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { encodeBase64 } from 'jsr:@std/encoding@1/base64'
 
@@ -28,11 +30,12 @@ const QUOTE_SCHEMA = {
     quoted_total: { type: ['number', 'null'], description: 'The grand total of the quotation as printed. Null if not printed.' },
     items: {
       type: 'array',
-      description: 'Every scope line of work or supply in the quotation. Exclude subtotals, taxes, discounts, payment terms and terms and conditions.',
+      description: 'Every priced scope line in the quotation. Exclude section headings with no amount, subtotals, taxes, discounts, payment terms and terms and conditions.',
       items: {
         type: 'object',
         properties: {
-          description: { type: 'string', description: 'The item or work description, verbatim.' },
+          section: { type: ['string', 'null'], description: 'The room or section heading the line sits under, e.g. "Living Room", "Kitchen". Null if the quotation has no sections.' },
+          description: { type: 'string', description: 'The item name only, verbatim, e.g. "TALL UNIT - 4\' X 7\'-3\"". Leave out the specification lines printed under it (core, laminate, hardware, finish).' },
           unit: { type: ['string', 'null'] },
           quantity: { type: ['number', 'null'] },
           rate: { type: ['number', 'null'], description: 'The unit rate as printed.' },
@@ -115,7 +118,7 @@ Deno.serve(async (req) => {
       messages: [{
         role: 'user',
         content: [
-          { type: 'text', text: 'This is a client quotation for an interior or fabrication project. Read every page. Report each scope line with its description, unit, quantity, rate and amount exactly as printed, the quotation total, and the quotation number and date. Do not compute or correct any figure yourself; report what is printed.' },
+          { type: 'text', text: 'This is a client quotation for an interior or fabrication project, usually in room sections (for example A Living Room, D Kitchen). Read every page. For each priced line report its section, item name, unit, quantity, rate and amount exactly as printed. Skip heading rows that carry no amount and section subtotals; report the grand total as quoted_total. Do not compute or correct any figure yourself; report what is printed.' },
           fileBlock,
           { type: 'text', text: 'Call extract_quotation with everything found in the quotation.' },
         ],

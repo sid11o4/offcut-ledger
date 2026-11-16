@@ -79,7 +79,10 @@ export async function readQuotation(quotationId) {
 // Later revision: lines that are new are added, lines whose amount moved are added or reduced by
 // the difference, and scope lines the new quotation no longer has are reduced to zero.
 export function revisionRows({ scope, quotation, label }) {
-  const lines = (quotation.extracted?.items || []).filter((l) => l && l.description)
+  // Each line keeps its room section, so the same item in two rooms stays two scope lines.
+  const lines = (quotation.extracted?.items || [])
+    .filter((l) => l && l.description)
+    .map((l) => ({ ...l, description: l.section ? `${l.section}: ${l.description}` : l.description }))
   const note = `Per quotation ${quotation.extracted?.quote_number || label || ''}`.trim()
   if (!scope.length) {
     return lines.map((l) => ({
