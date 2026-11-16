@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import { useAuth } from '../../context/AuthContext'
@@ -102,7 +103,8 @@ export default function BillAuditQueue() {
   const toast = useToast()
   const qc = useQueryClient()
   const { profile } = useAuth()
-  const [selectedId, setSelectedId] = useState(null)
+  const [searchParams] = useSearchParams()
+  const [selectedId, setSelectedId] = useState(() => searchParams.get('bill'))
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef(null)
 

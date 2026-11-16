@@ -111,7 +111,7 @@ export function SupplierList() {
   const rows = (q.data || []).filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase()))
   return (
     <div>
-      <PageHeader title="Supplier & contractor statements" subtitle="Choose a supplier or contractor to see their statement: spend by category, then the ledger of bills and payments." />
+      <PageHeader title="Material Vendors" subtitle="Open a vendor to see their bills, invoices, payments, returns, stock and every credit and debit." />
       <Card className="mb-5">
         <input className="field-input max-w-sm" placeholder="Search suppliers and contractors" value={search} onChange={(e) => setSearch(e.target.value)} />
       </Card>
@@ -122,10 +122,10 @@ export function SupplierList() {
             <tbody>
               {rows.map((s) => (
                 <tr key={s.id}>
-                  <td className="font-medium">{s.name}</td>
+                  <td className="font-medium"><Link className="hover:underline" to={`/design-build/suppliers/${s.id}`}>{s.name}</Link></td>
                   <td>{s.gstin || '—'}</td>
                   <td className="capitalize">{s.active === false ? 'Inactive' : 'Active'}</td>
-                  <td className="text-right"><Link className="btn-ghost text-xs px-2" to={`/design-build/suppliers/${s.id}`}>Statement</Link></td>
+                  <td className="text-right"><Link className="btn-ghost text-xs px-2" to={`/design-build/suppliers/${s.id}`}>Dashboard</Link></td>
                 </tr>
               ))}
             </tbody>

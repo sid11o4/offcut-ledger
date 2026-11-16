@@ -31,10 +31,11 @@ import AccountsLedger from './pages/DesignBuild/AccountsLedger'
 import ManualSlip from './pages/DesignBuild/ManualSlip'
 import DesignExpensesList from './pages/DesignBuild/DesignExpensesList'
 import DesignRecurringExpenses from './pages/DesignBuild/DesignRecurringExpenses'
-import DesignProjectReport from './pages/DesignBuild/ProjectReport'
+import DesignProjectReport from './pages/DesignBuild/ProjectCeoDashboard'
 import DesignReports from './pages/DesignBuild/DesignReports'
 import SupplierReturns from './pages/DesignBuild/SupplierReturns'
-import { ConsolidatedReport, SupplierList, SupplierStatement } from './pages/DesignBuild/StatementPages'
+import { ConsolidatedReport, SupplierList } from './pages/DesignBuild/StatementPages'
+import VendorDashboard from './pages/DesignBuild/VendorDashboard'
 import AccountsOverview from './pages/Accounts/AccountsOverview'
 import BillAuditQueue from './pages/Accounts/BillAuditQueue'
 import BankReconciliation from './pages/Accounts/BankReconciliation'
@@ -98,7 +99,7 @@ export default function App() {
         <Route path="design-build/returns" element={<RequirePermission perm="inventory_operate"><SupplierReturns /></RequirePermission>} />
         <Route path="design-build/reports/consolidated" element={<RequirePermission perm="design_build_manage"><ConsolidatedReport /></RequirePermission>} />
         <Route path="design-build/suppliers" element={<RequirePermission perm="supplier_bills_manage"><SupplierList /></RequirePermission>} />
-        <Route path="design-build/suppliers/:id" element={<RequirePermission perm="supplier_bills_manage"><SupplierStatement /></RequirePermission>} />
+        <Route path="design-build/suppliers/:id" element={<RequirePermission perm="supplier_bills_manage"><VendorDashboard /></RequirePermission>} />
         <Route path="design-build/reports/labour" element={<RequirePermission perm="design_build_manage"><DesignReports section="labour" /></RequirePermission>} />
         <Route path="design-build/inventory" element={<RequirePermission perm="inventory_operate"><CompanyInventory /></RequirePermission>} />
         <Route path="design-build/ledger" element={<RequirePermission perm="supplier_bills_manage"><AccountsLedger /></RequirePermission>} />
