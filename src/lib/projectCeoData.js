@@ -197,7 +197,6 @@ export function computeProjectCeo(raw, { start = '', end = '' } = {}) {
   for (const e of misc) bump(e.expense_date, 'misc', num(e.amount))
   const trend = [...months.values()].sort((a, b) => a.month.localeCompare(b.month))
 
-  const budget = num(raw.project.budget)
   const contractValue = num(raw.contract.contract_total)
   const received = num(raw.contract.received_total)
   const inventoryValue = num(raw.financials.current_inventory_value)
@@ -208,10 +207,9 @@ export function computeProjectCeo(raw, { start = '', end = '' } = {}) {
       contractValue,
       received,
       balanceDue: contractValue - received,
-      budget,
       spent: total,
-      used: budget ? total / budget : null,
-      remaining: budget ? budget - total : null,
+      used: contractValue ? total / contractValue : null,
+      remaining: contractValue ? contractValue - total : null,
       inventoryValue,
       vendorCount: vendors.length,
       labourQty,

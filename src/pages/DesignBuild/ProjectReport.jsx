@@ -48,8 +48,8 @@ async function loadProjectReport(id) {
     .sort((a, b) => b.amount - a.amount)
 
   const spent = Number(f.bill_expense_total || 0) + Number(f.internal_order_total || 0) + Number(f.direct_expenses_total || 0) + Number(f.materials_consumed_total || 0)
-  const budget = Number(f.budget || 0)
-  const headroom = budget - spent
+  const contractTotal = Number(contractR.data?.[0]?.contract_total || 0)
+  const headroom = contractTotal - spent
   const ledgerTotal = ledger.reduce((s, r) => s + Number(r.amount), 0)
 
   // Materials consumed from this project's stock, at average cost.
@@ -83,7 +83,7 @@ async function loadProjectReport(id) {
   ].sort((a, b) => String(a.date).localeCompare(String(b.date)))
 
   return {
-    project, budget, spent, headroom, categories, materials, labour, ledger, ledgerTotal,
+    project, contractTotal, spent, headroom, categories, materials, labour, ledger, ledgerTotal,
     financials: f,
     contract: contractR.data?.[0] || {},
     mixedBillCount: bills.filter((b) => b.expense_nature === 'both').length,
@@ -125,7 +125,6 @@ export default function DesignProjectReport() {
           <StatCard label="Contract value" value={money(r.contract?.contract_total)} money />
           <StatCard label="Received from client" value={money(r.contract?.received_total)} money />
           <StatCard label="Balance due" value={money(r.contract?.balance_due)} money />
-          <StatCard label="Budget" value={r.budget ? money(r.budget) : '—'} money />
           <StatCard label="Supplier bills" value={money(f.supplier_bills_total)} money />
           <StatCard label="Internal Order" value={money(f.internal_order_total)} money />
           <StatCard label="Direct expenses" value={money(f.direct_expenses_total)} money />
@@ -137,11 +136,10 @@ export default function DesignProjectReport() {
       <Card title="Overall details and cash position" className="mb-5">
         <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
           <div className="flex justify-between"><dt className="text-ink-500">Total spent</dt><dd className="num font-medium">{money(r.spent)}</dd></div>
-          <div className="flex justify-between"><dt className="text-ink-500">Budget</dt><dd className="num font-medium">{r.budget ? money(r.budget) : 'No budget set'}</dd></div>
           <div className="flex justify-between">
-            <dt className="text-ink-500">Budget headroom</dt>
+            <dt className="text-ink-500">Left of contract</dt>
             <dd className={`num font-medium ${r.headroom >= 0 ? 'text-ok' : 'text-bad'}`}>
-              {r.budget ? `${money(r.headroom)} (${r.headroom >= 0 ? 'positive' : 'negative'})` : '—'}
+              {r.contractTotal ? `${money(r.headroom)} (${r.headroom >= 0 ? 'within contract' : 'over contract'})` : '—'}
             </dd>
           </div>
           <div className="flex justify-between"><dt className="text-ink-500">Paid out in the ledger</dt><dd className="num font-medium">{money(r.ledgerTotal)}</dd></div>
