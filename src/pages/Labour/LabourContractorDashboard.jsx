@@ -48,7 +48,7 @@ export default function LabourContractorDashboard() {
     <div>
       <PageHeader
         title={c.name}
-        subtitle={`${c.role}${c.phone ? ` · ${c.phone}` : ''}${c.notes ? ` · ${c.notes}` : ''}`}
+        subtitle={`${c.trade} · ${money(c.default_rate)} per shift${c.phone ? ` · ${c.phone}` : ''}${c.notes ? ` · ${c.notes}` : ''}`}
         actions={<Link className="btn-secondary" to="/labour">All contractors</Link>}
       />
 
