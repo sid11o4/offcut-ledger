@@ -2,8 +2,13 @@ import { Fragment, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { PageHeader, Card, EmptyState, LoadingBlock } from '../../components/ui'
+import { supabase } from '../../lib/supabaseClient'
+import BankStatement from '../../components/BankStatement'
+import { useAppSettings } from '../../lib/queries'
+import { downloadDesignProjectReport } from '../../lib/designProjectReportPdf'
 import { loadProjectRaw, computeProjectCeo } from '../../lib/projectCeoData'
 import { displayDate } from '../../lib/dates'
+import { PieChart, Pie as PieSlices, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts'
 import { money, qty } from '../../lib/format'
 
 // One colour per kind of expense, from the house palette: charcoal shades and one accent.
@@ -12,7 +17,7 @@ const COLOUR = { materials: '#33302b', labour: '#6b655c', factory: '#9c958a', mi
 const OPEN_TAB = { materials: 'materials', labour: 'labour', factory: 'factory', misc: 'misc', other: 'misc' }
 const TABS = [
   ['overview', 'Overview'], ['materials', 'Materials'], ['labour', 'Labour'],
-  ['factory', 'Factory job-work'], ['misc', 'Misc & other bills'], ['vendors', 'Vendors'],
+  ['factory', 'Factory job-work'], ['misc', 'Misc & other bills'], ['vendors', 'Vendors'], ['ledger', 'Ledger'],
 ]
 
 export default function ProjectCeoDashboard() {
@@ -22,6 +27,16 @@ export default function ProjectCeoDashboard() {
   const [tab, setTab] = useState('overview')
 
   const data = useMemo(() => (rawQ.data ? computeProjectCeo(rawQ.data, range) : null), [rawQ.data, range])
+  const settingsQ = useAppSettings()
+  // The project's ledger, oldest first, as the Design Build ledger records it.
+  const ledgerQ = useQuery({
+    queryKey: ['project_ceo_ledger', id],
+    queryFn: async () => {
+      const { data: rows, error } = await supabase.rpc('design_build_ledger', { p_start: '2000-01-01', p_end: '2100-01-01' })
+      if (error) throw error
+      return (rows || []).filter((r) => r.design_project_id === id).reverse()
+    },
+  })
 
   if (rawQ.isLoading) return <LoadingBlock />
   if (rawQ.error) return <EmptyState title="Could not load this project" hint={rawQ.error.message} />
@@ -33,7 +48,12 @@ export default function ProjectCeoDashboard() {
       <PageHeader
         title={p.name}
         subtitle={`${p.code} · ${p.clients?.name || 'No client set'} · ${p.status} · started ${displayDate(p.start_date)}`}
-        actions={<Link className="btn-secondary" to={`/design-build/projects/${id}`}>Project page</Link>}
+        actions={
+          <>
+            <button className="btn-secondary" disabled={!data || !ledgerQ.data} onClick={() => downloadPdf(data, rawQ.data, ledgerQ.data, settingsQ.data)}>Download PDF</button>
+            <Link className="btn-secondary" to={`/design-build/projects/${id}`}>Project page</Link>
+          </>
+        }
       />
 
       <Card className="mb-5">
@@ -70,6 +90,7 @@ export default function ProjectCeoDashboard() {
       {tab === 'factory' && <Factory data={data} />}
       {tab === 'misc' && <MiscOther data={data} />}
       {tab === 'vendors' && <Vendors data={data} />}
+      {tab === 'ledger' && <LedgerTab rows={ledgerQ.data} loading={ledgerQ.isLoading} error={ledgerQ.error} />}
     </div>
   )
 }
@@ -102,92 +123,67 @@ function Overview({ data, onOpen }) {
   )
 }
 
-// Interactive: hover a slice to see its amount; click it to open that part of the report.
+// Pie of the split of expenses: hover for amounts, click a slice to open that part of the report.
 function Pie({ slices, total, onOpen }) {
-  const [hover, setHover] = useState(null)
-  const cx = 110, cy = 110, r = 100
-  let angle = -Math.PI / 2
-  const arcs = slices.map((s) => {
-    const span = (s.value / total) * Math.PI * 2
-    const start = angle, end = angle + span
-    angle = end
-    const large = span > Math.PI ? 1 : 0
-    const d = span >= Math.PI * 2 - 1e-6
-      ? `M${cx},${cy - r} A${r},${r} 0 1 1 ${cx - 0.01},${cy - r} Z`
-      : `M${cx},${cy} L${cx + r * Math.cos(start)},${cy + r * Math.sin(start)} A${r},${r} 0 ${large} 1 ${cx + r * Math.cos(end)},${cy + r * Math.sin(end)} Z`
-    return { ...s, d }
-  })
-  const focus = arcs.find((a) => a.key === hover)
   return (
     <div className="flex flex-col md:flex-row items-center gap-6">
-      <svg viewBox="0 0 220 220" className="w-56 h-56 shrink-0">
-        {arcs.map((a) => (
-          <path key={a.key} d={a.d} fill={COLOUR[a.key]}
-            opacity={hover && hover !== a.key ? 0.35 : 1}
-            className="cursor-pointer transition-opacity"
-            onMouseEnter={() => setHover(a.key)} onMouseLeave={() => setHover(null)}
-            onClick={() => onOpen(OPEN_TAB[a.key])}>
-            <title>{`${a.label}: ${money(a.value)}`}</title>
-          </path>
-        ))}
-      </svg>
+      <div className="w-64 h-64 shrink-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <PieSlices data={slices} dataKey="value" nameKey="label" innerRadius={56} outerRadius={100} paddingAngle={2}
+              onClick={(d) => onOpen(OPEN_TAB[d.key])} cursor="pointer">
+              {slices.map((s) => <Cell key={s.key} fill={COLOUR[s.key]} />)}
+            </PieSlices>
+            <Tooltip formatter={(v) => money(v)} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
       <div className="flex-1 w-full space-y-2">
         {slices.map((s) => (
-          <button key={s.key} onMouseEnter={() => setHover(s.key)} onMouseLeave={() => setHover(null)}
-            onClick={() => onOpen(OPEN_TAB[s.key])}
+          <button key={s.key} onClick={() => onOpen(OPEN_TAB[s.key])}
             className="w-full flex items-center justify-between text-sm rounded px-2 py-1 hover:bg-ink-50">
             <span className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: COLOUR[s.key] }} />{s.label}</span>
             <span className="tnum">{money(s.value)} <span className="text-ink-500">· {Math.round((s.value / total) * 100)}%</span></span>
           </button>
         ))}
-        {focus && <div className="text-xs text-ink-500 pt-1">Click to open {focus.label.toLowerCase()}.</div>}
       </div>
     </div>
   )
 }
 
-// Stacked bars per month; hover a month for its split.
+// Spend by month, split by kind of expense. Hover a bar for its amounts.
 function Trend({ trend }) {
-  const [hover, setHover] = useState(null)
   const keys = ['materials', 'labour', 'factory', 'misc', 'other']
-  const max = Math.max(...trend.map((m) => keys.reduce((s, k) => s + m[k], 0)), 1)
-  const w = 560, h = 220, pad = 28
-  const bw = (w - pad * 2) / trend.length
+  const names = { materials: 'Materials', labour: 'Labour', factory: 'Factory job-work', misc: 'Miscellaneous', other: 'Other bills' }
   return (
-    <div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-56">
-        {trend.map((m, i) => {
-          let y = h - pad
-          return (
-            <g key={m.month} onMouseEnter={() => setHover(m)} onMouseLeave={() => setHover(null)} className="cursor-pointer">
-              {keys.map((k) => {
-                const v = m[k]
-                const hgt = (v / max) * (h - pad * 2)
-                y -= hgt
-                return <rect key={k} x={pad + i * bw + 4} y={y} width={bw - 8} height={hgt} fill={COLOUR[k]} />
-              })}
-              <text x={pad + i * bw + bw / 2} y={h - 8} textAnchor="middle" fontSize="10" fill="#7d766d">{m.month.slice(5)}</text>
-            </g>
-          )
-        })}
-      </svg>
-      <div className="text-xs text-ink-600 min-h-[1.25rem]">
-        {hover ? `${hover.month}: ${keys.filter((k) => hover[k]).map((k) => `${k} ${money(hover[k])}`).join(' · ')}` : 'Hover a month to see its split.'}
-      </div>
+    <div className="h-72">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={trend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e5e1d8" />
+          <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+          <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => (v >= 100000 ? `${Math.round(v / 100000)}L` : v >= 1000 ? `${Math.round(v / 1000)}k` : v)} />
+          <Tooltip formatter={(v, n) => [money(v), names[n] || n]} />
+          <Legend formatter={(n) => names[n] || n} wrapperStyle={{ fontSize: 11 }} />
+          {keys.map((k) => <Bar key={k} dataKey={k} stackId="spend" fill={COLOUR[k]} />)}
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   )
 }
 
+// Ranked bars (vendors, materials, categories). Click a bar to open the related tab.
 function Bars({ rows, onClick }) {
-  const max = Math.max(...rows.map((r) => r.value), 1)
+  const height = Math.max(160, rows.length * 34 + 20)
   return (
-    <div className="space-y-2">
-      {rows.map((r) => (
-        <button key={r.name} onClick={onClick} className="w-full text-left group">
-          <div className="flex justify-between text-sm"><span className="truncate pr-2 group-hover:underline">{r.name}</span><span className="tnum">{money(r.value)}</span></div>
-          <div className="h-2 bg-ink-100 rounded"><div className="h-2 rounded bg-ink-900" style={{ width: `${(r.value / max) * 100}%` }} /></div>
-        </button>
-      ))}
+    <div style={{ height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart layout="vertical" data={rows} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
+          <XAxis type="number" hide />
+          <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 11 }} />
+          <Tooltip formatter={(v) => money(v)} />
+          <Bar dataKey="value" fill="#33302b" radius={[0, 3, 3, 0]} cursor={onClick ? 'pointer' : undefined} onClick={() => onClick && onClick()} />
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   )
 }
@@ -373,4 +369,44 @@ function Vendors({ data }) {
       )}
     </Card>
   )
+}
+
+function LedgerTab({ rows, loading, error }) {
+  if (loading) return <LoadingBlock />
+  if (error) return <EmptyState title="Could not load the ledger" hint={error.message} />
+  if (!rows?.length) return <EmptyState title="No ledger entries for this project" />
+  return (
+    <Card title="Project ledger">
+      <BankStatement
+        rows={rows.map((x) => ({ key: `${x.reference_type}-${x.reference_id}`, date: x.txn_date, category: x.category, description: x.description, reference: x.reference, direction: 'out', amount: x.amount }))}
+        opening={0}
+        pdfTitle="Project ledger"
+        subtitle={rows[0]?.project_name}
+        period="All time"
+        categories={[]}
+        exportName={`project-ledger-${(rows[0]?.project_name || 'project').replace(/[^a-z0-9]+/gi, '-')}`}
+      />
+    </Card>
+  )
+}
+
+// The project PDF in the house layout, built from the same figures the dashboard shows.
+function downloadPdf(data, raw, ledger, settings) {
+  const budget = data.kpis.budget
+  downloadDesignProjectReport({
+    settings,
+    project: data.project,
+    data: {
+      budget,
+      spent: data.total,
+      headroom: budget ? budget - data.total : 0,
+      categories: data.slices.map((s) => ({ name: s.label, amount: s.value })),
+      materials: data.materials.map((m) => ({ name: m.name, unit: m.unit, quantity: m.quantity, cost: m.cost })),
+      labour: data.labour.map((r) => ({ date: r.date, description: r.description || 'Labour', party: r.vendor, amount: Number(r.total_amount) })),
+      ledger: ledger || [],
+      ledgerTotal: (ledger || []).reduce((s, r) => s + Number(r.amount), 0),
+      financials: raw?.financials || {},
+      mixedBillCount: 0,
+    },
+  })
 }

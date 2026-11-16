@@ -43,28 +43,28 @@ export async function loadProjectRaw(projectId) {
     .in('bill_id', inList(billIds))
   if (itemsR.error) throw itemsR.error
 
-  // Consumption at this project, and every inbound purchase and outflow of the same materials, for the
-  // first-in, first-out trace.
+  // Consumption at this project, and exactly which stock lots each one drew (recorded as it happened).
   const consR = locationId
     ? await supabase.from('inventory_transactions')
-      .select('id, txn_date, created_at, quantity, total_cost, unit_cost, item_id, reference_type, location_id, inventory_items(name, units(code))')
+      .select('id, txn_date, created_at, quantity, total_cost, unit_cost, item_id, location_id, inventory_items(name, units(code))')
       .eq('location_id', locationId).eq('txn_type', 'consumption')
     : { data: [], error: null }
   if (consR.error) throw consR.error
-  const itemIds = [...new Set((consR.data || []).map((c) => c.item_id))]
-  const flowR = itemIds.length
-    ? await supabase.from('inventory_transactions')
-      .select('id, txn_type, txn_date, created_at, quantity, unit_cost, reference_type, reference_id, item_id, location_id')
-      .in('item_id', itemIds).in('txn_type', ['purchase', 'consumption', 'transfer_out'])
+  const consIds = (consR.data || []).map((c) => c.id)
+  const drawsR = consIds.length
+    ? await supabase.from('inventory_lot_draws')
+      .select('txn_id, quantity, vendor_bill_id, vendor_text')
+      .in('txn_id', consIds)
     : { data: [], error: null }
-  if (flowR.error) throw flowR.error
+  if (drawsR.error) throw drawsR.error
+  const drawBillIds = [...new Set((drawsR.data || []).map((d) => d.vendor_bill_id).filter(Boolean))]
+  const draws = drawsR.data || []
 
-  // The supplier of every purchase bill that stocked these materials, not only this project's bills.
-  const purchaseBillIds = [...new Set((flowR.data || []).filter((f) => f.txn_type === 'purchase' && f.reference_type === 'supplier_bill').map((f) => f.reference_id))]
-  const purchaseBillsR = purchaseBillIds.length
-    ? await supabase.from('supplier_bills').select('id, internal_bill_number, supplier_text, suppliers(name)').in('id', purchaseBillIds)
+  // The supplier of every bill a consumed material came from.
+  const draw_billsR = drawBillIds.length
+    ? await supabase.from('supplier_bills').select('id, internal_bill_number, supplier_text, suppliers(name)').in('id', drawBillIds)
     : { data: [], error: null }
-  if (purchaseBillsR.error) throw purchaseBillsR.error
+  if (draw_billsR.error) throw draw_billsR.error
 
   return {
     project,
@@ -75,44 +75,19 @@ export async function loadProjectRaw(projectId) {
     expenses: expR.data || [],
     jobWork: jobR.data || [],
     consumptions: consR.data || [],
-    flows: flowR.data || [],
-    purchaseBills: purchaseBillsR.data || [],
+    draws,
+    drawBills: draw_billsR.data || [],
   }
 }
 
-// Vendor split of each consumption, first-in first-out per material.
+// The vendor split of each consumption, exactly as recorded when the stock was drawn.
 function traceVendors(raw) {
-  const billVendor = new Map(raw.purchaseBills.map((b) => [b.id, b.suppliers?.name || b.supplier_text || 'Vendor not recorded']))
-  const byItem = new Map()
-  for (const f of raw.flows) {
-    if (!byItem.has(f.item_id)) byItem.set(f.item_id, [])
-    byItem.get(f.item_id).push(f)
-  }
-  const shares = new Map() // consumption txn id -> [{ vendor, qty }]
-  for (const [, events] of byItem) {
-    events.sort((a, b) => String(a.txn_date).localeCompare(String(b.txn_date)) || String(a.created_at).localeCompare(String(b.created_at)))
-    const lots = []
-    for (const e of events) {
-      const qty = num(e.quantity)
-      if (e.txn_type === 'purchase' && qty > 0) {
-        const vendor = e.reference_type === 'supplier_bill' ? billVendor.get(e.reference_id) || 'Vendor not recorded' : 'Company purchase (no vendor)'
-        lots.push({ vendor, qty })
-        continue
-      }
-      // Outflows: consumption and transfers out. Each takes from the oldest lots first.
-      let need = Math.abs(qty)
-      const taken = []
-      while (need > 1e-9 && lots.length) {
-        const lot = lots[0]
-        const take = Math.min(lot.qty, need)
-        taken.push({ vendor: lot.vendor, qty: take })
-        lot.qty -= take
-        need -= take
-        if (lot.qty <= 1e-9) lots.shift()
-      }
-      if (need > 1e-9) taken.push({ vendor: 'No purchase on record', qty: need })
-      if (e.txn_type === 'consumption') shares.set(e.id, taken)
-    }
+  const billVendor = new Map(raw.drawBills.map((b) => [b.id, b.suppliers?.name || b.supplier_text || 'Vendor not recorded']))
+  const shares = new Map()
+  for (const d of raw.draws) {
+    const vendor = d.vendor_bill_id ? (billVendor.get(d.vendor_bill_id) || 'Vendor not recorded') : (d.vendor_text || 'Company purchase (no vendor)')
+    if (!shares.has(d.txn_id)) shares.set(d.txn_id, [])
+    shares.get(d.txn_id).push({ vendor, qty: num(d.quantity) })
   }
   return shares
 }
