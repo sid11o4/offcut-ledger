@@ -111,7 +111,7 @@ export function SupplierList() {
   const rows = (q.data || []).filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase()))
   return (
     <div>
-      <PageHeader title="Vendors and contractors" subtitle="Open a vendor to see their bills, invoices, payments, returns, stock and every credit and debit." />
+      <PageHeader title="Material Vendors" subtitle="Open a vendor to see their bills, invoices, payments, returns, stock and every credit and debit." />
       <Card className="mb-5">
         <input className="field-input max-w-sm" placeholder="Search suppliers and contractors" value={search} onChange={(e) => setSearch(e.target.value)} />
       </Card>
