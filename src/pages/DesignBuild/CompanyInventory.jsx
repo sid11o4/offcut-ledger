@@ -9,7 +9,7 @@ import { money, qty } from '../../lib/format'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import TransferModal from '../../components/TransferModal'
-import CompositeModal, { CompositeBreakdown, MakeCompositeModal } from './CompositeModal'
+import CompositeModal, { CompositeBreakdown, MakeCompositeModal, useCompositeValues } from './CompositeModal'
 
 export default function CompanyInventory() {
   const valueQ = useCompanyInventoryValue()
@@ -28,6 +28,7 @@ export default function CompanyInventory() {
   const canOperate = hasPermission('inventory_operate')
 
   const rows = valueQ.data || []
+  const valuesQ = useCompositeValues()
   const compositeItems = (itemsQ.data || []).filter((i) => i.is_composite && i.active !== false)
   const compositeIds = new Set((itemsQ.data || []).filter((i) => i.is_composite).map((i) => i.id))
   // A component's cost for the composite form: its average cost in the pool, else its default rate.
@@ -116,7 +117,7 @@ export default function CompanyInventory() {
                 <tr key={c.id}>
                   <td>{c.name}</td>
                   <td className="num">{qty(rows.find((r) => r.item_id === c.id)?.quantity || 0)}</td>
-                  <td className="num">{money(c.default_rate || 0)}</td>
+                  <td className="num">{money(valuesQ.data?.get(c.id) ?? c.default_rate ?? 0)}</td>
                   <td className="num">{canOperate && <button type="button" className="btn-ghost text-xs" onClick={() => setEditComposite(c)}>Edit</button>}</td>
                 </tr>
               ))}
@@ -219,6 +220,7 @@ function PurchaseModal({ onClose }) {
   const toast = useToast()
   const qc = useQueryClient()
   const itemsQ = useInventoryItems()
+  const valuesQ = useCompositeValues()
   const unitsQ = useUnits()
   const NEW = '__new__'
   const NEW_UNIT = '__new_unit__'
@@ -270,7 +272,7 @@ function PurchaseModal({ onClose }) {
         <Field label="Material">
           <Select required value={form.item_id} onChange={(e) => {
             const it = (itemsQ.data || []).find((i) => i.id === e.target.value)
-            setForm({ ...form, item_id: e.target.value, unit_cost: it?.is_composite && it.default_rate ? String(it.default_rate) : form.unit_cost })
+            setForm({ ...form, item_id: e.target.value, unit_cost: it?.is_composite && (valuesQ.data?.get(it.id) || it.default_rate) ? String(valuesQ.data?.get(it.id) || it.default_rate) : form.unit_cost })
           }}>
             <option value="">Select…</option>
             {(itemsQ.data || []).filter((i) => i.active !== false).map((i) => <option key={i.id} value={i.id}>{i.name}{i.is_composite ? ' (composite)' : ''}{i.units ? ` (${i.units.name || i.units.code})` : ''}</option>)}

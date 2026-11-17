@@ -41,6 +41,18 @@ export function usePastingRate() {
   })
 }
 
+// Current value per unit of every composite, with pasting at today's catalogue rate.
+export function useCompositeValues() {
+  return useQuery({
+    queryKey: ['composite_values'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('inventory_composite_values').select('item_id, unit_value')
+      if (error) throw error
+      return new Map((data || []).map((r) => [r.item_id, Number(r.unit_value)]))
+    },
+  })
+}
+
 const PASTING_LABELS = ['Pasting (single side)', 'Pasting (both sides)']
 
 const ROLE_LABEL = { raw: 'Raw board', skin1: 'Skin 1', skin2: 'Skin 2', jobwork: 'Job work' }
@@ -49,7 +61,10 @@ export function CompositeBreakdown({ itemId }) {
   const q = useCompositeParts(itemId)
   const parts = q.data || []
   if (!parts.length) return <div className="px-3 py-2 text-xs text-ink-500">{q.isLoading ? 'Loading…' : 'No parts recorded.'}</div>
-  const total = parts.reduce((s, p) => s + Number(p.unit_cost), 0)
+  const rateQ = usePastingRate()
+  const skins = parts.filter((p) => p.role === 'skin1' || p.role === 'skin2').length
+  const pasting = skins * (rateQ.data || 0)
+  const total = parts.reduce((s, p) => s + Number(p.unit_cost), 0) + pasting
   return (
     <div className="px-3 py-2">
       <div className="text-xs font-medium text-ink-700 mb-1">Made up of (per unit)</div>
@@ -62,6 +77,11 @@ export function CompositeBreakdown({ itemId }) {
               <td className="num">{money(p.unit_cost)}</td>
             </tr>
           ))}
+          <tr>
+            <td className="text-ink-500">Job work</td>
+            <td>{skins > 1 ? 'Pasting (both sides)' : 'Pasting (single side)'} <span className="text-xs text-ink-500">at the current Pasting rate</span></td>
+            <td className="num">{money(pasting)}</td>
+          </tr>
           <tr><td colSpan={2} className="font-medium">Combined value</td><td className="num font-medium">{money(total)}</td></tr>
         </tbody>
       </table>
@@ -109,7 +129,6 @@ export default function CompositeModal({ onClose, costOf, existing }) {
       { role: 'raw', component_item_id: raw.item, unit_cost: num(raw.cost) },
       { role: 'skin1', component_item_id: skin1.item, unit_cost: num(skin1.cost) },
       ...(skin2.item ? [{ role: 'skin2', component_item_id: skin2.item, unit_cost: num(skin2.cost) }] : []),
-      ...(pasting ? [{ role: 'jobwork', label: pasting.label, unit_cost: pasting.cost }] : []),
       ...jobs.filter((j) => j.label.trim() || j.cost).map((j) => ({ role: 'jobwork', label: j.label, unit_cost: num(j.cost) })),
     ]
     setSaving(true)
@@ -120,6 +139,7 @@ export default function CompositeModal({ onClose, costOf, existing }) {
     invalidateInventory(qc)
     qc.invalidateQueries({ queryKey: ['inventory_items'] })
     qc.invalidateQueries({ queryKey: ['composite_parts'] })
+    qc.invalidateQueries({ queryKey: ['composite_values'] })
     onClose()
   }
 
@@ -153,7 +173,7 @@ export default function CompositeModal({ onClose, costOf, existing }) {
           <div className="font-medium text-ink-950">{name || 'Raw board / Skin 1 / Skin 2'}</div>
           {pasting && (
             <div className="mt-1 text-xs text-ink-500">
-              {pasting.label}: <span className="tnum text-ink-950">{money(pasting.cost)}</span> per unit, from the Pasting rate{skin2.item ? ' for both sides' : ''}.
+              {pasting.label}: <span className="tnum text-ink-950">{money(pasting.cost)}</span> per unit, taken live from the Pasting rate in the job work catalogue{skin2.item ? ' (both sides)' : ''}.
               {!pastingRate && !pastingQ.isLoading && ' No Pasting rate is set for Design Build Order.'}
             </div>
           )}
@@ -201,7 +221,10 @@ export function MakeCompositeModal({ onClose, stockRows, composites, initialId, 
   const q = Number(quantity) || 0
   const stockOf = (id) => stockRows.find((r) => r.item_id === id)
   const materialParts = parts.filter((p) => p.role !== 'jobwork')
-  const jobCost = parts.filter((p) => p.role === 'jobwork').reduce((s, p) => s + Number(p.unit_cost), 0)
+  const pastingRateQ = usePastingRate()
+  const skinCount = parts.filter((p) => p.role === 'skin1' || p.role === 'skin2').length
+  const pastingCost = skinCount * (pastingRateQ.data || 0)
+  const jobCost = parts.filter((p) => p.role === 'jobwork').reduce((s, p) => s + Number(p.unit_cost), 0) + pastingCost
   const unitCost = materialParts.reduce((s, p) => s + Number(stockOf(p.component_item_id)?.avg_unit_cost || 0), 0) + jobCost
   const short = materialParts.filter((p) => Number(stockOf(p.component_item_id)?.quantity || 0) < q)
 
@@ -248,6 +271,9 @@ export function MakeCompositeModal({ onClose, stockRows, composites, initialId, 
                   </tr>
                 )
               })}
+              {itemId && skinCount > 0 && (
+                <tr><td colSpan={3}>Job work: {skinCount > 1 ? 'Pasting (both sides)' : 'Pasting (single side)'}</td><td className="num">{money(pastingCost)}</td></tr>
+              )}
               {parts.filter((p) => p.role === 'jobwork').map((p) => (
                 <tr key={p.id}><td colSpan={3}>Job work: {p.label}</td><td className="num">{money(p.unit_cost)}</td></tr>
               ))}
