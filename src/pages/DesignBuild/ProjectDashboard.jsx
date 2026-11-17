@@ -1,4 +1,5 @@
 import { useParams, Link, useNavigate } from 'react-router-dom'
+import CostByCategoryCard from '../../components/CostByCategoryCard'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, StatCard, StatusBadge, EmptyState, LoadingBlock } from '../../components/ui'
@@ -146,6 +147,8 @@ export default function ProjectDashboard() {
           </>
         }
       />
+
+      <CostByCategoryCard projectId={id} />
 
       <Card title="Financials" className="mb-5">
         <div className="grid grid-cols-2 md:grid-cols-6 gap-4 divide-x divide-ink-200">

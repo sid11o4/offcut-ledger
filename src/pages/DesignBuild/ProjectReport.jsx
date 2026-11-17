@@ -5,6 +5,8 @@ import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, StatCard, EmptyState, LoadingBlock } from '../../components/ui'
 import BankStatement from '../../components/BankStatement'
 import { useAppSettings } from '../../lib/queries'
+import CostBreakdown from '../../components/CostBreakdown'
+import { loadCostBreakdown } from '../../lib/costGroups'
 import { downloadDesignProjectReport } from '../../lib/designProjectReportPdf'
 import { displayDate } from '../../lib/dates'
 import { money, qty } from '../../lib/format'
@@ -14,7 +16,7 @@ const FAR_FUTURE = '2100-01-01'
 
 // Everything the project report needs, gathered once so the page and the PDF show the same numbers.
 async function loadProjectReport(id) {
-  const [projectR, financialsR, ledgerR, expensesR, locationR, billsR, contractR] = await Promise.all([
+  const [projectR, financialsR, ledgerR, expensesR, locationR, billsR, contractR, costRows] = await Promise.all([
     supabase.from('design_projects').select('*, clients(name)').eq('id', id).single(),
     supabase.rpc('report_design_project_financials', { p_design_project_id: id }),
     supabase.rpc('design_build_ledger', { p_start: FAR_PAST, p_end: FAR_FUTURE }),
@@ -24,6 +26,7 @@ async function loadProjectReport(id) {
     supabase.from('supplier_bills').select('id, bill_date, supplier_text, remarks, grand_total, expense_nature, suppliers(name)')
       .eq('design_project_id', id).eq('status', 'approved'),
     supabase.rpc('project_contract_summary', { p_design_project_id: id }),
+    loadCostBreakdown({ projectId: id }),
   ])
   for (const r of [projectR, financialsR, ledgerR, expensesR, locationR, billsR, contractR]) {
     if (r.error) throw r.error
@@ -35,18 +38,6 @@ async function loadProjectReport(id) {
   const bills = billsR.data || []
   // The ledger RPC is newest first; a statement reads oldest first.
   const ledger = (ledgerR.data || []).filter((r) => r.design_project_id === id).reverse()
-
-  // Expenses by category: the two bill-driven lines first, then each expense category.
-  const byCategory = new Map()
-  const add = (name, amount) => byCategory.set(name, (byCategory.get(name) || 0) + Number(amount))
-  add('Labour and other bills (non-stock)', f.bill_expense_total || 0)
-  add('Design Build Order (Factory job-work)', f.internal_order_total || 0)
-  add('Materials consumed', f.materials_consumed_total || 0)
-  for (const x of expenses) add(x.expense_categories?.name || 'Uncategorised', x.amount)
-  const categories = [...byCategory.entries()]
-    .filter(([, amount]) => amount > 0)
-    .map(([name, amount]) => ({ name, amount }))
-    .sort((a, b) => b.amount - a.amount)
 
   const spent = Number(f.bill_expense_total || 0) + Number(f.internal_order_total || 0) + Number(f.direct_expenses_total || 0) + Number(f.materials_consumed_total || 0)
   const contractTotal = Number(contractR.data?.[0]?.contract_total || 0)
@@ -84,7 +75,7 @@ async function loadProjectReport(id) {
   ].sort((a, b) => String(a.date).localeCompare(String(b.date)))
 
   return {
-    project, contractTotal, spent, headroom, categories, materials, labour, ledger, ledgerTotal,
+    project, contractTotal, spent, headroom, costRows, materials, labour, ledger, ledgerTotal,
     financials: f,
     contract: contractR.data?.[0] || {},
     mixedBillCount: bills.filter((b) => b.expense_nature === 'both').length,
@@ -151,17 +142,7 @@ export default function DesignProjectReport() {
       </Card>
 
       <Card title="Expenses by category" className="mb-5">
-        {!r.categories.length ? <EmptyState title="No expenses recorded" /> : (
-          <table className="table-base">
-            <thead><tr><th>Category</th><th className="num">Amount</th></tr></thead>
-            <tbody>
-              {r.categories.map((c) => (
-                <tr key={c.name}><td>{c.name}</td><td className="num">{money(c.amount)}</td></tr>
-              ))}
-            </tbody>
-            <tfoot><tr><td className="font-medium">Total</td><td className="num font-medium">{money(r.spent)}</td></tr></tfoot>
-          </table>
-        )}
+        <CostBreakdown rows={r.costRows} />
       </Card>
 
       <Card title="Materials consumed" className="mb-5">

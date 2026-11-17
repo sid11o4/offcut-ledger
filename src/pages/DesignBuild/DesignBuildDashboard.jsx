@@ -1,4 +1,5 @@
 import PayReceiveCards from '../../components/PayReceiveCards'
+import CostByCategoryCard from '../../components/CostByCategoryCard'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
@@ -72,6 +73,7 @@ export default function DesignBuildDashboard() {
       )}
 
       <PayReceiveCards />
+      <CostByCategoryCard />
 
       <div className="grid gap-5 lg:grid-cols-3">
         <section className="lg:col-span-2">

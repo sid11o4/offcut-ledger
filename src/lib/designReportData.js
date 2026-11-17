@@ -1,3 +1,4 @@
+import { groupCosts, loadCostBreakdown } from './costGroups'
 import { supabase } from './supabaseClient'
 import { buildTableDoc } from './reportPdf'
 import { displayDate } from './dates'
@@ -26,25 +27,11 @@ export async function loadProjectSummary() {
   })
 }
 
+// Every Design Build cost in the period, in the report groups (Labour, Materials by kind, Factory Job Work,
+// Transport, Miscellaneous), with the project or company each was charged to.
 export async function loadExpensesByCategory(start, end) {
-  const { data, error } = await supabase
-    .from('design_build_expenses')
-    .select('amount, design_project_id, expense_categories(name), design_projects(name)')
-    .eq('status', 'active').gte('expense_date', start).lte('expense_date', end)
-  if (error) throw error
-  const byCategory = new Map()
-  for (const r of data || []) {
-    const cat = r.expense_categories?.name || 'Uncategorised'
-    const place = r.design_projects?.name || 'Company'
-    const entry = byCategory.get(cat) || { name: cat, total: 0, places: new Map() }
-    entry.total += Number(r.amount)
-    entry.places.set(place, (entry.places.get(place) || 0) + Number(r.amount))
-    byCategory.set(cat, entry)
-  }
-  const categories = [...byCategory.values()]
-    .map((c) => ({ name: c.name, total: c.total, places: [...c.places.entries()].sort((a, b) => b[1] - a[1]) }))
-    .sort((a, b) => b.total - a.total)
-  return { categories, grand: categories.reduce((s, c) => s + c.total, 0) }
+  const rows = await loadCostBreakdown({ start, end })
+  return { rows, grand: rows.reduce((s, r) => s + Number(r.amount), 0) }
 }
 
 export async function loadMaterials(start, end) {
@@ -117,9 +104,11 @@ export function designReportPdf(section, data, { title, subtitle, period }) {
   }
   if (section === 'expenses') {
     const body = []
-    for (const c of data.categories) {
-      body.push([c.name, '', money(c.total), data.grand ? `${((c.total / data.grand) * 100).toFixed(1)}%` : '—'])
-      for (const [place, amount] of c.places) body.push([`    ${place}`, '', money(amount), c.total ? `${((amount / c.total) * 100).toFixed(1)}%` : '—'])
+    const pct = (v, of) => (of ? `${((v / of) * 100).toFixed(1)}%` : '—')
+    for (const g of groupCosts(data.rows).groups) {
+      body.push([g.name, '', money(g.total), pct(g.total, data.grand)])
+      if (g.subs) for (const sub of g.subs) body.push([`    ${sub.name}`, '', money(sub.amount), pct(sub.amount, g.total)])
+      for (const [place, amount] of [...g.places.entries()].sort((a, b) => b[1] - a[1])) body.push([`      charged to ${place}`, '', money(amount), pct(amount, g.total)])
     }
     return buildTableDoc({
       title, subtitle, meta,

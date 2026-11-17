@@ -30,10 +30,10 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
 }
 
-// Material lines take one of raw_boards, skins, edgeband, hardware or other (shown as Others);
-// labour lines take factory_labour, site_labour or employee_salary.
+// Material lines take raw_boards, skins, edgeband, adhesives, hardware or other (Others); freight is
+// transport and anything else is miscellaneous. Labour lines take factory_labour, site_labour or employee_salary.
 const COST_HEADS = [
-  'raw_boards', 'skins', 'edgeband', 'hardware', 'other',
+  'raw_boards', 'skins', 'edgeband', 'adhesives', 'hardware', 'other', 'transport', 'miscellaneous',
   'factory_labour', 'site_labour', 'employee_salary',
 ]
 
@@ -60,7 +60,7 @@ const EXTRACT_SCHEMA = {
     expense_nature: { type: 'string', enum: ['material', 'labour', 'both'], description: 'Which "Type of Expense" box(es) are ticked.' },
     cost_heads: {
       type: 'array', items: { type: 'string', enum: COST_HEADS },
-      description: 'Every "Cost Head" box that is ticked, mapped to these keys: Factory Labour=factory_labour, Site Labour=site_labour, Raw Boards=raw_boards, Laminate and Veneer=skins, Employee Salary=employee_salary, Factory Consumables=other, Fevicol/Adhesives=other, Other=other.',
+      description: 'Every "Cost Head" box that is ticked, mapped to these keys: Factory Labour=factory_labour, Site Labour=site_labour, Raw Boards=raw_boards, Laminate and Veneer=skins, Employee Salary=employee_salary, Factory Consumables=other, Fevicol/Adhesives=adhesives, Other=other.',
     },
     line_items: {
       type: 'array',
@@ -77,7 +77,7 @@ const EXTRACT_SCHEMA = {
           material_confidence: { type: 'number', description: '0-1 confidence that material_match is the same product (0 if material_match is null).' },
           cost_head: {
             type: 'string', enum: COST_HEADS,
-            description: 'The single cost head this line belongs to, judged from THIS line\'s description and type. Material lines: boards, plywood, MDF, HDHMR, BWP, MR sheets -> raw_boards; laminates, veneers, skins, sunmica -> skins; edge tape, edge banding, PVC tape -> edgeband; hinges, channels, handles, screws, locks, fittings and other hardware -> hardware; anything else material (fevicol, adhesives, consumables, packing) -> other. Labour lines: labour wages on site -> site_labour, factory helper wages -> factory_labour, salary -> employee_salary. Ignore the slip-level Cost Head boxes for this decision: they are only a hint.',
+            description: 'The single cost head this line belongs to, judged from THIS line\'s description and type. Material lines: boards, plywood, MDF, HDHMR, BWP, MR sheets -> raw_boards; laminates, veneers, skins, sunmica -> skins; edge tape, edge banding, PVC tape -> edgeband; fevicol, adhesives, glue, gum -> adhesives; hinges, channels, handles, screws, locks, fittings and other hardware -> hardware; anything else material (consumables, packing) -> other; transport, freight, cartage, loading and unloading charges -> transport; any other charge that is not a material or labour -> miscellaneous. Labour lines: labour wages on site -> site_labour, factory helper wages -> factory_labour, salary -> employee_salary. Ignore the slip-level Cost Head boxes for this decision: they are only a hint.',
           },
         },
         required: ['description', 'item_type', 'quantity', 'rate_inclusive', 'gst_percent', 'cost_head'],
@@ -161,7 +161,7 @@ Read the supplier's name, GSTIN, phone and address from the vendor's own letterh
 Read the bill or invoice number and the bill date (as an ISO YYYY-MM-DD date) into bill_number and bill_date.
 Read every line item: description verbatim, quantity, unit, rate, GST % and the line amount. Report rate_inclusive exactly as written, and do not compute anything yourself. Use null for anything blank or illegible.
 Report grand_total as printed. Leave payments empty unless the document shows payments already made.
-Assign each line its cost_head from what the line is (a material line is raw_boards, skins, edgeband, hardware or other; a labour line is factory_labour, site_labour or employee_salary), and item_type as material or labour.
+Assign each line its cost_head from what the line is (a material line is raw_boards, skins, edgeband, adhesives, hardware or other; freight is transport; anything else that is not material or labour is miscellaneous; a labour line is factory_labour, site_labour or employee_salary), and item_type as material or labour.
 
 Known suppliers (supplier_match must be an exact copy from this list, or null):
 ${list(suppliers)}

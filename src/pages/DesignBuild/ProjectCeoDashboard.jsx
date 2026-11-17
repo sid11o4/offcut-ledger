@@ -9,6 +9,8 @@ import { useAppSettings } from '../../lib/queries'
 import { downloadDesignProjectReport } from '../../lib/designProjectReportPdf'
 import MaterialSources from './MaterialSources'
 import { loadProjectRaw, computeProjectCeo } from '../../lib/projectCeoData'
+import CostBreakdown from '../../components/CostBreakdown'
+import { loadCostBreakdown } from '../../lib/costGroups'
 import { displayDate } from '../../lib/dates'
 import { PieChart, Pie as PieSlices, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts'
 import { money, qty } from '../../lib/format'
@@ -30,6 +32,11 @@ export default function ProjectCeoDashboard() {
 
   const data = useMemo(() => (rawQ.data ? computeProjectCeo(rawQ.data, range) : null), [rawQ.data, range])
   const settingsQ = useAppSettings()
+  // Costs in the report groups, for the same period as the rest of the dashboard.
+  const costQ = useQuery({
+    queryKey: ['project_ceo_cost', id, range.start, range.end],
+    queryFn: () => loadCostBreakdown({ projectId: id, start: range.start || null, end: range.end || null }),
+  })
   // The project's ledger, oldest first, as the Design Build ledger records it.
   const ledgerQ = useQuery({
     queryKey: ['project_ceo_ledger', id],
@@ -52,7 +59,7 @@ export default function ProjectCeoDashboard() {
         subtitle={`${p.code} · ${p.clients?.name || 'No client set'} · ${p.status} · started ${displayDate(p.start_date)}`}
         actions={
           <>
-            <button className="btn-secondary" disabled={!data || !ledgerQ.data} onClick={() => downloadPdf(data, rawQ.data, ledgerQ.data, settingsQ.data)}>Download PDF</button>
+            <button className="btn-secondary" disabled={!data || !ledgerQ.data} onClick={() => downloadPdf(data, rawQ.data, ledgerQ.data, settingsQ.data, costQ.data || [])}>Download PDF</button>
             <Link className="btn-secondary" to={`/design-build/projects/${id}`}>Project page</Link>
           </>
         }
@@ -90,7 +97,7 @@ export default function ProjectCeoDashboard() {
         ))}
       </div>
 
-      {tab === 'overview' && <Overview data={data} onOpen={setTab} />}
+      {tab === 'overview' && <Overview data={data} onOpen={setTab} costRows={costQ.data || []} />}
       {tab === 'materials' && <Materials data={data} projectId={id} />}
       {tab === 'labour' && <Labour data={data} />}
       {tab === 'factory' && <Factory data={data} />}
@@ -110,11 +117,11 @@ function Kpi({ label, value, tone }) {
   )
 }
 
-function Overview({ data, onOpen }) {
+function Overview({ data, onOpen, costRows }) {
   return (
     <div className="grid gap-5 lg:grid-cols-2">
-      <Card title="Split of expenses">
-        {!data.slices.length ? <EmptyState title="No expenses in this period" /> : <Pie slices={data.slices} total={data.total} onOpen={onOpen} />}
+      <Card title="Cost by category">
+        <CostBreakdown rows={costRows} />
       </Card>
       <Card title="Spend by month">
         {!data.trend.length ? <EmptyState title="No spend in this period" /> : <Trend trend={data.trend} />}
@@ -399,14 +406,14 @@ function LedgerTab({ rows, loading, error }) {
 }
 
 // The project PDF in the house layout, built from the same figures the dashboard shows.
-function downloadPdf(data, raw, ledger, settings) {
+function downloadPdf(data, raw, ledger, settings, costRows) {
   downloadDesignProjectReport({
     settings,
     project: data.project,
     data: {
       contract: { contract_total: data.kpis.contractValue, received_total: data.kpis.received, balance_due: data.kpis.balanceDue },
       spent: data.total,
-      categories: data.slices.map((s) => ({ name: s.label, amount: s.value })),
+      costRows,
       materials: data.materials.map((m) => ({ name: m.name, unit: m.unit, quantity: m.quantity, cost: m.cost })),
       labour: data.labour.map((r) => ({ date: r.date, description: r.description || 'Labour', party: r.vendor, amount: Number(r.total_amount) })),
       ledger: ledger || [],

@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient'
+import { flatCosts, loadCostBreakdown } from './costGroups'
 
 // Consolidated Design Build reports and supplier / contractor statements. Each returns the category
 // breakdown and the ledger rows in the shape BankStatement and the statement PDF already use.
@@ -7,8 +8,10 @@ const FAR_PAST = '2000-01-01'
 
 // Cost heads on supplier bills, with the labels the Bill Audit Queue shows.
 export const COST_HEAD_LABEL = {
-  raw_boards: 'Raw Boards', skins: 'Skins', edgeband: 'Edgeband', hardware: 'Hardware', other: 'Others',
-  factory_labour: 'Factory Labour', site_labour: 'Site Labour', employee_salary: 'Employee Salary',
+  raw_boards: 'Materials — Raw Board', skins: 'Materials — Skin', edgeband: 'Materials — Edgeband',
+  adhesives: 'Materials — Adhesives', hardware: 'Materials — Others (hardware)', other: 'Materials — Others',
+  transport: 'Transport', miscellaneous: 'Miscellaneous',
+  factory_labour: 'Labour — Factory', site_labour: 'Labour — Site', employee_salary: 'Labour — Salary',
 }
 
 function inPeriod(date, start, end) {
@@ -30,37 +33,16 @@ export async function listSuppliers() {
 // Consolidated report for a period, optionally for one Design Build project. Company-level rows are
 // included only when no project is chosen.
 export async function loadConsolidated({ start, end, projectId }) {
-  const [billsR, expensesR, ledgerR] = await Promise.all([
-    supabase.from('supplier_bills')
-      .select('bill_date, grand_total, cost_heads, design_project_id, internal_bill_number, supplier_text, suppliers(name)')
-      .eq('status', 'approved').gte('bill_date', start).lte('bill_date', end),
-    supabase.from('design_build_expenses')
-      .select('expense_date, amount, description, design_project_id, expense_categories(name)')
-      .eq('status', 'active').gte('expense_date', start).lte('expense_date', end),
-    supabase.rpc('design_build_ledger', { p_start: FAR_PAST, p_end: end }),
-  ])
-  for (const r of [billsR, expensesR, ledgerR]) if (r.error) throw r.error
+  const ledgerR = await supabase.rpc('design_build_ledger', { p_start: FAR_PAST, p_end: end })
+  if (ledgerR.error) throw ledgerR.error
 
   const inScope = (pid) => (projectId ? pid === projectId : true)
-  const bills = (billsR.data || []).filter((b) => inScope(b.design_project_id))
-  const expenses = (expensesR.data || []).filter((x) => inScope(x.design_project_id))
   const ledgerAll = (ledgerR.data || []).filter((r) => inScope(r.design_project_id)).reverse() // oldest first
 
-  const byCategory = new Map()
-  const add = (name, amount) => byCategory.set(name, (byCategory.get(name) || 0) + amount)
-  for (const b of bills) {
-    const heads = headsOf(b)
-    for (const h of heads) add(`Supplier bills — ${COST_HEAD_LABEL[h] || h}`, Number(b.grand_total) / heads.length)
-  }
-  for (const r of ledgerAll.filter((r) => r.category === 'Design Build Order' && inPeriod(r.txn_date, start, end))) {
-    add('Design Build Order (Factory job-work)', Number(r.amount))
-  }
-  for (const x of expenses) add(`Expense — ${x.expense_categories?.name || 'Uncategorised'}`, Number(x.amount))
-
-  const categories = [...byCategory.entries()]
-    .map(([name, amount]) => ({ name, amount }))
-    .sort((a, b) => b.amount - a.amount)
-  const total = categories.reduce((s, c) => s + c.amount, 0)
+  // Costs in the report groups: Labour; Materials by kind; Factory Job Work; Transport; Miscellaneous.
+  const costRows = await loadCostBreakdown({ start, end, projectId: projectId || null })
+  const categories = flatCosts(costRows)
+  const total = costRows.reduce((s, r) => s + Number(r.amount), 0)
 
   // Ledger: money out in the period, with the balance brought forward from before the period.
   const opening = ledgerAll.filter((r) => r.txn_date < start).reduce((s, r) => s + Number(r.amount), 0)
