@@ -9,7 +9,7 @@ const FAR_PAST = '2000-01-01'
 // Cost heads on supplier bills, with the labels the Bill Audit Queue shows.
 export const COST_HEAD_LABEL = {
   raw_boards: 'Materials — Raw Board', skins: 'Materials — Skin', edgeband: 'Materials — Edgeband',
-  adhesives: 'Materials — Adhesives', hardware: 'Materials — Others (hardware)', other: 'Materials — Others',
+  adhesives: 'Materials — Adhesives', hardware: 'Materials — Hardware', other: 'Materials — Others',
   transport: 'Transport', miscellaneous: 'Miscellaneous',
   factory_labour: 'Labour — Factory', site_labour: 'Labour — Site', employee_salary: 'Labour — Salary',
 }
