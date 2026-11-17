@@ -1,9 +1,10 @@
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import CostByCategoryCard from '../../components/CostByCategoryCard'
+import ProjectSpendTiles from '../../components/ProjectSpendTiles'
 import { loadProjectSpend } from '../../lib/projectSpend'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
-import { PageHeader, Card, StatCard, StatusBadge, EmptyState, LoadingBlock } from '../../components/ui'
+import { PageHeader, Card, StatusBadge, EmptyState, LoadingBlock } from '../../components/ui'
 import { money, qty } from '../../lib/format'
 import { displayDate } from '../../lib/dates'
 import { useToast } from '../../components/Toast'
@@ -132,7 +133,6 @@ export default function ProjectDashboard() {
 
   if (projectQ.isLoading) return <LoadingBlock />
   const p = projectQ.data
-  const f = financialsQ.data || {}
 
   return (
     <div>
@@ -151,30 +151,15 @@ export default function ProjectDashboard() {
         }
       />
 
+      <ProjectSpendTiles spend={spendQ.data} contract={contractQ.data?.contract_total} />
+
       <CostByCategoryCard projectId={id} />
 
-      <Card title="Financials" className="mb-5">
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 divide-x divide-ink-200">
-          <div><StatCard label="Contract value" value={money(contractQ.data?.contract_total)} money /></div>
-          <div className="pl-4"><StatCard label="Supplier Bills" value={money(f.supplier_bills_total)} money /></div>
-          <div className="pl-4"><StatCard label="Design Build Order (Factory job-work)" value={money(f.internal_order_total)} money /></div>
-          <div className="pl-4"><StatCard label="Direct expenses" value={money(f.direct_expenses_total)} money /></div>
-          <div className="pl-4"><StatCard label="Materials consumed" value={money(f.materials_consumed_total)} money /></div>
-          <div className="pl-4"><StatCard label="Inventory on hand" value={money(f.current_inventory_value)} money /></div>
-        </div>
-        <div className="mt-4 pt-4 border-t border-ink-100 grid grid-cols-2 md:grid-cols-5 gap-4">
-          <StatCard label="Labour" value={money(spendQ.data?.labour)} money />
-          <StatCard label="Materials consumed" value={money(spendQ.data?.materials)} money />
-          <StatCard label="Job work, transport & other" value={money(spendQ.data?.other)} money />
-          <StatCard label="Project inventory" value={money(spendQ.data?.inventory)} money />
-          <StatCard label="Spent (all costs + project inventory)" value={money(spendQ.data?.spent)} tone="bad" money />
-        </div>
-        {p?.projects && (
-          <div className="mt-4 pt-3 border-t border-ink-100 text-xs text-ink-500">
-            Linked Factory project: <Link to={`/projects/${p.projects.id}`} className="text-ink-900 hover:underline">{p.projects.name}</Link> — job-work billed under Design Build Order auto-posts material consumption here.
-          </div>
-        )}
-      </Card>
+      {p?.projects && (
+        <p className="mb-5 text-xs text-ink-500">
+          Linked Factory project: <Link to={`/projects/${p.projects.id}`} className="text-ink-900 hover:underline">{p.projects.name}</Link> — job-work billed under Design Build Order auto-posts material consumption here.
+        </p>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-5">
         <Card title="Project inventory on hand">
