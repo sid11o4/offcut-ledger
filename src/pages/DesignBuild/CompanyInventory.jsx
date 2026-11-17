@@ -113,10 +113,22 @@ export default function CompanyInventory() {
           <table className="table-base">
             <thead><tr><th>Material</th><th>Category</th><th className="num">Quantity</th><th>Unit</th><th className="num">Avg cost</th><th className="num">Value</th><th className="num"></th></tr></thead>
             <tbody>
-              {shownRows.map((r) => {
+              {shownRows.map((r, idx) => {
                 const low = r.quantity < 10
+                const g = groupOf(r.item_id)
+                const startsGroup = idx === 0 || groupOf(shownRows[idx - 1].item_id) !== g
                 return (
                   <Fragment key={r.item_id}>
+                    {startsGroup && (
+                      <tr className="bg-ink-50">
+                        <td colSpan={7} className="!py-2 text-xs font-semibold uppercase tracking-wide text-ink-700">
+                          {g}
+                          <span className="ml-2 font-normal normal-case tracking-normal text-ink-500">
+                            {groupStats[g].count} material{groupStats[g].count === 1 ? '' : 's'} · <span className="tnum">{money(groupStats[g].value)}</span>
+                          </span>
+                        </td>
+                      </tr>
+                    )}
                     <tr className="cursor-pointer" onClick={() => setOpenItem(openItem === r.item_id ? null : r.item_id)}>
                       <td>{r.item_name} {compositeIds.has(r.item_id) && <Badge tone="brand">Composite</Badge>} <span className="text-xs text-ink-500">{openItem === r.item_id ? '· hide details' : '· details'}</span></td>
                       <td onClick={(e) => e.stopPropagation()}>

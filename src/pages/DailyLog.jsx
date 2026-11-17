@@ -181,8 +181,8 @@ export default function DailyLog() {
 // What an Design Build Order job uses per sheet, read from the job's name: a double-side job uses a raw
 // board and two laminates, a single-side job a raw board and one laminate, and plain cutting a core.
 const LAMINATION = {
-  double: { title: 'Double side · 2 skins', hint: 'Each sheet uses one raw board and two laminates. Type the board as thickness, category and type (e.g. 16MM MR PLY) and each laminate as its code (e.g. 6965SUD); stock is matched from that.' },
-  single: { title: 'Single side · 1 skin', hint: 'Each sheet uses one raw board and one laminate. Type the board as thickness, category and type (e.g. 16MM MR PLY) and the laminate as its code (e.g. 6965SUD); stock is matched from that.' },
+  double: { title: 'Double side · 2 skins', hint: 'Each sheet uses one raw board and two laminates. Pick the board from Raw Boards and each laminate from Skins.' },
+  single: { title: 'Single side · 1 skin', hint: 'Each sheet uses one raw board and one laminate. Pick the board from Raw Boards and the laminate from Skins.' },
   core: { title: 'Cutting · core', hint: 'Each sheet uses one core board. Type it as thickness, category and type (e.g. 16MM MR PLY).' },
   edgeband: { title: 'Edge banding · R.m', hint: 'Each running metre uses one edgeband. Type its code (e.g. 2MM EB 6965SUD) as it is in stock; the R.m entered above is consumed from that edgeband.' },
 }
@@ -222,108 +222,6 @@ function laminationFor(serviceName) {
   return null
 }
 
-const PART_LABEL = { raw: 'Raw board', skin1: 'Skin 1 laminate', skin2: 'Skin 2 laminate' }
-
-// Lower-case letters and digits only, so spacing, punctuation and capitals do not count.
-function squash(text) {
-  return String(text ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
-}
-
-// Similarity from 0 (nothing shared) to 1 (identical), on the pairs of characters the two share.
-function similarity(a, b) {
-  if (!a || !b) return 0
-  if (a === b) return 1
-  if (a.length < 2 || b.length < 2) return 0
-  const pairs = (s) => {
-    const m = new Map()
-    for (let i = 0; i < s.length - 1; i++) {
-      const pair = s.slice(i, i + 2)
-      m.set(pair, (m.get(pair) || 0) + 1)
-    }
-    return m
-  }
-  const pa = pairs(a)
-  const pb = pairs(b)
-  let shared = 0
-  for (const [pair, n] of pa) shared += Math.min(n, pb.get(pair) || 0)
-  return (2 * shared) / ((a.length - 1) + (b.length - 1))
-}
-
-// The thickness figures in a name, so a 16 mm board never matches an 18 mm one.
-function thicknessOf(text) {
-  return (String(text ?? '').toLowerCase().match(/\d+/g) || []).join(' ')
-}
-
-// How well a stock name matches what was typed, from 0 to 1. A raw board is compared with and
-// without the Century brand, which is assumed when none is typed. A laminate matches on its code.
-function scoreMaterial(kind, typed, stockName) {
-  const t = squash(typed)
-  const s = squash(stockName)
-  if (!t || !s) return 0
-  if (kind === 'laminate') {
-    if (s === t) return 1
-    // The code as a run of whole words in the stock name ("6965 SUD" for 6965SUD) is a clear match;
-    // the code inside a longer code ("6965SUDS") is only a candidate.
-    const words = String(stockName).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
-    for (let i = 0; i < words.length; i++) {
-      let run = ''
-      for (let j = i; j < words.length && run.length < t.length; j++) {
-        run += words[j]
-        if (run === t) return 0.97
-      }
-    }
-    return s.includes(t) ? 0.85 : similarity(t, s)
-  }
-  if (thicknessOf(typed) && thicknessOf(typed) !== thicknessOf(stockName)) return 0
-  return Math.max(similarity(t, s), similarity(squash(`century ${typed}`), s))
-}
-
-// What a typed material refers to. A clear single match is used as it is. Anything less certain is
-// a doubt, with the closest candidates, for the user to decide before the entry is saved. Nothing
-// close at all is a new item.
-function matchFor(kind, typed, items) {
-  const text = String(typed ?? '').trim()
-  const name = kind === 'raw' ? rawBoardName(text) : text.toUpperCase()
-  const ranked = items
-    .map((i) => ({ item: i, score: scoreMaterial(kind, text, i.name) }))
-    .filter((r) => r.score >= 0.5)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
-  const top = ranked[0]
-  if (top && top.score >= 0.92 && !(ranked[1] && ranked[1].score >= 0.92)) {
-    return { status: 'match', id: top.item.id, name: top.item.name }
-  }
-  if (!ranked.length) return { status: 'new', name, typed: text }
-  return { status: 'doubt', name, typed: text, candidates: ranked.map((r) => ({ id: r.item.id, name: r.item.name })) }
-}
-
-// The board and laminate(s) of a lamination job, each matched to stock.
-function matchLamination(lamKind, laminate, items) {
-  if (lamKind === 'edgeband') return { raw: matchFor('laminate', laminate.raw, items), skin1: null, skin2: null }
-  return {
-    raw: matchFor('raw', laminate.raw, items),
-    skin1: lamKind !== 'core' ? matchFor('laminate', laminate.skin1, items) : null,
-    skin2: lamKind === 'double' ? matchFor('laminate', laminate.skin2, items) : null,
-  }
-}
-
-// What each part will use: a matched item, a new item to create, or -- for a doubt the user has not
-// answered -- the closest candidate, which they can change before saving.
-function defaultPicks(matches) {
-  const picks = {}
-  for (const [key, m] of Object.entries(matches)) {
-    if (!m) continue
-    if (m.status === 'match') picks[key] = { id: m.id }
-    else if (m.status === 'new') picks[key] = { create: m.name }
-    else picks[key] = { id: m.candidates[0].id }
-  }
-  return picks
-}
-
-function hasDoubt(matches) {
-  return Object.values(matches).some((m) => m && m.status === 'doubt')
-}
-
 // The lamination fields for the entry, creating any new item first. Each sheet uses one of each.
 async function laminationArgs(picks, quantity, unitCode = 'SHEET') {
   const sheets = Number(quantity)
@@ -349,6 +247,37 @@ function rawBoardName(typed) {
 }
 
 
+// A material chosen from the inventory category it belongs to, or typed as a new one. A new material is
+// created on the spot and shows as negative stock until it is bought.
+const NEW_MATERIAL = '__new__'
+function MaterialPicker({ label, category, items, value, onChange, placeholder }) {
+  const options = items.filter((i) => i.active !== false && !i.is_composite && i.category === category)
+  return (
+    <div>
+      <label className="field-label">{label}</label>
+      <select
+        className="field-input"
+        value={value.id || (value.isNew ? NEW_MATERIAL : '')}
+        onChange={(e) => {
+          const v = e.target.value
+          if (v === NEW_MATERIAL) onChange({ id: '', text: '', isNew: true })
+          else onChange({ id: v, text: options.find((o) => o.id === v)?.name || '', isNew: false })
+        }}
+      >
+        <option value="">Select {category.toLowerCase()}…</option>
+        {options.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+        <option value={NEW_MATERIAL}>+ New {category === 'Raw Boards' ? 'raw board' : category === 'Skins' ? 'skin' : 'edgeband'}…</option>
+      </select>
+      {value.isNew && (
+        <input
+          className="field-input mt-2" autoFocus placeholder={placeholder}
+          value={value.text} onChange={(e) => onChange({ id: '', text: e.target.value, isNew: true })}
+        />
+      )}
+    </div>
+  )
+}
+
 function JobWorkEntryForm({ date, projects, services, components, rates, units, canOverride, toast, onSaved }) {
   const [projectId, setProjectId] = useState('')
   const [serviceId, setServiceId] = useState('')
@@ -361,9 +290,8 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
   const [showNewProject, setShowNewProject] = useState(false)
   // Design Build Order lamination: the board and laminate codes for the job. How many of each is the
   // sheet quantity entered above, and which fields show is set by the job's name.
-  const [laminate, setLaminate] = useState({ raw: '', skin1: '', skin2: '' })
-  // Set while a material is not a clear match to stock: the entry waits here until the user picks.
-  const [doubt, setDoubt] = useState(null)
+  const EMPTY_MAT = { id: '', text: '', isNew: false }
+  const [laminate, setLaminate] = useState({ raw: EMPTY_MAT, skin1: EMPTY_MAT, skin2: EMPTY_MAT })
   const confirm = useConfirm()
   const inventoryItemsQ = useInventoryItems()
 
@@ -423,9 +351,8 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
       return
     }
     toast.success('Job work logged.')
-    setDoubt(null)
     setServiceId(''); setUnitId(''); setQuantity(''); setRemarks(''); setOverrideOn(false); setOverrides({})
-    setLaminate({ raw: '', skin1: '', skin2: '' })
+    setLaminate({ raw: EMPTY_MAT, skin1: EMPTY_MAT, skin2: EMPTY_MAT })
     onSaved()
   }
 
@@ -453,20 +380,23 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
       }
     }
 
-    // Lamination: the sheet count and the parts must be there, and every typed material is matched to
-    // stock. A match that is not clear is put to the user, and nothing is saved until they answer.
+    // Lamination: the sheet count and the parts must be there. Each part is an item picked from its
+    // inventory category, or a new one typed in (created with negative stock until it is bought).
+    let picks = null
     if (lamKind) {
       if (!(Number(quantity) > 0)) { toast.error(lamKind === 'edgeband' ? 'Enter the running metres.' : 'Enter the quantity in sheets.'); return }
-      if (!laminate.raw.trim()) { toast.error(lamKind === 'edgeband' ? 'Enter the edgeband code.' : lamKind === 'core' ? 'Enter the core board.' : 'Enter the raw board.'); return }
-      if (lamKind !== 'core' && lamKind !== 'edgeband' && !laminate.skin1.trim()) { toast.error('Enter the skin 1 laminate code.'); return }
-      if (lamKind === 'double' && !laminate.skin2.trim()) { toast.error('Enter the skin 2 laminate code.'); return }
+      const missing = (m) => !m.id && !m.text.trim()
+      if (missing(laminate.raw)) { toast.error(lamKind === 'edgeband' ? 'Select the edgeband.' : lamKind === 'core' ? 'Select the core board.' : 'Select the raw board.'); return }
+      if (lamKind !== 'core' && lamKind !== 'edgeband' && missing(laminate.skin1)) { toast.error('Select skin 1.'); return }
+      if (lamKind === 'double' && missing(laminate.skin2)) { toast.error('Select skin 2.'); return }
+      const pick = (m, isBoard) => (!m ? null : m.id ? { id: m.id } : { create: isBoard ? rawBoardName(m.text) : m.text.trim().toUpperCase() })
+      picks = {
+        raw: pick(laminate.raw, lamKind !== 'edgeband'),
+        skin1: lamKind !== 'core' && lamKind !== 'edgeband' ? pick(laminate.skin1, false) : null,
+        skin2: lamKind === 'double' ? pick(laminate.skin2, false) : null,
+      }
     }
-    const matches = lamKind ? matchLamination(lamKind, laminate, inventoryItemsQ.data || []) : null
-    if (matches && hasDoubt(matches)) {
-      setDoubt({ overrides: payloadOverrides, matches, picks: defaultPicks(matches) })
-      return
-    }
-    await saveEntry(payloadOverrides, matches ? defaultPicks(matches) : null)
+    await saveEntry(payloadOverrides, picks)
   }
 
   return (
@@ -535,76 +465,32 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
             </div>
 
             <div className={`grid gap-3 ${lamKind === 'double' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
-              <div>
-                <label className="field-label">{lamKind === 'edgeband' ? 'Edgeband code' : lamKind === 'core' ? 'Core board' : 'Raw board'}</label>
-                <input
-                  className="field-input" list="inventory-materials"
-                  placeholder={lamKind === 'edgeband' ? 'e.g. 2MM EB 6965SUD' : lamKind === 'core' ? 'e.g. 16MM CORE' : 'e.g. 16MM MR PLY'}
-                  value={laminate.raw} onChange={(e) => setLaminate({ ...laminate, raw: e.target.value })}
-                />
-              </div>
+              <MaterialPicker
+                label={lamKind === 'edgeband' ? 'Edgeband' : lamKind === 'core' ? 'Core board' : 'Raw board'}
+                category={lamKind === 'edgeband' ? 'Edgeband' : 'Raw Boards'}
+                items={inventoryItemsQ.data || []}
+                value={laminate.raw} onChange={(v) => setLaminate({ ...laminate, raw: v })}
+                placeholder={lamKind === 'edgeband' ? 'Edgeband code, e.g. 2013' : 'e.g. 16MM MR PLY'}
+              />
               {lamKind !== 'core' && lamKind !== 'edgeband' && (
-                <div>
-                  <label className="field-label">Skin 1 laminate code</label>
-                  <input
-                    className="field-input" list="inventory-materials" placeholder="Laminate code"
-                    value={laminate.skin1} onChange={(e) => setLaminate({ ...laminate, skin1: e.target.value })}
-                  />
-                </div>
+                <MaterialPicker
+                  label="Skin 1" category="Skins" items={inventoryItemsQ.data || []}
+                  value={laminate.skin1} onChange={(v) => setLaminate({ ...laminate, skin1: v })}
+                  placeholder="Laminate code, e.g. 6965SUD"
+                />
               )}
               {lamKind === 'double' && (
-                <div>
-                  <label className="field-label">Skin 2 laminate code</label>
-                  <input
-                    className="field-input" list="inventory-materials" placeholder="Laminate code"
-                    value={laminate.skin2} onChange={(e) => setLaminate({ ...laminate, skin2: e.target.value })}
-                  />
-                </div>
+                <MaterialPicker
+                  label="Skin 2" category="Skins" items={inventoryItemsQ.data || []}
+                  value={laminate.skin2} onChange={(v) => setLaminate({ ...laminate, skin2: v })}
+                  placeholder="Laminate code, e.g. 6965SUD"
+                />
               )}
             </div>
 
             <p className="text-xs text-ink-500">
               {LAMINATION[lamKind].hint} A material that is not in inventory yet is added automatically and shows as negative stock until it is bought.
             </p>
-            <datalist id="inventory-materials">
-              {(inventoryItemsQ.data || []).map((i) => <option key={i.id} value={i.name} />)}
-            </datalist>
-          </div>
-        )}
-
-        {doubt && (
-          <div role="alertdialog" aria-label="Check materials" className="space-y-4 rounded-lg border border-ink-300 bg-white p-4">
-            <div>
-              <div className="text-sm font-medium text-ink-950">Check these materials before saving</div>
-              <p className="mt-1 text-xs text-ink-500">They are not an exact match to stock. Pick what each one means, or add it as a new item.</p>
-            </div>
-            {Object.entries(doubt.matches).filter(([, m]) => m && m.status === 'doubt').map(([key, m]) => (
-              <fieldset key={key} className="space-y-1.5">
-                <legend className="field-label">{PART_LABEL[key]}: “{m.typed}”</legend>
-                {m.candidates.map((c) => (
-                  <label key={c.id} className="flex cursor-pointer items-center gap-2 text-sm text-ink-900">
-                    <input
-                      type="radio" name={`pick-${key}`} checked={doubt.picks[key].id === c.id}
-                      onChange={() => setDoubt({ ...doubt, picks: { ...doubt.picks, [key]: { id: c.id } } })}
-                    />
-                    {c.name}
-                  </label>
-                ))}
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-600">
-                  <input
-                    type="radio" name={`pick-${key}`} checked={doubt.picks[key].create !== undefined}
-                    onChange={() => setDoubt({ ...doubt, picks: { ...doubt.picks, [key]: { create: m.name } } })}
-                  />
-                  Add as new: {m.name}
-                </label>
-              </fieldset>
-            ))}
-            <div className="flex gap-2">
-              <button type="button" className="btn-primary" disabled={saving} onClick={() => saveEntry(doubt.overrides, doubt.picks)}>
-                Confirm and add entry
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setDoubt(null)}>Back</button>
-            </div>
           </div>
         )}
 
