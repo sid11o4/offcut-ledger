@@ -40,12 +40,23 @@ export async function loadMaterials(start, end) {
     .select('quantity, total_cost, inventory_items(name, units(code)), inventory_locations(design_project_id, design_projects(name))')
     .eq('txn_type', 'consumption').is('reversed_by', null).gte('txn_date', start).lte('txn_date', end)
   if (error) throw error
+  // Past consumption (used before the system held stock) counts too; it was never taken from inventory.
+  const past = await supabase.from('past_material_consumption')
+    .select('quantity, total_cost, design_projects(name), inventory_items(name, units(code))')
+    .eq('voided', false).gte('consumed_on', start).lte('consumed_on', end)
+  if (past.error) throw past.error
+  const rows = [
+    ...(data || []).filter((x) => x.inventory_locations?.design_project_id).map((t) => ({
+      project: t.inventory_locations.design_projects?.name || 'Project', item: t.inventory_items, quantity: t.quantity, total_cost: t.total_cost,
+    })),
+    ...(past.data || []).map((x) => ({ project: x.design_projects?.name || 'Project', item: x.inventory_items, quantity: x.quantity, total_cost: x.total_cost })),
+  ]
   const byProject = new Map()
-  for (const t of (data || []).filter((x) => x.inventory_locations?.design_project_id)) {
-    const project = t.inventory_locations.design_projects?.name || 'Project'
-    const item = t.inventory_items?.name || 'Unknown item'
+  for (const t of rows) {
+    const project = t.project
+    const item = t.item?.name || 'Unknown item'
     const p = byProject.get(project) || { name: project, items: new Map(), cost: 0 }
-    const row = p.items.get(item) || { name: item, unit: t.inventory_items?.units?.code || '', quantity: 0, cost: 0 }
+    const row = p.items.get(item) || { name: item, unit: t.item?.units?.code || '', quantity: 0, cost: 0 }
     row.quantity += Math.abs(Number(t.quantity))
     row.cost += Math.abs(Number(t.total_cost))
     p.items.set(item, row)
