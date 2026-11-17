@@ -142,6 +142,8 @@ export default function BillAuditQueue() {
     const { data: fnResult, error: fnErr } = await supabase.functions.invoke('extract-supplier-bill-scan', { body: { bill_id: bill.id, kind } })
     if (fnErr) throw new Error(fnResult?.error || fnErr.message)
     if (fnResult?.error) throw new Error(fnResult.error)
+    // The AI then proposes an inventory match for each material line; the auditor confirms them in review.
+    try { await supabase.functions.invoke('match-bill-items', { body: { bill_id: bill.id } }) } catch { /* matching can be run again from the bill */ }
     // A vendor bill's amount is owed to the vendor on credit until it is paid.
     if (kind === 'vendor') {
       const { data: scanned } = await supabase.from('supplier_bills').select('grand_total').eq('id', bill.id).single()
@@ -392,6 +394,15 @@ function NewSupplierPrompt({ bill, onClose }) {
 }
 
 function AuditPanel({ billId, onDone }) {
+  const [matching, setMatching] = useState(false)
+  async function matchWithAi() {
+    setMatching(true)
+    const { data, error } = await supabase.functions.invoke('match-bill-items', { body: { bill_id: billId } })
+    setMatching(false)
+    if (error || data?.error) return toast.error(data?.error || error.message)
+    qc.invalidateQueries({ queryKey: ['material_match_suggestions', billId] })
+    toast.success(data?.suggested ? `${data.suggested} match${data.suggested === 1 ? '' : 'es'} suggested — confirm them below.` : 'No inventory matches found.')
+  }
   const [addingSupplier, setAddingSupplier] = useState(false)
   const toast = useToast()
   const qc = useQueryClient()
@@ -652,7 +663,9 @@ function AuditPanel({ billId, onDone }) {
           </div>
         </Card>
 
-        <Card title={`Line items (${itemsLineQ.data?.length || 0})`}>
+        <Card title={`Line items (${itemsLineQ.data?.length || 0})`} actions={itemsLineQ.data?.length ? (
+          <button className="btn-secondary text-xs" disabled={matching} onClick={matchWithAi}>{matching ? 'Matching…' : 'Match with inventory (AI)'}</button>
+        ) : null}>
           {!itemsLineQ.data?.length ? <EmptyState title="No line items extracted" /> : (
             <div className="space-y-2">
               {itemsLineQ.data.map((li) => (
@@ -685,21 +698,6 @@ function AuditPanel({ billId, onDone }) {
       </div>
     </div>
   )
-}
-
-// Word-overlap score between a bill line's wording and an inventory item's name. Numbers (sizes,
-// article codes) count double, since "16MM" matching "16MM" matters more than "ply" matching "ply".
-function matchScore(a, b) {
-  const tok = (t) => new Set(String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter((w) => w.length > 1))
-  const A = tok(a), B = tok(b)
-  if (!A.size || !B.size) return 0
-  const wt = (w) => (/\d/.test(w) ? 2 : 1)
-  let inter = 0, union = 0
-  for (const w of new Set([...A, ...B])) {
-    union += wt(w)
-    if (A.has(w) && B.has(w)) inter += wt(w)
-  }
-  return inter / union
 }
 
 function EditCell({ label, value, onSave, type = 'text', className = '', step }) {
@@ -741,20 +739,15 @@ function LineItemRow({ item, suggestions, billId }) {
   }
   const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
 
-  // The matching inventory item is proposed, never applied silently: the auditor confirms it and
-  // chooses which name the item keeps.
+  // The AI proposes the matching inventory item (match-bill-items); it is never applied silently: the
+  // auditor confirms it and chooses which name the item keeps.
   const candidate = (() => {
     if (item.item_type !== 'material' || item.inventory_item_id || skipGuess) return null
     if (suggestion?.suggested_inventory_item_id) {
       const inv = (itemsQ.data || []).find((i) => i.id === suggestion.suggested_inventory_item_id)
       if (inv) return { inv, confidence: suggestion.confidence, suggestionId: suggestion.id }
     }
-    let best = null
-    for (const inv of itemsQ.data || []) {
-      const sc = matchScore(item.description, inv.name)
-      if (sc >= 0.5 && (!best || sc > best.confidence)) best = { inv, confidence: sc }
-    }
-    return best
+    return null
   })()
 
   async function applyMatch(inv, keep) {
