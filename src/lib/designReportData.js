@@ -38,7 +38,7 @@ export async function loadMaterials(start, end) {
   const { data, error } = await supabase
     .from('inventory_transactions')
     .select('quantity, total_cost, inventory_items(name, units(code)), inventory_locations(design_project_id, design_projects(name))')
-    .eq('txn_type', 'consumption').gte('txn_date', start).lte('txn_date', end)
+    .eq('txn_type', 'consumption').is('reversed_by', null).gte('txn_date', start).lte('txn_date', end)
   if (error) throw error
   const byProject = new Map()
   for (const t of (data || []).filter((x) => x.inventory_locations?.design_project_id)) {
