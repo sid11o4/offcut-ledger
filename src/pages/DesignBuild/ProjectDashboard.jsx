@@ -86,7 +86,7 @@ export default function ProjectDashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('inventory_stock').select('*, inventory_items(name, units(code))')
-        .eq('location_id', locationQ.data.id).gt('quantity', 0).order('quantity', { ascending: false })
+        .eq('location_id', locationQ.data.id).neq('quantity', 0).order('quantity', { ascending: false })
       if (error) throw error
       return data
     },
@@ -176,10 +176,17 @@ export default function ProjectDashboard() {
                   <Fragment key={s.item_id}>
                   <tr className="cursor-pointer" onClick={() => setOpenItem(openItem === s.item_id ? null : s.item_id)}>
                     <td>{s.inventory_items?.name} <span className="text-xs text-ink-500">{openItem === s.item_id ? '· hide sources' : '· sources'}</span></td>
-                    <td className="num">{qty(s.quantity)} {s.inventory_items?.units?.code}</td>
+                    <td className={`num ${s.quantity < 0 ? 'text-bad' : ''}`}>{qty(s.quantity)} {s.inventory_items?.units?.code}{s.quantity < 0 && <span className="ml-1 text-xs">short</span>}</td>
                     <td className="num">{money(s.avg_unit_cost)}</td>
                     <td className="num font-medium">{money(s.quantity * s.avg_unit_cost)}</td>
-                    <td className="text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}><button className="btn-ghost text-xs px-2" onClick={() => setReturning(s)}>Move to company</button><button className="btn-ghost text-xs px-2" onClick={() => navigate(`/design-build/returns?location=${locationQ.data?.id ?? ''}&item=${s.item_id}&qty=${s.quantity}`)}>Return to vendor</button></td>
+                    <td className="text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                      {s.quantity > 0 ? (
+                        <>
+                          <button className="btn-ghost text-xs px-2" onClick={() => setReturning(s)}>Move to company</button>
+                          <button className="btn-ghost text-xs px-2" onClick={() => navigate(`/design-build/returns?location=${locationQ.data?.id ?? ''}&item=${s.item_id}&qty=${s.quantity}`)}>Return to vendor</button>
+                        </>
+                      ) : <span className="text-xs text-ink-500">Used before it was bought</span>}
+                    </td>
                   </tr>
                   {openItem === s.item_id && (
                     <tr>
