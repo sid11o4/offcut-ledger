@@ -31,7 +31,7 @@ export function buildDesignProjectReportDoc({ project, data }) {
   y = sectionLabel(doc, y, 'Overall details and cash position')
   y = brandTable(doc, y, {
     body: [
-      ['Total spent (all costs)', money(spent)],
+      ['Total spent (labour + materials consumed + project inventory)', money(spent)],
       ['Left of contract', money(Number(contract.contract_total || 0) - spent)],
       ['Paid out in the ledger', money(ledgerTotal)],
       ['Contract value', money(contract.contract_total)],

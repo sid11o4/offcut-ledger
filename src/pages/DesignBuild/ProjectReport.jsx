@@ -6,6 +6,7 @@ import { PageHeader, Card, StatCard, EmptyState, LoadingBlock } from '../../comp
 import BankStatement from '../../components/BankStatement'
 import { useAppSettings } from '../../lib/queries'
 import CostBreakdown from '../../components/CostBreakdown'
+import { loadProjectSpend } from '../../lib/projectSpend'
 import { loadCostBreakdown } from '../../lib/costGroups'
 import { downloadDesignProjectReport } from '../../lib/designProjectReportPdf'
 import { displayDate } from '../../lib/dates'
@@ -39,7 +40,9 @@ async function loadProjectReport(id) {
   // The ledger RPC is newest first; a statement reads oldest first.
   const ledger = (ledgerR.data || []).filter((r) => r.design_project_id === id).reverse()
 
-  const spent = Number(f.bill_expense_total || 0) + Number(f.internal_order_total || 0) + Number(f.direct_expenses_total || 0) + Number(f.materials_consumed_total || 0)
+  const spendMap = await loadProjectSpend()
+  const sp = spendMap.get(id) || { labour: 0, materials: 0, inventory: 0, spent: 0 }
+  const spent = sp.spent
   const contractTotal = Number(contractR.data?.[0]?.contract_total || 0)
   const headroom = contractTotal - spent
   const ledgerTotal = ledger.reduce((s, r) => s + Number(r.amount), 0)
@@ -90,7 +93,7 @@ async function loadProjectReport(id) {
   ].sort((a, b) => String(a.date).localeCompare(String(b.date)))
 
   return {
-    project, contractTotal, spent, headroom, costRows, materials, labour, ledger, ledgerTotal,
+    project, contractTotal, spent, spend: sp, headroom, costRows, materials, labour, ledger, ledgerTotal,
     financials: f,
     contract: contractR.data?.[0] || {},
     mixedBillCount: bills.filter((b) => b.expense_nature === 'both').length,
@@ -137,8 +140,10 @@ export default function DesignProjectReport() {
           <StatCard label="Supplier bills" value={money(f.supplier_bills_total)} money />
           <StatCard label="Design Build Order" value={money(f.internal_order_total)} money />
           <StatCard label="Direct expenses" value={money(f.direct_expenses_total)} money />
-          <StatCard label="Materials consumed" value={money(f.materials_consumed_total)} money />
-          <StatCard label="Inventory on hand" value={money(f.current_inventory_value)} money />
+          <StatCard label="Labour" value={money(r.spend.labour)} money />
+          <StatCard label="Materials consumed" value={money(r.spend.materials)} money />
+          <StatCard label="Project inventory" value={money(r.spend.inventory)} money />
+          <StatCard label="Spent (labour + materials consumed + project inventory)" value={money(r.spent)} money />
         </div>
       </Card>
 
