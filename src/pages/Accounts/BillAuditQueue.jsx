@@ -8,12 +8,12 @@ import { PageHeader, Card, Badge, ConfidencePill, EmptyState, LoadingBlock, Fiel
 import { useSuppliers, useDesignProjects, invalidateInventory } from '../../lib/queries'
 import { money } from '../../lib/format'
 
-const COST_HEADS = [
-  ['factory_labour', 'Factory Labour'], ['factory_consumables', 'Factory Consumables'],
-  ['site_labour', 'Site Labour'], ['raw_boards', 'Raw Boards'],
-  ['laminate_veneer', 'Laminate and Veneer'], ['fevicol_adhesives', 'Fevicol / Adhesives'],
-  ['employee_salary', 'Employee Salary'], ['other', 'Other'],
+// Material lines are costed to one of these heads, the same groups the inventory is split into.
+const MATERIAL_HEADS = [
+  ['raw_boards', 'Raw Boards'], ['skins', 'Skins'], ['edgeband', 'Edgeband'], ['hardware', 'Hardware'], ['other', 'Others'],
 ]
+const LABOUR_HEADS = [['factory_labour', 'Factory Labour'], ['site_labour', 'Site Labour'], ['employee_salary', 'Employee Salary']]
+const COST_HEADS = [...MATERIAL_HEADS, ...LABOUR_HEADS]
 
 const ANNEX_KINDS = [['vendor_bill', 'Vendor bill'], ['gst_invoice', 'GST invoice'], ['other', 'Other']]
 
@@ -717,7 +717,7 @@ function LineItemRow({ item, suggestions, billId }) {
         <span className="text-xs text-ink-500">Cost head</span>
         <Select value={item.cost_head || ''} onChange={(e) => setCostHead(e.target.value)} className="w-auto py-1 text-xs">
           <option value="">Not set</option>
-          {COST_HEADS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          {(item.item_type === 'labour' ? LABOUR_HEADS : MATERIAL_HEADS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
         </Select>
         {!item.cost_head && <span className="text-xs text-ink-400">Needs a cost head</span>}
       </div>

@@ -30,9 +30,11 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
 }
 
+// Material lines take one of raw_boards, skins, edgeband, hardware or other (shown as Others);
+// labour lines take factory_labour, site_labour or employee_salary.
 const COST_HEADS = [
-  'factory_labour', 'factory_consumables', 'site_labour', 'raw_boards',
-  'laminate_veneer', 'fevicol_adhesives', 'employee_salary', 'other',
+  'raw_boards', 'skins', 'edgeband', 'hardware', 'other',
+  'factory_labour', 'site_labour', 'employee_salary',
 ]
 
 const EXTRACT_SCHEMA = {
@@ -58,7 +60,7 @@ const EXTRACT_SCHEMA = {
     expense_nature: { type: 'string', enum: ['material', 'labour', 'both'], description: 'Which "Type of Expense" box(es) are ticked.' },
     cost_heads: {
       type: 'array', items: { type: 'string', enum: COST_HEADS },
-      description: 'Every "Cost Head" box that is ticked, mapped to these keys: Factory Labour=factory_labour, Factory Consumables=factory_consumables, Site Labour=site_labour, Raw Boards=raw_boards, Laminate and Veneer=laminate_veneer, Fevicol/Adhesives=fevicol_adhesives, Employee Salary=employee_salary, Other=other.',
+      description: 'Every "Cost Head" box that is ticked, mapped to these keys: Factory Labour=factory_labour, Site Labour=site_labour, Raw Boards=raw_boards, Laminate and Veneer=skins, Employee Salary=employee_salary, Factory Consumables=other, Fevicol/Adhesives=other, Other=other.',
     },
     line_items: {
       type: 'array',
@@ -75,7 +77,7 @@ const EXTRACT_SCHEMA = {
           material_confidence: { type: 'number', description: '0-1 confidence that material_match is the same product (0 if material_match is null).' },
           cost_head: {
             type: 'string', enum: COST_HEADS,
-            description: 'The single cost head this line belongs to, judged from THIS line\'s description and type (e.g. plywood or laminate -> raw_boards / laminate_veneer, fevicol or adhesive -> fevicol_adhesives, labour wages on site -> site_labour, factory helper wages -> factory_labour, salary -> employee_salary, anything else -> other). Ignore the slip-level Cost Head boxes for this decision: they are only a hint.',
+            description: 'The single cost head this line belongs to, judged from THIS line\'s description and type. Material lines: boards, plywood, MDF, HDHMR, BWP, MR sheets -> raw_boards; laminates, veneers, skins, sunmica -> skins; edge tape, edge banding, PVC tape -> edgeband; hinges, channels, handles, screws, locks, fittings and other hardware -> hardware; anything else material (fevicol, adhesives, consumables, packing) -> other. Labour lines: labour wages on site -> site_labour, factory helper wages -> factory_labour, salary -> employee_salary. Ignore the slip-level Cost Head boxes for this decision: they are only a hint.',
           },
         },
         required: ['description', 'item_type', 'quantity', 'rate_inclusive', 'gst_percent', 'cost_head'],
@@ -159,7 +161,7 @@ Read the supplier's name, GSTIN, phone and address from the vendor's own letterh
 Read the bill or invoice number and the bill date (as an ISO YYYY-MM-DD date) into bill_number and bill_date.
 Read every line item: description verbatim, quantity, unit, rate, GST % and the line amount. Report rate_inclusive exactly as written, and do not compute anything yourself. Use null for anything blank or illegible.
 Report grand_total as printed. Leave payments empty unless the document shows payments already made.
-Assign each line its cost_head from what the line is, and item_type as material or labour.
+Assign each line its cost_head from what the line is (a material line is raw_boards, skins, edgeband, hardware or other; a labour line is factory_labour, site_labour or employee_salary), and item_type as material or labour.
 
 Known suppliers (supplier_match must be an exact copy from this list, or null):
 ${list(suppliers)}
@@ -225,7 +227,7 @@ Deno.serve(async (req) => {
     const itemIdMap = new Map((items || []).map((i: { id: string; name: string }) => [i.name, i.id]))
 
     const slipPrompt = `First decide what this document is and report it as document_type. This is ${isPdf ? 'a scanned PDF (it may have more than one page -- read all of them; a front+back slip or a multi-page scan is still one bill)' : 'a photo'} of a FORMGRID "Bill / Payment Slip" -- an internal record of a supplier purchase. It has:
-Header: Bill No., Date, Supplier Name, Project Name, Project Code, Type of Expense (checkboxes), Cost Head (checkboxes: Factory Labour, Site Labour, Laminate and Veneer, Employee Salary, Factory Consumables, Raw Boards, Fevicol/Adhesives, Other).
+Header: Bill No., Date, Supplier Name, Project Name, Project Code, Type of Expense (checkboxes), Cost Head (checkboxes: Factory Labour, Site Labour, Laminate and Veneer, Employee Salary, Factory Consumables, Raw Boards, Fevicol/Adhesives, Other; on a line, a board is raw_boards, a laminate or veneer is skins, edge tape is edgeband, hardware is hardware, anything else material is other).
 A line-item table: S.No, Description of Goods/Services, Type, Unit, Quantity, Rate (inclusive of GST), Total Amount (inclusive of GST), GST %.
 Payment Details: a table of Payment Mode (Cash Paid / Account Transfer RTGS-NEFT / Added to Credit Account), Amount, Remarks -- and a separate Cash Payment Received section (amount, received by name) when a cash seal/stamp is present.
 Amount in Words, Grand Total, Remarks, Prepared By.
