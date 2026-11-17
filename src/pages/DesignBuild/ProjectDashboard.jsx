@@ -1,5 +1,6 @@
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import CostByCategoryCard from '../../components/CostByCategoryCard'
+import { loadProjectSpend } from '../../lib/projectSpend'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, StatCard, StatusBadge, EmptyState, LoadingBlock } from '../../components/ui'
@@ -54,6 +55,7 @@ export default function ProjectDashboard() {
     },
   })
 
+  const spendQ = useQuery({ queryKey: ['project_spend', id], queryFn: async () => (await loadProjectSpend()).get(id) })
   const financialsQ = useQuery({
     queryKey: ['design_project_financials', id],
     queryFn: async () => {
@@ -124,6 +126,7 @@ export default function ProjectDashboard() {
     qc.invalidateQueries({ queryKey: ['design_project_stock', id] })
     qc.invalidateQueries({ queryKey: ['design_project', id] })
     qc.invalidateQueries({ queryKey: ['design_project_financials', id] })
+    qc.invalidateQueries({ queryKey: ['project_spend'] })
     qc.invalidateQueries({ queryKey: ['project_ceo_raw', id] })
   }
 
@@ -158,6 +161,13 @@ export default function ProjectDashboard() {
           <div className="pl-4"><StatCard label="Direct expenses" value={money(f.direct_expenses_total)} money /></div>
           <div className="pl-4"><StatCard label="Materials consumed" value={money(f.materials_consumed_total)} money /></div>
           <div className="pl-4"><StatCard label="Inventory on hand" value={money(f.current_inventory_value)} money /></div>
+        </div>
+        <div className="mt-4 pt-4 border-t border-ink-100 grid grid-cols-2 md:grid-cols-5 gap-4">
+          <StatCard label="Labour" value={money(spendQ.data?.labour)} money />
+          <StatCard label="Materials consumed" value={money(spendQ.data?.materials)} money />
+          <StatCard label="Job work, transport & other" value={money(spendQ.data?.other)} money />
+          <StatCard label="Project inventory" value={money(spendQ.data?.inventory)} money />
+          <StatCard label="Spent (all costs + project inventory)" value={money(spendQ.data?.spent)} tone="bad" money />
         </div>
         {p?.projects && (
           <div className="mt-4 pt-3 border-t border-ink-100 text-xs text-ink-500">

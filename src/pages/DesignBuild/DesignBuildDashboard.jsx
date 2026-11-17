@@ -7,11 +7,13 @@ import { PageHeader, Card, Tile, StatusBadge, EmptyState, LoadingBlock } from '.
 import { money } from '../../lib/format'
 import { displayDate } from '../../lib/dates'
 import { loadContractsByProject } from '../../lib/projectCollectionsData'
+import { loadProjectSpend } from '../../lib/projectSpend'
 
 // The Design Build dashboard: the interior business on its own. Completed projects drop out of
 // the project cards, though their stock is already in Company inventory and counted there.
 export default function DesignBuildDashboard() {
   const contractsQ = useQuery({ queryKey: ['project_contracts'], queryFn: loadContractsByProject })
+  const spendQ = useQuery({ queryKey: ['project_spend'], queryFn: loadProjectSpend })
   const summaryQ = useQuery({
     queryKey: ['db-dash-projects'],
     queryFn: async () => {
@@ -85,7 +87,8 @@ export default function DesignBuildDashboard() {
           ) : (
             <div className="stagger grid gap-4 md:grid-cols-2">
               {live.map((p) => {
-                const spend = Number(p.supplier_bills_total || 0) + Number(p.internal_order_total || 0)
+                // Spent = labour + materials consumed + the stock the project holds.
+                const spend = spendQ.data?.get(p.id)?.spent || 0
                 const contract = Number(contractsQ.data?.[p.id]?.contract || 0)
                 const progress = contract > 0 ? spend / contract : null
                 return (

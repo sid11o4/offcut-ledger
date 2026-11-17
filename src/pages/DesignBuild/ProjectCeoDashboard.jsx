@@ -11,6 +11,7 @@ import MaterialSources from './MaterialSources'
 import { loadProjectRaw, computeProjectCeo } from '../../lib/projectCeoData'
 import CostBreakdown from '../../components/CostBreakdown'
 import { loadCostBreakdown } from '../../lib/costGroups'
+import { spendFromCostRows } from '../../lib/projectSpend'
 import { displayDate } from '../../lib/dates'
 import { PieChart, Pie as PieSlices, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts'
 import { money, qty } from '../../lib/format'
@@ -50,6 +51,8 @@ export default function ProjectCeoDashboard() {
   if (rawQ.isLoading) return <LoadingBlock />
   if (rawQ.error) return <EmptyState title="Could not load this project" hint={rawQ.error.message} />
   if (!data) return null
+  // Spent = every cost in the period + the stock the project holds now.
+  const spentNow = spendFromCostRows(costQ.data || [], data.kpis.inventoryValue).spent
   const p = data.project
 
   return (
@@ -79,9 +82,9 @@ export default function ProjectCeoDashboard() {
         <Kpi label="Contract value" value={money(data.kpis.contractValue)} />
         <Kpi label="Received from client" value={money(data.kpis.received)} />
         <Kpi label="Balance due" value={money(data.kpis.balanceDue)} tone={data.kpis.balanceDue > 0 ? undefined : undefined} />
-        <Kpi label="Spent" value={money(data.kpis.spent)} />
-        <Kpi label="Spent of contract" value={data.kpis.used == null ? '—' : `${Math.round(data.kpis.used * 100)}%`} tone={data.kpis.used > 1 ? 'bad' : undefined} />
-        <Kpi label="Left of contract" value={data.kpis.remaining == null ? '—' : money(data.kpis.remaining)} tone={data.kpis.remaining < 0 ? 'bad' : undefined} />
+        <Kpi label="Spent (all costs + project inventory)" value={money(spentNow)} />
+        <Kpi label="Spent of contract" value={data.kpis.contractValue ? `${Math.round((spentNow / data.kpis.contractValue) * 100)}%` : '—'} tone={data.kpis.contractValue && spentNow > data.kpis.contractValue ? 'bad' : undefined} />
+        <Kpi label="Left of contract" value={data.kpis.contractValue ? money(data.kpis.contractValue - spentNow) : '—'} tone={data.kpis.contractValue && data.kpis.contractValue - spentNow < 0 ? 'bad' : undefined} />
         <Kpi label="Stock on hand" value={money(data.kpis.inventoryValue)} />
         <Kpi label="Vendors" value={data.kpis.vendorCount} />
         <Kpi label="Labour units" value={qty(data.kpis.labourQty)} />
