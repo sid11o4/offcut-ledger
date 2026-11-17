@@ -26,11 +26,11 @@ export default function VendorDashboard() {
         actions={<Link className="btn-secondary" to="/design-build/suppliers">All vendors</Link>}
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
         <Card><StatCard label="Billed" value={money(t.billed)} money /></Card>
         <Card><StatCard label="Paid" value={money(t.paid)} money /></Card>
         <Card><StatCard label="Round off / waived" value={money(t.waived)} money /></Card>
-        <Card><StatCard label="Returned" value={money(t.returned)} money /></Card>
+        <Card><StatCard label="Return credit" value={money(t.returned)} sub={t.creditPending > 0 ? `${money(t.creditPending)} not yet settled` : 'All settled'} tone={t.creditPending > 0 ? 'ok' : 'neutral'} money /></Card>
         <Card><StatCard label={t.balance >= 0 ? 'We owe' : 'Vendor owes us'} value={money(Math.abs(t.balance))} money /></Card>
       </div>
       {d.gstOpen > 0 && (
@@ -84,15 +84,21 @@ export default function VendorDashboard() {
       <Card title={`Returns (${d.returns.length})`} className="mb-5">
         {!d.returns.length ? <EmptyState title="No returns to this vendor" /> : (
           <table className="table-base">
-            <thead><tr><th>Slip</th><th>Date</th><th>Items</th><th>Follow-up</th><th className="num">Amount</th></tr></thead>
+            <thead><tr><th>Slip</th><th>Date</th><th>Items</th><th>Slip</th><th>Credit</th><th className="num">Stock value</th><th className="num">Credit</th></tr></thead>
             <tbody>
               {d.returns.map((r) => (
                 <tr key={r.id}>
                   <td className="font-mono text-xs">{r.slip_number}</td>
                   <td>{displayDate(r.return_date)}</td>
                   <td className="text-sm">{r.items.map((i) => `${i.inventory_items?.name} ${qty(i.quantity)} ${i.inventory_items?.units?.code || ''}`).join(', ') || '—'}</td>
-                  <td className="capitalize">{r.follow_up_status === 'filed' ? `Filed ${r.slip_filed_reference || ''}` : 'Slip to file'}</td>
-                  <td className="num font-medium">{money(r.total_amount)}</td>
+                  <td>{r.follow_up_status === 'filed' ? `Filed ${r.slip_filed_reference || ''}` : 'To file'}</td>
+                  <td className="text-sm">
+                    {r.credit_status === 'awaiting_credit' && 'Awaiting credit note'}
+                    {r.credit_status === 'credit_received' && `Credit note ${r.credit_note_number || ''}`}
+                    {r.credit_status === 'settled' && (r.credit_settled_how === 'refunded' ? `Refunded ${displayDate(r.credit_settled_on)}` : 'Adjusted against a bill')}
+                  </td>
+                  <td className="num">{money(r.total_amount)}</td>
+                  <td className="num font-medium">{money(r.credit)}</td>
                 </tr>
               ))}
             </tbody>

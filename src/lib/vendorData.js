@@ -19,7 +19,7 @@ export async function loadVendorDashboard(supplierId) {
       .select('id, internal_bill_number, bill_date, bill_source, status, grand_total, cost_heads, design_project_id, design_projects(name), approved_at, voided_at, void_reason')
       .eq('supplier_id', supplierId).order('bill_date'),
     supabase.from('supplier_return_slips')
-      .select('id, slip_number, return_date, reason, total_amount, follow_up_status, slip_filed_reference, slip_filed_on, location:inventory_locations(name, kind, design_projects(name))')
+      .select('id, slip_number, return_date, reason, total_amount, follow_up_status, slip_filed_reference, slip_filed_on, credit_status, credit_note_number, credit_note_date, credit_amount, credit_settled_how, credit_settled_on, credit_settled_reference, adjusted_bill_id, next_follow_up_on, location:inventory_locations(name, kind, design_projects(name))')
       .eq('supplier_id', supplierId).order('return_date'),
   ])
   check(supplierR, billsR, returnsR)
@@ -69,8 +69,13 @@ export async function loadVendorDashboard(supplierId) {
   const totalBilled = live.reduce((s, b) => s + Number(b.grand_total || 0), 0)
   const totalPaid = payments.reduce((s, p) => s + paidOf(p), 0)
   const totalWaived = payments.reduce((s, p) => s + waiverOf(p), 0)
-  const totalReturned = slips.reduce((s, r) => s + Number(r.total_amount || 0), 0)
-  const balance = totalBilled - totalPaid - totalWaived - totalReturned
+  // The credit a return earns is what the vendor's credit note says, or the value of the stock until it does.
+  const creditOf = (r) => Number(r.credit_amount ?? r.total_amount ?? 0)
+  const totalReturned = slips.reduce((s, r) => s + creditOf(r), 0)
+  // Credit the vendor has paid back is cash received, so it no longer reduces what is owed.
+  const refunded = slips.filter((r) => r.credit_settled_how === 'refunded').reduce((s, r) => s + creditOf(r), 0)
+  const creditPending = slips.filter((r) => r.credit_status !== 'settled').reduce((s, r) => s + creditOf(r), 0)
+  const balance = totalBilled - totalPaid - totalWaived - totalReturned + refunded
 
   // One ledger: bills (credits), payments, round-offs and returns (debits), oldest first.
   const entries = []
@@ -99,8 +104,14 @@ export async function loadVendorDashboard(supplierId) {
   for (const r of slips) {
     entries.push({
       key: `ret-${r.id}`, date: r.return_date, kind: 'Debit', type: 'Return to supplier',
-      reference: r.slip_number, description: r.location?.name || '', credit: 0, debit: Number(r.total_amount || 0),
+      reference: r.slip_number, description: r.location?.name || '', credit: 0, debit: creditOf(r),
     })
+    if (r.credit_settled_how === 'refunded') {
+      entries.push({
+        key: `refund-${r.id}`, date: r.credit_settled_on || r.return_date, kind: 'Credit', type: 'Refund received from vendor',
+        reference: r.credit_settled_reference || r.slip_number, description: `Credit for ${r.slip_number}`, credit: creditOf(r), debit: 0,
+      })
+    }
   }
   entries.sort((a, b) => String(a.date).localeCompare(String(b.date)) || (a.kind === 'Credit' ? -1 : 1))
   let running = 0
@@ -121,10 +132,12 @@ export async function loadVendorDashboard(supplierId) {
     const paid = mine.reduce((s, p) => s + paidOf(p), 0)
     const waived = mine.reduce((s, p) => s + waiverOf(p), 0)
     const total = b.status === 'void' ? 0 : Number(b.grand_total || 0)
+    // Return credit adjusted against this bill counts as paid on it.
+    const credited = slips.filter((r) => r.adjusted_bill_id === b.id && r.credit_status === 'settled').reduce((sum, r) => sum + creditOf(r), 0)
     return {
       ...b,
-      paid, waived,
-      owed: total - paid - waived,
+      paid, waived, credited,
+      owed: total - paid - waived - credited,
       gst: gstByBill.get(b.id)?.status || null,
       documents: annexByBill.get(b.id) || [],
     }
@@ -150,12 +163,13 @@ export async function loadVendorDashboard(supplierId) {
 
   const returns = slips.map((r) => ({
     ...r,
+    credit: creditOf(r),
     items: (slipItemsR.data || []).filter((i) => i.slip_id === r.id),
   }))
 
   return {
     supplier: supplierR.data,
-    totals: { billed: totalBilled, paid: totalPaid, waived: totalWaived, returned: totalReturned, balance },
+    totals: { billed: totalBilled, paid: totalPaid, waived: totalWaived, returned: totalReturned, refunded, creditPending, balance },
     bills: billRows,
     documents,
     gstOpen: (gstR.data || []).filter((g) => g.status !== 'closed').length,

@@ -70,7 +70,7 @@ export async function loadSupplierStatement({ supplierId, start, end, projectId 
       .select('id, mode, allocated_amount, confirmed, confirmed_at, created_at, utr_reference, bill:supplier_bills!inner(supplier_id, status, design_project_id, internal_bill_number, design_projects(name))')
       .eq('bill.supplier_id', supplierId).eq('bill.status', 'approved'),
     supabase.from('supplier_return_slips')
-      .select('id, slip_number, return_date, total_amount, location:inventory_locations(design_project_id, name, kind)')
+      .select('id, slip_number, return_date, total_amount, credit_amount, location:inventory_locations(design_project_id, name, kind)')
       .eq('supplier_id', supplierId),
   ])
   for (const r of [supplierR, billsR, paymentsR, returnsR]) if (r.error) throw r.error
@@ -98,7 +98,7 @@ export async function loadSupplierStatement({ supplierId, start, end, projectId 
   const returns = (returnsR.data || []).filter((r) => (projectId ? r.location?.design_project_id === projectId : true))
   const billedBefore = bills.filter((b) => b.bill_date < start).reduce((s, b) => s + Number(b.grand_total), 0)
   const paidBefore = payments.filter((p) => p.date < start).reduce((s, p) => s + Number(p.allocated_amount), 0)
-  const returnedBefore = returns.filter((r) => r.return_date < start).reduce((s, r) => s + Number(r.total_amount), 0)
+  const returnedBefore = returns.filter((r) => r.return_date < start).reduce((s, r) => s + Number(r.credit_amount ?? r.total_amount), 0)
   const opening = billedBefore - paidBefore - returnedBefore
 
   const entries = [
@@ -109,7 +109,7 @@ export async function loadSupplierStatement({ supplierId, start, end, projectId 
     })),
     ...returns.filter((r) => inPeriod(r.return_date, start, end)).map((r) => ({
       key: `return-${r.id}`, date: r.return_date, category: 'Return to supplier',
-      description: r.location?.name || '', reference: r.slip_number, direction: 'out', amount: Number(r.total_amount),
+      description: r.location?.name || '', reference: r.slip_number, direction: 'out', amount: Number(r.credit_amount ?? r.total_amount),
     })),
     ...payments.filter((p) => inPeriod(p.date, start, end)).map((p) => ({
       key: `pay-${p.id}`, date: p.date, category: 'Payment',
