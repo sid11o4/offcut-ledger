@@ -65,7 +65,20 @@ export default function SupplierReturns() {
   })
 
   const locations = locationsQ.data || []
-  const items = itemsQ.data || []
+  const allItems = itemsQ.data || []
+
+  // Only what that supplier supplied and is still in stock at the chosen location can be returned.
+  const returnableQ = useQuery({
+    queryKey: ['returnable_items', form.supplier_id, form.location_id],
+    enabled: !!form.supplier_id && !!form.location_id,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('returnable_items', { p_supplier_id: form.supplier_id, p_location_id: form.location_id })
+      if (error) throw error
+      return data || []
+    },
+  })
+  const available = new Map((returnableQ.data || []).map((r) => [r.item_id, Number(r.quantity)]))
+  const items = allItems.filter((it) => available.has(it.id))
   const pending = (slipsQ.data || []).filter((s) => s.follow_up_status === 'pending_slip')
 
   function setLine(i, patch) {
@@ -161,13 +174,13 @@ export default function SupplierReturns() {
           <form onSubmit={processReturn} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <Field label="Supplier">
-                <Select required value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })}>
+                <Select required value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value, lines: form.lines.map((l) => ({ ...l, item_id: '' })) })}>
                   <option value="">Choose…</option>
                   {(suppliersQ.data || []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </Select>
               </Field>
               <Field label="Returned from">
-                <Select required value={form.location_id} onChange={(e) => setForm({ ...form, location_id: e.target.value })}>
+                <Select required value={form.location_id} onChange={(e) => setForm({ ...form, location_id: e.target.value, lines: form.lines.map((l) => ({ ...l, item_id: '' })) })}>
                   <option value="">Choose…</option>
                   {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </Select>
@@ -185,15 +198,15 @@ export default function SupplierReturns() {
                 <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
                   <div className="md:col-span-5">
                     <Field label={i === 0 ? 'Item' : null}>
-                      <Select value={l.item_id} onChange={(e) => setLine(i, { item_id: e.target.value })}>
-                        <option value="">Choose…</option>
-                        {items.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
+                      <Select value={l.item_id} disabled={!form.supplier_id || !form.location_id} onChange={(e) => setLine(i, { item_id: e.target.value })}>
+                        <option value="">{!form.supplier_id || !form.location_id ? 'Choose the supplier and location first…' : returnableQ.isLoading ? 'Loading…' : items.length ? 'Choose…' : 'Nothing from this supplier is in stock here'}</option>
+                        {items.map((it) => <option key={it.id} value={it.id}>{it.name} — {qty(available.get(it.id))} in stock</option>)}
                       </Select>
                     </Field>
                   </div>
                   <div className="md:col-span-2">
                     <Field label={i === 0 ? 'Quantity' : null}>
-                      <Input type="number" min="0.0001" step="0.0001" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} />
+                      <Input type="number" min="0.0001" max={available.get(l.item_id) || undefined} step="0.0001" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} />
                     </Field>
                   </div>
                   <div className="md:col-span-4">
