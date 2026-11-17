@@ -10,6 +10,11 @@ import { pdfMoney as money, qty } from './format'
 export async function loadProjectSummary() {
   const { data: projects, error } = await supabase.from('design_projects').select('id, name, code, status, clients(name)').order('name')
   if (error) throw error
+  // Materials a project used before the system held its stock are a cost of the project too.
+  const pastR = await supabase.from('past_material_consumption').select('design_project_id, total_cost').eq('voided', false)
+  if (pastR.error) throw pastR.error
+  const pastBy = new Map()
+  for (const x of pastR.data || []) pastBy.set(x.design_project_id, (pastBy.get(x.design_project_id) || 0) + Number(x.total_cost))
   const fin = await Promise.all(projects.map(async (p) => {
     const [finR, conR] = await Promise.all([
       supabase.rpc('report_design_project_financials', { p_design_project_id: p.id }),
@@ -21,9 +26,10 @@ export async function loadProjectSummary() {
   }))
   return projects.map((p, i) => {
     const { f, c } = fin[i]
-    const spent = Number(f.supplier_bills_total || 0) + Number(f.internal_order_total || 0) + Number(f.direct_expenses_total || 0)
+    const past = pastBy.get(p.id) || 0
+    const spent = Number(f.supplier_bills_total || 0) + Number(f.internal_order_total || 0) + Number(f.direct_expenses_total || 0) + past
     const contract = Number(c.contract_total || 0)
-    return { id: p.id, name: p.name, code: p.code, status: p.status, client: p.clients?.name || '', contract, bills: Number(f.supplier_bills_total || 0), internal: Number(f.internal_order_total || 0), direct: Number(f.direct_expenses_total || 0), spent, left: contract - spent }
+    return { id: p.id, name: p.name, code: p.code, status: p.status, client: p.clients?.name || '', contract, bills: Number(f.supplier_bills_total || 0), internal: Number(f.internal_order_total || 0), direct: Number(f.direct_expenses_total || 0), past, spent, left: contract - spent }
   })
 }
 
@@ -106,10 +112,10 @@ export function designReportPdf(section, data, { title, subtitle, period }) {
       cards: [['Total contract value', money(contract)], ['Total spent', money(spent)], ['Total left of contract', money(contract - spent)]],
       sections: [{
         heading: 'Projects',
-        head: ['Project', 'Client', 'Status', 'Contract value', 'Supplier bills', 'Design Build Order', 'Direct', 'Spent', 'Left of contract'],
-        body: rows.map((r) => [r.name, r.client || '—', r.status, r.contract ? money(r.contract) : '—', money(r.bills), money(r.internal), money(r.direct), money(r.spent), r.contract ? money(r.left) : '—']),
-        foot: ['Total', '', '', money(contract), '', '', '', money(spent), money(contract - spent)],
-        columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' } },
+        head: ['Project', 'Client', 'Status', 'Contract value', 'Supplier bills', 'Design Build Order', 'Direct', 'Past consumption', 'Spent', 'Left of contract'],
+        body: rows.map((r) => [r.name, r.client || '—', r.status, r.contract ? money(r.contract) : '—', money(r.bills), money(r.internal), money(r.direct), money(r.past), money(r.spent), r.contract ? money(r.left) : '—']),
+        foot: ['Total', '', '', money(contract), '', '', '', money(rows.reduce((t, r) => t + r.past, 0)), money(spent), money(contract - spent)],
+        columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right' } },
       }],
     })
   }

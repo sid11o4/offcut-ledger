@@ -51,7 +51,7 @@ async function loadProjectReport(id) {
       .from('inventory_transactions')
       .select('quantity, total_cost, inventory_items(name, units(code))')
       .eq('location_id', locationR.data.id)
-      .eq('txn_type', 'consumption')
+      .eq('txn_type', 'consumption').is('reversed_by', null)
     if (error) throw error
     const grouped = new Map()
     for (const t of data || []) {
@@ -62,6 +62,21 @@ async function loadProjectReport(id) {
       grouped.set(key, row)
     }
     materials = [...grouped.values()].sort((a, b) => b.cost - a.cost)
+  }
+  // Materials the project used before the system held its stock: a cost, never taken from inventory.
+  {
+    const { data: pastRows, error: pastErr } = await supabase.from('past_material_consumption')
+      .select('quantity, total_cost, inventory_items(name, units(code))').eq('design_project_id', id).eq('voided', false)
+    if (pastErr) throw pastErr
+    const byName = new Map(materials.map((m) => [m.name, m]))
+    for (const t of pastRows || []) {
+      const key = t.inventory_items?.name || 'Unknown item'
+      const row = byName.get(key) || { name: key, unit: t.inventory_items?.units?.code, quantity: 0, cost: 0 }
+      row.quantity += Number(t.quantity)
+      row.cost += Number(t.total_cost)
+      byName.set(key, row)
+    }
+    materials = [...byName.values()].sort((a, b) => b.cost - a.cost)
   }
 
   // Labour: approved bills tagged labour, plus expenses whose category is labour.
