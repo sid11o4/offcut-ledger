@@ -3,7 +3,10 @@ import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import { PageHeader, Card, Field, Input, Select } from '../../components/ui'
-import { useInventoryItems, useInventoryLocations, useDesignProjects, invalidateInventory } from '../../lib/queries'
+import { useInventoryItems, useInventoryLocations, useDesignProjects, useUnits, invalidateInventory } from '../../lib/queries'
+import { INVENTORY_CATEGORIES } from './CompanyInventory'
+
+const blankLine = () => ({ item_id: '', text: '', unit: 'SHEET', category: '', quantity: '', from_location_id: '', to_location_id: '' })
 
 // The manual reporting mode for consumption/transfer (spec): a header plus line items, posted
 // as real inventory movements by post_inventory_slip() -- the same rules (project-stock-first,
@@ -14,11 +17,12 @@ export default function ManualSlip() {
   const itemsQ = useInventoryItems()
   const locationsQ = useInventoryLocations()
   const projectsQ = useDesignProjects()
+  const unitsQ = useUnits()
   const [slipType, setSlipType] = useState('consumption')
   const [designProjectId, setDesignProjectId] = useState('')
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [notes, setNotes] = useState('')
-  const [lines, setLines] = useState([{ item_id: '', quantity: '', from_location_id: '', to_location_id: '' }])
+  const [lines, setLines] = useState([blankLine()])
   const [saving, setSaving] = useState(false)
   const [lastSlip, setLastSlip] = useState(null)
 
@@ -26,7 +30,7 @@ export default function ManualSlip() {
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
   }
   function addLine() {
-    setLines((ls) => [...ls, { item_id: '', quantity: '', from_location_id: '', to_location_id: '' }])
+    setLines((ls) => [...ls, blankLine()])
   }
   function removeLine(i) {
     setLines((ls) => ls.filter((_, idx) => idx !== i))
@@ -35,10 +39,26 @@ export default function ManualSlip() {
   async function submit(e) {
     e.preventDefault()
     if (slipType === 'consumption' && !designProjectId) return toast.error('Select the project this consumption is against.')
-    const validLines = lines.filter((l) => l.item_id && l.quantity)
+    const isConsumption = slipType === 'consumption'
+    const validLines = lines.filter((l) => (isConsumption ? (l.item_id || l.text.trim()) : l.item_id) && l.quantity)
     if (!validLines.length) return toast.error('Add at least one line item.')
 
     setSaving(true)
+    // A material typed in that is not in inventory is added first (in its category and unit); it shows
+    // as negative stock until it is bought.
+    try {
+      for (const l of validLines) {
+        if (isConsumption && !l.item_id) {
+          const { data: id, error } = await supabase.rpc('ensure_inventory_item', { p_name: l.text.trim(), p_unit_code: l.unit, p_category: l.category || null })
+          if (error) throw error
+          l.item_id = id
+        }
+      }
+    } catch (err) {
+      setSaving(false)
+      return toast.error(err.message || 'Could not add the new material.')
+    }
+    qc.invalidateQueries({ queryKey: ['inventory_items'] })
     const { data: slip, error: slipErr } = await supabase.from('inventory_slips').insert({
       slip_type: slipType, slip_date: date, design_project_id: slipType === 'consumption' ? designProjectId : null, notes: notes || null,
     }).select().single()
@@ -60,7 +80,7 @@ export default function ManualSlip() {
     invalidateInventory(qc)
     toast.success(`${slip.slip_number} posted.`)
     setLastSlip(slip.slip_number)
-    setLines([{ item_id: '', quantity: '', from_location_id: '', to_location_id: '' }])
+    setLines([blankLine()])
     setNotes('')
   }
 
@@ -92,10 +112,39 @@ export default function ManualSlip() {
             <div className="space-y-2">
               {lines.map((l, i) => (
                 <div key={i} className="flex gap-2 items-end">
-                  <div className="flex-1"><Select value={l.item_id} onChange={(e) => updateLine(i, { item_id: e.target.value })}>
-                    <option value="">Material…</option>
-                    {(itemsQ.data || []).map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
-                  </Select></div>
+                  {slipType === 'consumption' ? (
+                    <div className="flex-1">
+                      <Input
+                        list={`slip-materials-${i}`} placeholder="Type or pick a material…" value={l.text}
+                        onChange={(e) => {
+                          const text = e.target.value
+                          const match = (itemsQ.data || []).find((it) => it.active !== false && it.name.toLowerCase() === text.trim().toLowerCase())
+                          updateLine(i, { text, item_id: match ? match.id : '' })
+                        }}
+                      />
+                      <datalist id={`slip-materials-${i}`}>
+                        {(itemsQ.data || []).filter((it) => it.active !== false && !it.is_composite).map((it) => <option key={it.id} value={it.name} />)}
+                        {(itemsQ.data || []).filter((it) => it.active !== false && it.is_composite).map((it) => <option key={it.id} value={it.name} />)}
+                      </datalist>
+                      {l.text.trim() && !l.item_id && (
+                        <div className="mt-1 flex items-center gap-2 text-xs text-ink-500">
+                          <span>Not in inventory: added as new, negative stock until bought.</span>
+                          <Select className="w-auto py-1 text-xs" value={l.category} onChange={(e) => updateLine(i, { category: e.target.value })}>
+                            <option value="">Others</option>
+                            {INVENTORY_CATEGORIES.filter((c) => c !== 'Others').map((c) => <option key={c} value={c}>{c}</option>)}
+                          </Select>
+                          <Select className="w-auto py-1 text-xs" value={l.unit} onChange={(e) => updateLine(i, { unit: e.target.value })}>
+                            {(unitsQ.data || []).filter((u) => u.active !== false && u.inventory_unit).map((u) => <option key={u.id} value={u.code}>{u.name || u.code}</option>)}
+                          </Select>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex-1"><Select value={l.item_id} onChange={(e) => updateLine(i, { item_id: e.target.value })}>
+                      <option value="">Material…</option>
+                      {(itemsQ.data || []).map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
+                    </Select></div>
+                  )}
                   <div className="w-28"><Input type="number" min="0.0001" step="0.0001" placeholder="Qty" value={l.quantity} onChange={(e) => updateLine(i, { quantity: e.target.value })} /></div>
                   {slipType === 'transfer' && (
                     <>
