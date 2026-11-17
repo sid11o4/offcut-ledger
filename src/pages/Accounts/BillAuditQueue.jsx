@@ -5,7 +5,7 @@ import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Badge, ConfidencePill, EmptyState, LoadingBlock, Field, Input, Select } from '../../components/ui'
-import { useSuppliers, useDesignProjects, invalidateInventory } from '../../lib/queries'
+import { useSuppliers, useDesignProjects, useInventoryItems, invalidateInventory } from '../../lib/queries'
 import { money } from '../../lib/format'
 
 // Material lines are costed to one of these heads, the same groups the inventory is split into.
@@ -687,61 +687,167 @@ function AuditPanel({ billId, onDone }) {
   )
 }
 
+// Word-overlap score between a bill line's wording and an inventory item's name. Numbers (sizes,
+// article codes) count double, since "16MM" matching "16MM" matters more than "ply" matching "ply".
+function matchScore(a, b) {
+  const tok = (t) => new Set(String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter((w) => w.length > 1))
+  const A = tok(a), B = tok(b)
+  if (!A.size || !B.size) return 0
+  const wt = (w) => (/\d/.test(w) ? 2 : 1)
+  let inter = 0, union = 0
+  for (const w of new Set([...A, ...B])) {
+    union += wt(w)
+    if (A.has(w) && B.has(w)) inter += wt(w)
+  }
+  return inter / union
+}
+
+function EditCell({ label, value, onSave, type = 'text', className = '', step }) {
+  const [v, setV] = useState(value ?? '')
+  useEffect(() => { setV(value ?? '') }, [value])
+  return (
+    <label className={`block ${className}`}>
+      <span className="block text-[10px] uppercase tracking-wide text-ink-400">{label}</span>
+      <input
+        className="field-input py-1 text-sm w-full" type={type} step={step} value={v}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={() => { if (String(v) !== String(value ?? '')) onSave(v) }}
+      />
+    </label>
+  )
+}
+
 function LineItemRow({ item, suggestions, billId }) {
   const toast = useToast()
   const qc = useQueryClient()
+  const itemsQ = useInventoryItems()
   const suggestion = suggestions[0]
+  const [picking, setPicking] = useState(null) // an inventory item awaiting the "which title" choice
+  const [manualId, setManualId] = useState('')
+  const [skipGuess, setSkipGuess] = useState(false)
 
-  async function confirmMatch() {
-    const { error } = await supabase.rpc('confirm_material_match', { p_suggestion_id: suggestion.id })
-    if (error) return toast.error(error.message)
-    qc.invalidateQueries({ queryKey: ['supplier_bill_items', billId] })
-    qc.invalidateQueries({ queryKey: ['material_match_suggestions', billId] })
-  }
-  async function rejectMatch() {
-    await supabase.rpc('reject_material_match', { p_suggestion_id: suggestion.id })
-    qc.invalidateQueries({ queryKey: ['material_match_suggestions', billId] })
-  }
-
-  // The cost head is the auditor's call: the scan proposes one per line, and this corrects it.
-  async function setCostHead(value) {
-    const { error } = await supabase.from('supplier_bill_items').update({ cost_head: value || null }).eq('id', item.id)
-    if (error) return toast.error(error.message)
-    await syncBillFromLines(billId)
+  const refresh = () => {
     qc.invalidateQueries({ queryKey: ['supplier_bill_items', billId] })
     qc.invalidateQueries({ queryKey: ['supplier_bill', billId] })
+    qc.invalidateQueries({ queryKey: ['material_match_suggestions', billId] })
   }
+
+  // Every extracted field on the line can be corrected; totals recalculate from the saved values.
+  async function patch(fields) {
+    const { error } = await supabase.from('supplier_bill_items').update(fields).eq('id', item.id)
+    if (error) return toast.error(error.message)
+    await syncBillFromLines(billId)
+    refresh()
+  }
+  const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
+
+  // The matching inventory item is proposed, never applied silently: the auditor confirms it and
+  // chooses which name the item keeps.
+  const candidate = (() => {
+    if (item.item_type !== 'material' || item.inventory_item_id || skipGuess) return null
+    if (suggestion?.suggested_inventory_item_id) {
+      const inv = (itemsQ.data || []).find((i) => i.id === suggestion.suggested_inventory_item_id)
+      if (inv) return { inv, confidence: suggestion.confidence, suggestionId: suggestion.id }
+    }
+    let best = null
+    for (const inv of itemsQ.data || []) {
+      const sc = matchScore(item.description, inv.name)
+      if (sc >= 0.5 && (!best || sc > best.confidence)) best = { inv, confidence: sc }
+    }
+    return best
+  })()
+
+  async function applyMatch(inv, keep) {
+    // keep: 'bill' renames the inventory item to the bill's wording; 'inventory' keeps the inventory name.
+    const fields = { inventory_item_id: inv.id }
+    if (keep === 'inventory') { fields.description = inv.name }
+    else if (item.description.trim() !== inv.name) {
+      const { error } = await supabase.from('inventory_items').update({ name: item.description.trim() }).eq('id', inv.id)
+      if (error) return toast.error(`Could not rename the inventory item: ${error.message}`)
+      qc.invalidateQueries({ queryKey: ['inventory_items'] })
+    }
+    const { error } = await supabase.from('supplier_bill_items').update(fields).eq('id', item.id)
+    if (error) return toast.error(error.message)
+    if (candidate?.suggestionId) await supabase.rpc('confirm_material_match', { p_suggestion_id: candidate.suggestionId })
+    setPicking(null)
+    refresh()
+  }
+  async function rejectMatch() {
+    if (candidate?.suggestionId) await supabase.rpc('reject_material_match', { p_suggestion_id: candidate.suggestionId })
+    setSkipGuess(true)
+    refresh()
+  }
+  async function unlink() { await patch({ inventory_item_id: null }) }
+
+  const linked = item.inventory_item_id ? (itemsQ.data || []).find((i) => i.id === item.inventory_item_id) : null
+  const inStockOptions = itemsQ.data || []
 
   return (
     <div className="border border-ink-100 rounded-md p-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm text-ink-900">{item.description}</span>
-        <span className="text-xs text-ink-500">{item.item_type}</span>
-      </div>
-      <div className="flex items-center gap-3 text-xs text-ink-500 mt-1 tnum">
-        <span>{item.quantity} {item.unit_text}</span>
-        <span>@ {money(item.rate_inclusive)}</span>
-        <span>GST {item.gst_percent}%</span>
-        <span className="font-medium text-ink-900 ml-auto">{money(item.total_amount)}</span>
+      <div className="grid grid-cols-12 gap-2">
+        <EditCell label="Description" className="col-span-12 sm:col-span-8" value={item.description} onSave={(v) => patch({ description: v.trim() || item.description, description_text: v.trim() || item.description })} />
+        <label className="block col-span-12 sm:col-span-4">
+          <span className="block text-[10px] uppercase tracking-wide text-ink-400">Type</span>
+          <Select value={item.item_type} onChange={(e) => patch({ item_type: e.target.value, cost_head: null })} className="py-1 text-sm">
+            <option value="material">material</option>
+            <option value="labour">labour</option>
+          </Select>
+        </label>
+        <EditCell label="Qty" type="number" step="any" className="col-span-4 sm:col-span-3" value={item.quantity} onSave={(v) => num(v) > 0 ? patch({ quantity: num(v) }) : toast.error('Quantity must be more than zero.')} />
+        <EditCell label="Unit" className="col-span-4 sm:col-span-3" value={item.unit_text} onSave={(v) => patch({ unit_text: v.trim() || null })} />
+        <EditCell label="Rate (incl. GST)" type="number" step="any" className="col-span-4 sm:col-span-3" value={item.rate_inclusive} onSave={(v) => patch({ rate_inclusive: Math.max(0, num(v)) })} />
+        <EditCell label="GST %" type="number" step="any" className="col-span-6 sm:col-span-2" value={item.gst_percent} onSave={(v) => patch({ gst_percent: Math.max(0, num(v)), ...(num(v) > 0 ? { zero_gst_reason: null } : {}) })} />
+        <div className="col-span-6 sm:col-span-1 flex items-end justify-end">
+          <span className="text-sm font-medium text-ink-900 tnum">{money(item.total_amount)}</span>
+        </div>
       </div>
       <div className="flex items-center gap-2 mt-2">
         <span className="text-xs text-ink-500">Cost head</span>
-        <Select value={item.cost_head || ''} onChange={(e) => setCostHead(e.target.value)} className="w-auto py-1 text-xs">
+        <Select value={item.cost_head || ''} onChange={(e) => patch({ cost_head: e.target.value || null })} className="w-auto py-1 text-xs">
           <option value="">Not set</option>
           {(item.item_type === 'labour' ? LABOUR_HEADS : MATERIAL_HEADS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
         </Select>
         {!item.cost_head && <span className="text-xs text-ink-400">Needs a cost head</span>}
       </div>
-      {suggestion && (
-        <div className="flex items-center gap-2 mt-2 bg-ink-50 rounded px-2 py-1.5">
-          <span className="text-xs text-ink-600">Match "{suggestion.inventory_items?.name}"?</span>
-          <ConfidencePill value={suggestion.confidence} />
-          <button className="btn-ghost text-xs px-1.5 py-0.5 ml-auto" onClick={confirmMatch}>Confirm</button>
-          <button className="btn-ghost text-xs px-1.5 py-0.5" onClick={rejectMatch}>Reject</button>
+
+      {candidate && !picking && (
+        <div className="flex flex-wrap items-center gap-2 mt-2 bg-ink-50 rounded px-2 py-1.5">
+          <span className="text-xs text-ink-700">Is this <strong>{candidate.inv.name}</strong> in your inventory?</span>
+          <ConfidencePill value={candidate.confidence} />
+          <button className="btn-ghost text-xs px-1.5 py-0.5 ml-auto" onClick={() => setPicking(candidate.inv)}>Yes, that's it</button>
+          <button className="btn-ghost text-xs px-1.5 py-0.5" onClick={rejectMatch}>No</button>
         </div>
       )}
-      {item.inventory_item_id && !suggestion && (
-        <div className="mt-1.5"><Badge tone="ok">Matched to inventory</Badge></div>
+      {picking && (
+        <div className="mt-2 rounded border border-brand-500 bg-brand-100 p-2 text-xs">
+          <div className="text-ink-950 font-medium">Which name should be kept?</div>
+          <div className="mt-1 text-ink-700">Bill: <strong>{item.description}</strong></div>
+          <div className="text-ink-700">Inventory: <strong>{picking.name}</strong></div>
+          <div className="mt-2 flex gap-2">
+            <button className="btn-primary text-xs" onClick={() => applyMatch(picking, 'bill')}>Keep the bill's name</button>
+            <button className="btn-secondary text-xs" onClick={() => applyMatch(picking, 'inventory')}>Keep the inventory name</button>
+            <button className="btn-ghost text-xs" onClick={() => setPicking(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {item.item_type === 'material' && !item.inventory_item_id && (!candidate || skipGuess) && !picking && (
+        <div className="flex items-center gap-2 mt-2">
+          <span className="text-xs text-ink-500">Link to inventory</span>
+          <Select value={manualId} onChange={(e) => {
+            const inv = inStockOptions.find((i) => i.id === e.target.value)
+            setManualId(e.target.value)
+            if (inv) setPicking(inv)
+          }} className="w-auto py-1 text-xs max-w-[16rem]">
+            <option value="">Not linked (added as new)</option>
+            {inStockOptions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+          </Select>
+        </div>
+      )}
+      {item.inventory_item_id && (
+        <div className="mt-1.5 flex items-center gap-2">
+          <Badge tone="ok">Matched to inventory{linked ? `: ${linked.name}` : ''}</Badge>
+          <button className="btn-ghost text-xs px-1.5 py-0.5" onClick={unlink}>Unlink</button>
+        </div>
       )}
     </div>
   )
