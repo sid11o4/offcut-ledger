@@ -341,8 +341,10 @@ function NewSupplierPrompt({ bill }) {
   const [busy, setBusy] = useState(false)
   const [dismissed, setDismissed] = useState(false)
   const d = bill.supplier_details || {}
-  const name = (d.name || bill.supplier_text || '').trim()
-  if (dismissed || !name) return null
+  const [typed, setTyped] = useState('')
+  // When no vendor name could be read (a quotation or price list), it is typed in here.
+  const name = (typed || d.name || bill.supplier_text || '').trim()
+  if (dismissed) return null
 
   async function add() {
     setBusy(true)
@@ -368,7 +370,14 @@ function NewSupplierPrompt({ bill }) {
 
   return (
     <div className="rounded-md border border-brand-500 bg-brand-100 p-3 text-sm">
-      <div className="font-medium text-ink-950">New supplier on this bill: {name}</div>
+      {!(d.name || bill.supplier_text)
+        ? (
+          <>
+            <div className="font-medium text-ink-950">No vendor name was found on this bill</div>
+            <input className="field-input mt-2" placeholder="Type the vendor name" value={typed} onChange={(e) => setTyped(e.target.value)} />
+          </>
+        )
+        : <div className="font-medium text-ink-950">New supplier on this bill: {name}</div>}
       <div className="mt-1 text-xs text-ink-600 space-y-0.5">
         {d.gstin && <div>GSTIN: <span className="tnum">{d.gstin}</span></div>}
         {d.phone && <div>Phone: <span className="tnum">{d.phone}</span></div>}
@@ -376,7 +385,7 @@ function NewSupplierPrompt({ bill }) {
         {!d.gstin && !d.phone && !d.address && <div>No GSTIN, phone or address was read from the slip.</div>}
       </div>
       <div className="mt-3 flex gap-2">
-        <button className="btn-primary" onClick={add} disabled={busy}>{busy ? 'Adding…' : 'Add to suppliers'}</button>
+        <button className="btn-primary" onClick={add} disabled={busy || !name}>{busy ? 'Adding…' : 'Add to suppliers'}</button>
         <button className="btn-secondary" onClick={() => setDismissed(true)} disabled={busy}>Not now</button>
       </div>
     </div>

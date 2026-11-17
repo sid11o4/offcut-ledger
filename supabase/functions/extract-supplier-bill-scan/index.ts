@@ -98,7 +98,8 @@ const EXTRACT_SCHEMA = {
       },
     },
     amount_in_words: { type: ['string', 'null'] },
-    grand_total: { type: ['number', 'null'] },
+    grand_total: { type: ['number', 'null'], description: 'The final amount payable, after any discount.' },
+    discount: { type: ['number', 'null'], description: 'Total discount deducted at the bottom of the document, as a positive number. Null if none.' },
     remarks: { type: ['string', 'null'] },
   },
   required: ['document_type', 'line_items', 'payments'],
@@ -129,7 +130,7 @@ async function extractBill(apiKey: string, mimeType: string, fileBase64: string,
     : { type: 'image', source: { type: 'base64', media_type: mimeType, data: fileBase64 } }
   const result = await callAnthropic(apiKey, {
     model: MODEL,
-    max_tokens: 4000,
+    max_tokens: 8000,
     tools: [{
       name: 'extract_bill_slip',
       description: 'Report every field found on the photographed Bill / Payment Slip.',
@@ -160,7 +161,7 @@ function vendorBillPrompt(isPdf: boolean, suppliers: string[], projects: string[
 Read the supplier's name, GSTIN, phone and address from the vendor's own letterhead. Never copy the FORMGRID company's details into the supplier fields.
 Read the bill or invoice number and the bill date (as an ISO YYYY-MM-DD date) into bill_number and bill_date.
 Read every line item: description verbatim, quantity, unit, rate, GST % and the line amount. Report rate_inclusive exactly as written, and do not compute anything yourself. Use null for anything blank or illegible.
-Report grand_total as printed. Leave payments empty unless the document shows payments already made.
+Report grand_total as printed (after discount) and any discount as a positive number in discount. The document may be a quotation or price list with no bill number, date or vendor name: report those as null and still read every line (an MRP column is the rate). Leave payments empty unless the document shows payments already made.
 Assign each line its cost_head from what the line is (a material line is raw_boards, skins, edgeband, adhesives, hardware or other; freight is transport; anything else that is not material or labour is miscellaneous; a labour line is factory_labour, site_labour or employee_salary), and item_type as material or labour.
 
 Known suppliers (supplier_match must be an exact copy from this list, or null):
@@ -251,8 +252,10 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
 
     const extracted = await extractBill(apiKey, mimeType, fileBase64, prompt)
 
+    // A vendor bill can be a quotation, price list or estimate with no bill number or vendor name, so in
+    // vendor mode whatever was read is kept and the missing details are filled in by hand in review.
     const expected = vendorMode ? 'vendor_bill' : 'formgrid_slip'
-    if (extracted.document_type !== expected) {
+    if (!vendorMode && extracted.document_type !== expected) {
       await admin.from('supplier_bills').delete().eq('id', billId)
       return json({
         error: vendorMode
@@ -309,11 +312,35 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
       prepared_by: caller.id,
     }).eq('id', billId)
 
-    const lineItems = (extracted.line_items || []) as Array<{
+    // The model can return the lines as a JSON string or a single object; normalise to a clean array and
+    // drop anything the table would reject (quantity must be > 0, rate and GST >= 0).
+    let rawLines: unknown = extracted.line_items
+    if (typeof rawLines === 'string') { try { rawLines = JSON.parse(rawLines) } catch { rawLines = [] } }
+    if (rawLines && !Array.isArray(rawLines)) rawLines = [rawLines]
+    const num = (v: unknown) => { const n = Number(String(v ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0 }
+    let lineItems = ((rawLines || []) as Array<Record<string, unknown>>)
+      .filter((l) => l && typeof l === 'object' && String(l.description ?? '').trim())
+      .map((l) => ({
+        ...l,
+        description: String(l.description).trim(),
+        item_type: l.item_type === 'labour' ? 'labour' : 'material',
+        quantity: num(l.quantity) > 0 ? num(l.quantity) : 1,
+        rate_inclusive: Math.max(0, num(l.rate_inclusive)),
+        gst_percent: Math.max(0, num(l.gst_percent)),
+      })) as unknown as Array<{
       description: string; item_type: 'material' | 'labour'; unit_text?: string | null
       quantity: number; rate_inclusive: number; gst_percent: number
       material_match?: string | null; material_confidence?: number; cost_head?: string | null
     }>
+
+    // A bill-level discount is spread across the lines in proportion, so the bill's total is the net
+    // amount payable (the schema has no negative lines).
+    const discount = num(extracted.discount)
+    const gross = lineItems.reduce((t, l) => t + l.quantity * l.rate_inclusive, 0)
+    if (discount > 0 && gross > discount) {
+      const f = (gross - discount) / gross
+      lineItems = lineItems.map((l) => ({ ...l, rate_inclusive: Math.round(l.rate_inclusive * f * 10000) / 10000 }))
+    }
 
     const prepared = lineItems.map((li, i) => {
       const matchedItemId = li.material_match ? itemIdMap.get(li.material_match) ?? null : null
@@ -340,7 +367,7 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
     if (prepared.length) {
       const { data: insertedItems, error: itemErr } = await admin.from('supplier_bill_items')
         .insert(prepared.map((p) => p.row)).select('id, sort_order')
-      if (itemErr) throw itemErr
+      if (itemErr) throw new Error(`Could not save the line items: ${itemErr.message}`)
       const idBySort = new Map((insertedItems || []).map((r: { id: string; sort_order: number }) => [r.sort_order, r.id]))
       const suggestions = prepared
         .filter((p) => p.matchedItemId && p.li.item_type === 'material')
@@ -377,7 +404,7 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
 
     return json({ ok: true, line_items: lineItems.length, payments: payments.length, grand_total: extracted.grand_total ?? null })
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
+    const message = e instanceof Error ? e.message : (e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : JSON.stringify(e))
     console.error('extract-supplier-bill-scan failed for bill', billId, ':', message)
     return json({ error: message }, 500)
   }
