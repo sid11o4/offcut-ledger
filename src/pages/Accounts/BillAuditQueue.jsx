@@ -333,18 +333,21 @@ export default function BillAuditQueue() {
   )
 }
 
-// Shown when the scan read a supplier name that is not in the suppliers master. Asks before adding,
-// reuses a supplier that already has the same name, and links the bill to it.
-function NewSupplierPrompt({ bill }) {
+// Add a supplier right on the bill: name and details are prefilled from what the scan read and can
+// be typed or corrected. Reuses a supplier that already has the same name, and links the bill to it.
+function NewSupplierPrompt({ bill, onClose }) {
   const toast = useToast()
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
   const [dismissed, setDismissed] = useState(false)
   const d = bill.supplier_details || {}
-  const [typed, setTyped] = useState('')
-  // When no vendor name could be read (a quotation or price list), it is typed in here.
-  const name = (typed || d.name || bill.supplier_text || '').trim()
+  const [f, setF] = useState({
+    name: (d.name || bill.supplier_text || '').trim(),
+    gstin: d.gstin || '', phone: d.phone || '', address: d.address || '',
+  })
   if (dismissed) return null
+  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }))
+  const name = f.name.trim()
 
   async function add() {
     setBusy(true)
@@ -354,7 +357,7 @@ function NewSupplierPrompt({ bill }) {
     let supplierId = existing?.[0]?.id
     if (!supplierId) {
       const { data, error } = await supabase.from('suppliers').insert({
-        name, gstin: d.gstin || null, phone: d.phone || null, address: d.address || null,
+        name, gstin: f.gstin.trim() || null, phone: f.phone.trim() || null, address: f.address.trim() || null,
       }).select('id').single()
       if (error) { setBusy(false); return toast.error(error.message) }
       supplierId = data.id
@@ -366,33 +369,30 @@ function NewSupplierPrompt({ bill }) {
     qc.invalidateQueries({ queryKey: ['supplier_bill', bill.id] })
     qc.invalidateQueries({ queryKey: ['supplier_bills_queue'] })
     toast.success(`${name} added to suppliers`)
+    onClose?.()
   }
+
+  function close() { setDismissed(true); onClose?.() }
 
   return (
     <div className="rounded-md border border-brand-500 bg-brand-100 p-3 text-sm">
-      {!(d.name || bill.supplier_text)
-        ? (
-          <>
-            <div className="font-medium text-ink-950">No vendor name was found on this bill</div>
-            <input className="field-input mt-2" placeholder="Type the vendor name" value={typed} onChange={(e) => setTyped(e.target.value)} />
-          </>
-        )
-        : <div className="font-medium text-ink-950">New supplier on this bill: {name}</div>}
-      <div className="mt-1 text-xs text-ink-600 space-y-0.5">
-        {d.gstin && <div>GSTIN: <span className="tnum">{d.gstin}</span></div>}
-        {d.phone && <div>Phone: <span className="tnum">{d.phone}</span></div>}
-        {d.address && <div>Address: {d.address}</div>}
-        {!d.gstin && !d.phone && !d.address && <div>No GSTIN, phone or address was read from the slip.</div>}
+      <div className="font-medium text-ink-950">{d.name || bill.supplier_text ? 'New supplier on this bill' : 'Add the vendor for this bill'}</div>
+      <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <input className="field-input sm:col-span-2" placeholder="Supplier name" value={f.name} onChange={set('name')} />
+        <input className="field-input" placeholder="GSTIN (optional)" value={f.gstin} onChange={set('gstin')} />
+        <input className="field-input" placeholder="Phone (optional)" value={f.phone} onChange={set('phone')} />
+        <input className="field-input sm:col-span-2" placeholder="Address (optional)" value={f.address} onChange={set('address')} />
       </div>
       <div className="mt-3 flex gap-2">
-        <button className="btn-primary" onClick={add} disabled={busy || !name}>{busy ? 'Adding…' : 'Add to suppliers'}</button>
-        <button className="btn-secondary" onClick={() => setDismissed(true)} disabled={busy}>Not now</button>
+        <button className="btn-primary" onClick={add} disabled={busy || !name}>{busy ? 'Adding…' : 'Add supplier'}</button>
+        <button className="btn-secondary" onClick={close} disabled={busy}>Cancel</button>
       </div>
     </div>
   )
 }
 
 function AuditPanel({ billId, onDone }) {
+  const [addingSupplier, setAddingSupplier] = useState(false)
   const toast = useToast()
   const qc = useQueryClient()
   const { profile } = useAuth()
@@ -606,7 +606,7 @@ function AuditPanel({ billId, onDone }) {
 
         <Card title="Basic details">
           <div className="space-y-3">
-            {billQ.data && !billQ.data.supplier_id && <NewSupplierPrompt bill={billQ.data} />}
+            {billQ.data && (!billQ.data.supplier_id || addingSupplier) && <NewSupplierPrompt key={`${billQ.data.id}-${addingSupplier}`} bill={billQ.data} onClose={() => setAddingSupplier(false)} />}
             <div className="flex items-center justify-between gap-2">
               <Field label="Supplier">
                 <Select value={b.supplier_id || ''} onChange={(e) => patchBill({ supplier_id: e.target.value || null })}>
@@ -614,6 +614,7 @@ function AuditPanel({ billId, onDone }) {
                   {(suppliersQ.data || []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </Select>
               </Field>
+              <button type="button" className="btn-ghost shrink-0" onClick={() => setAddingSupplier(true)}>+ New supplier</button>
               <ConfidencePill value={conf.supplier_name} />
             </div>
             <div className="grid grid-cols-2 gap-3">
