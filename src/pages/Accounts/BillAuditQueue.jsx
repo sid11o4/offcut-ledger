@@ -72,7 +72,7 @@ function billKey(number) {
 // Each line carries its own cost head. The bill's cost heads and expense nature are shown as a summary
 // of those lines, so they are recalculated whenever a line changes.
 async function syncBillFromLines(billId) {
-  const { data: lines } = await supabase.from('supplier_bill_items').select('item_type, cost_head').eq('bill_id', billId)
+  const { data: lines } = await supabase.from('supplier_bill_items').select('item_type, cost_head').eq('bill_id', billId).eq('pays_vendor_credit', false)
   if (!lines?.length) return
   const heads = [...new Set(lines.map((l) => l.cost_head).filter(Boolean))]
   const types = new Set(lines.map((l) => l.item_type))
@@ -515,7 +515,9 @@ function AuditPanel({ billId, onDone }) {
   }).data
 
   const totalAllocated = (paymentsQ.data || []).reduce((s, p) => s + Number(p.allocated_amount), 0)
-  const grandTotal = Number(billQ.data?.grand_total || 0)
+  // The bill's own total leaves out lines that pay vendor credit, but their payment is still made through it.
+  const creditLinesTotal = (itemsLineQ.data || []).filter((l) => l.pays_vendor_credit).reduce((sum, l) => sum + Number(l.total_amount || 0), 0)
+  const grandTotal = Number(billQ.data?.grand_total || 0) + creditLinesTotal
   const reconciled = Math.abs(totalAllocated - grandTotal) < 0.01
 
   async function patchBill(patch) {
@@ -638,17 +640,6 @@ function AuditPanel({ billId, onDone }) {
                 {(projectsQ.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </Select>
             </Field>
-            {b.bill_source === 'formgrid' && (
-              <Field label="What is this FORMGRID bill for?">
-                <Select value={b.purpose || 'direct_expense'} onChange={(e) => patchBill({ purpose: e.target.value })}>
-                  <option value="direct_expense">A direct expense (never added to inventory)</option>
-                  <option value="vendor_credit">Payment of credit the vendor already holds on their bills</option>
-                </Select>
-                {b.purpose === 'vendor_credit' && (
-                  <p className="mt-1 text-xs text-ink-500">On approval its cash and RTGS / NEFT payments are applied to this vendor's outstanding bills, oldest first. It is not counted again as a cost or a payable. It needs the vendor above, and no credit or round-off payments.</p>
-                )}
-              </Field>
-            )}
             <Field label="Expense nature (indicative — follows the line items)">
               <Select value={b.expense_nature} onChange={(e) => patchBill({ expense_nature: e.target.value })}>
                 <option value="material">Material</option><option value="labour">Labour</option><option value="both">Both</option>
@@ -805,14 +796,20 @@ function LineItemRow({ item, suggestions, billId, formgrid = false }) {
           <span className="text-sm font-medium text-ink-900 tnum">{money(item.total_amount)}</span>
         </div>
       </div>
-      <div className="flex items-center gap-2 mt-2">
+      {formgrid && (
+        <label className="mt-2 flex items-center gap-2 text-xs text-ink-700">
+          <input type="checkbox" checked={!!item.pays_vendor_credit} onChange={(e) => patch({ pays_vendor_credit: e.target.checked, ...(e.target.checked ? { cost_head: null, inventory_item_id: null } : {}) })} />
+          Pays credit the vendor already holds. Only the payment is applied to their bills; no cost head, no cost, no inventory.
+        </label>
+      )}
+      {!item.pays_vendor_credit && <div className="flex items-center gap-2 mt-2">
         <span className="text-xs text-ink-500">Cost head</span>
         <Select value={item.cost_head || ''} onChange={(e) => patch({ cost_head: e.target.value || null })} className="w-auto py-1 text-xs">
           <option value="">Not set</option>
           {(item.item_type === 'labour' ? LABOUR_HEADS : MATERIAL_HEADS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
         </Select>
         {!item.cost_head && <span className="text-xs text-ink-400">Needs a cost head</span>}
-      </div>
+      </div>}
 
       {candidate && !picking && (
         <div className="flex flex-wrap items-center gap-2 mt-2 bg-ink-50 rounded px-2 py-1.5">
