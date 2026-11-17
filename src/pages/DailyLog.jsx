@@ -8,7 +8,8 @@ import { useAuth } from '../context/AuthContext'
 import { Card, StatCard, Badge, EmptyState, LoadingBlock, PageHeader } from '../components/ui'
 import ProjectFormModal from '../components/ProjectFormModal'
 import TradeSelect from '../components/TradeSelect'
-import { useProjects, useJobWorkServices, useJobWorkComponents, useRates, useExpenseCategories, useUnits, useInventoryItems, useDesignProjects } from '../lib/queries'
+import CompositeModal, { MakeCompositeModal } from './DesignBuild/CompositeModal'
+import { useCompanyInventoryValue, useProjects, useJobWorkServices, useJobWorkComponents, useRates, useExpenseCategories, useUnits, useInventoryItems, useDesignProjects } from '../lib/queries'
 import { previewEntry, availableUnitsForService } from '../lib/calc'
 import { today, displayDate } from '../lib/dates'
 import { money, qty } from '../lib/format'
@@ -123,6 +124,7 @@ export default function DailyLog() {
             toast={toast}
             onSaved={invalidate}
           />
+          {hasPermission('inventory_operate') && <CompositeCard date={date} />}
           <ExpenseEntryForm mode="labour" date={date} categories={expenseCategoriesQ.data || []} projects={activeProjects} profile={profile} toast={toast} onSaved={invalidate} />
           <ExpenseEntryForm date={date} categories={(expenseCategoriesQ.data || []).filter((c) => c.name !== 'Labour')} projects={activeProjects} profile={profile} toast={toast} onSaved={invalidate} />
         </div>
@@ -183,6 +185,31 @@ const LAMINATION = {
   single: { title: 'Single side · 1 skin', hint: 'Each sheet uses one raw board and one laminate. Type the board as thickness, category and type (e.g. 16MM MR PLY) and the laminate as its code (e.g. 6965SUD); stock is matched from that.' },
   core: { title: 'Cutting · core', hint: 'Each sheet uses one core board. Type it as thickness, category and type (e.g. 16MM MR PLY).' },
   edgeband: { title: 'Edge banding · R.m', hint: 'Each running metre uses one edgeband. Type its code (e.g. 2MM EB 6965SUD) as it is in stock; the R.m entered above is consumed from that edgeband.' },
+}
+
+// Makes composite materials from stock for the day: the raw board and skins are used up and the
+// composite is added to company stock. A new composite material can be set up from here too.
+function CompositeCard({ date }) {
+  const itemsQ = useInventoryItems()
+  const valueQ = useCompanyInventoryValue()
+  const [make, setMake] = useState(false)
+  const [define, setDefine] = useState(false)
+  const rows = valueQ.data || []
+  const items = itemsQ.data || []
+  const composites = items.filter((i) => i.is_composite && i.active !== false)
+  const costOf = (id) => Number(rows.find((r) => r.item_id === id)?.avg_unit_cost || items.find((i) => i.id === id)?.default_rate || 0)
+  return (
+    <Card title="Create Composite Material">
+      <p className="mb-3 text-xs text-ink-500">Combine a raw board, its skins and completed job works into one material. The boards and skins are used up from company stock.</p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="btn-primary" disabled={!composites.length} onClick={() => setMake(true)}>Make composite</button>
+        <button type="button" className="btn-secondary" onClick={() => setDefine(true)}>New composite material</button>
+      </div>
+      {!composites.length && <p className="mt-2 text-xs text-ink-500">Set up a composite material first, then make it from stock.</p>}
+      {make && <MakeCompositeModal stockRows={rows} composites={composites} initialDate={date} onClose={() => setMake(false)} />}
+      {define && <CompositeModal costOf={costOf} onClose={() => setDefine(false)} />}
+    </Card>
+  )
 }
 
 function laminationFor(serviceName) {
@@ -300,14 +327,14 @@ function hasDoubt(matches) {
 // The lamination fields for the entry, creating any new item first. Each sheet uses one of each.
 async function laminationArgs(picks, quantity, unitCode = 'SHEET') {
   const sheets = Number(quantity)
-  const idOf = async (pick) => {
+  const idOf = async (pick, category) => {
     if (!pick) return null
     if (pick.id) return pick.id
-    const { data, error } = await supabase.rpc('ensure_inventory_item', { p_name: pick.create, p_unit_code: unitCode })
+    const { data, error } = await supabase.rpc('ensure_inventory_item', { p_name: pick.create, p_unit_code: unitCode, p_category: category })
     if (error) throw error
     return data
   }
-  const [raw, skin1, skin2] = await Promise.all([idOf(picks.raw), idOf(picks.skin1), idOf(picks.skin2)])
+  const [raw, skin1, skin2] = await Promise.all([idOf(picks.raw, unitCode === 'RM' ? 'Edgeband' : 'Raw Boards'), idOf(picks.skin1, unitCode === 'RM' ? 'Edgeband' : 'Skins'), idOf(picks.skin2, 'Skins')])
   return {
     p_raw_material_item_id: raw, p_raw_material_qty: sheets,
     p_skin1_item_id: skin1, p_skin1_qty: skin1 ? sheets : null,

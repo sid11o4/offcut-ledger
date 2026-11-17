@@ -9,6 +9,12 @@ import { money, qty } from '../../lib/format'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import TransferModal from '../../components/TransferModal'
+import CompositeModal, { CompositeBreakdown, MakeCompositeModal, useCompositeValues } from './CompositeModal'
+
+// The inventory is split into these groups; a material with no category counts as Others, and
+// composite materials form their own group.
+export const INVENTORY_CATEGORIES = ['Raw Boards', 'Skins', 'Edgeband', 'Hardware', 'Others']
+const GROUPS = [...INVENTORY_CATEGORIES, 'Composite']
 
 export default function CompanyInventory() {
   const valueQ = useCompanyInventoryValue()
@@ -21,10 +27,37 @@ export default function CompanyInventory() {
   const [transferOpen, setTransferOpen] = useState(false)
   const [openItem, setOpenItem] = useState(null)
   const [purchaseOpen, setPurchaseOpen] = useState(false)
+  const [compositeOpen, setCompositeOpen] = useState(false)
+  const [editComposite, setEditComposite] = useState(null)
+  const [makeOpen, setMakeOpen] = useState(false)
+  const [group, setGroup] = useState('All')
+  const toast = useToast()
   const canOperate = hasPermission('inventory_operate')
 
   const rows = valueQ.data || []
+  const valuesQ = useCompositeValues()
+  const compositeItems = (itemsQ.data || []).filter((i) => i.is_composite && i.active !== false)
+  const compositeIds = new Set((itemsQ.data || []).filter((i) => i.is_composite).map((i) => i.id))
+  // A component's cost for the composite form: its average cost in the pool, else its default rate.
+  const costOf = (id) => Number(rows.find((r) => r.item_id === id)?.avg_unit_cost || (itemsQ.data || []).find((i) => i.id === id)?.default_rate || 0)
   const total = rows.reduce((s, r) => s + Number(r.value), 0)
+  const itemById = new Map((itemsQ.data || []).map((i) => [i.id, i]))
+  const groupOf = (itemId) => {
+    const it = itemById.get(itemId)
+    return it?.is_composite ? 'Composite' : (it?.category || 'Others')
+  }
+  const groupStats = Object.fromEntries(GROUPS.map((g) => {
+    const inGroup = rows.filter((r) => groupOf(r.item_id) === g)
+    return [g, { count: inGroup.length, value: inGroup.reduce((s, r) => s + Number(r.value), 0) }]
+  }))
+  const shownRows = (group === 'All' ? [...rows] : rows.filter((r) => groupOf(r.item_id) === group))
+    .sort((a, b) => GROUPS.indexOf(groupOf(a.item_id)) - GROUPS.indexOf(groupOf(b.item_id)) || String(a.item_name).localeCompare(String(b.item_name)))
+
+  async function changeCategory(itemId, category) {
+    const { error } = await supabase.rpc('set_inventory_category', { p_item_id: itemId, p_category: category })
+    if (error) return toast.error(error.message)
+    qc.invalidateQueries({ queryKey: ['inventory_items'] })
+  }
 
   return (
     <div>
@@ -33,6 +66,8 @@ export default function CompanyInventory() {
         subtitle="The shared pool. Transferred to a project's own inventory on request; the cost moves with it."
         actions={canOperate && (
           <>
+            <button className="btn-secondary" onClick={() => setCompositeOpen(true)}>New composite material</button>
+            <button className="btn-secondary" onClick={() => setMakeOpen(true)}>Make composite</button>
             <button className="btn-secondary" onClick={() => setTransferOpen(true)}>Transfer</button>
             <button className="btn-primary" onClick={() => setPurchaseOpen(true)}>Record purchase</button>
           </>
@@ -55,19 +90,43 @@ export default function CompanyInventory() {
         ))}
       </div>
 
+      <div className="mb-3 flex flex-wrap gap-2">
+        {['All', ...GROUPS].map((g) => (
+          <button
+            key={g}
+            type="button"
+            onClick={() => setGroup(g)}
+            className={group === g ? 'btn-primary' : 'btn-secondary'}
+          >
+            {g}{g !== 'All' && <span className="ml-1.5 tnum opacity-70">{groupStats[g].count}</span>}
+          </button>
+        ))}
+      </div>
+      {group !== 'All' && (
+        <div className="mb-3 text-sm text-ink-700">{group}: <span className="tnum font-medium text-ink-950">{money(groupStats[group].value)}</span> in stock</div>
+      )}
+
       <Card>
-        {valueQ.isLoading ? <LoadingBlock /> : !rows.length ? (
+        {valueQ.isLoading ? <LoadingBlock /> : !shownRows.length ? (
           <EmptyState title="No stock in the company pool" hint={canOperate ? 'Record a purchase to add material.' : undefined} />
         ) : (
           <table className="table-base">
-            <thead><tr><th>Material</th><th className="num">Quantity</th><th>Unit</th><th className="num">Avg cost</th><th className="num">Value</th><th className="num"></th></tr></thead>
+            <thead><tr><th>Material</th><th>Category</th><th className="num">Quantity</th><th>Unit</th><th className="num">Avg cost</th><th className="num">Value</th><th className="num"></th></tr></thead>
             <tbody>
-              {rows.map((r) => {
+              {shownRows.map((r) => {
                 const low = r.quantity < 10
                 return (
                   <Fragment key={r.item_id}>
                     <tr className="cursor-pointer" onClick={() => setOpenItem(openItem === r.item_id ? null : r.item_id)}>
-                      <td>{r.item_name} <span className="text-xs text-ink-500">{openItem === r.item_id ? '· hide sources' : '· sources'}</span></td>
+                      <td>{r.item_name} {compositeIds.has(r.item_id) && <Badge tone="brand">Composite</Badge>} <span className="text-xs text-ink-500">{openItem === r.item_id ? '· hide details' : '· details'}</span></td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        {compositeIds.has(r.item_id) ? <span className="text-ink-500">Composite</span> : canOperate ? (
+                          <Select className="w-auto min-w-[8rem]" value={itemById.get(r.item_id)?.category || ''} onChange={(e) => changeCategory(r.item_id, e.target.value)}>
+                            <option value="">Others</option>
+                            {INVENTORY_CATEGORIES.filter((c) => c !== 'Others').map((c) => <option key={c} value={c}>{c}</option>)}
+                          </Select>
+                        ) : <span className="text-ink-500">{itemById.get(r.item_id)?.category || 'Others'}</span>}
+                      </td>
                       <td className="num">{qty(r.quantity)}</td>
                       <td>{unitOf.get(r.item_id) || '—'}</td>
                       <td className="num">{money(r.avg_unit_cost)}</td>
@@ -76,12 +135,40 @@ export default function CompanyInventory() {
                     </tr>
                     {openItem === r.item_id && (
                       <tr>
-                        <td colSpan={6} className="bg-ink-50"><MaterialSources itemId={r.item_id} /></td>
+                        <td colSpan={7} className="bg-ink-50">
+                          {compositeIds.has(r.item_id) && (
+                            <>
+                              <CompositeBreakdown itemId={r.item_id} />
+                              {canOperate && <button type="button" className="btn-ghost text-xs ml-3 mb-2" onClick={() => setEditComposite((itemsQ.data || []).find((i) => i.id === r.item_id))}>Edit composite</button>}
+                            </>
+                          )}
+                          <MaterialSources itemId={r.item_id} />
+                        </td>
                       </tr>
                     )}
                   </Fragment>
                 )
               })}
+            </tbody>
+          </table>
+        )}
+      </Card>
+
+      <Card title="Composite materials" className="mb-5">
+        {!compositeItems.length ? (
+          <EmptyState title="No composite materials yet" hint={canOperate ? 'Use New composite material to set one up.' : undefined} />
+        ) : (
+          <table className="table-base">
+            <thead><tr><th>Raw board / Skin 1 / Skin 2</th><th className="num">In stock</th><th className="num">Value per unit</th><th className="num"></th></tr></thead>
+            <tbody>
+              {compositeItems.map((c) => (
+                <tr key={c.id}>
+                  <td>{c.name}</td>
+                  <td className="num">{qty(rows.find((r) => r.item_id === c.id)?.quantity || 0)}</td>
+                  <td className="num">{money(valuesQ.data?.get(c.id) ?? c.default_rate ?? 0)}</td>
+                  <td className="num">{canOperate && <button type="button" className="btn-ghost text-xs" onClick={() => setEditComposite(c)}>Edit</button>}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
@@ -96,6 +183,10 @@ export default function CompanyInventory() {
         />
       )}
       {purchaseOpen && <PurchaseModal onClose={() => setPurchaseOpen(false)} />}
+      {makeOpen && <MakeCompositeModal stockRows={rows} composites={(itemsQ.data || []).filter((i) => i.is_composite && i.active !== false)} onClose={() => setMakeOpen(false)} />}
+      {(compositeOpen || editComposite) && (
+        <CompositeModal costOf={costOf} existing={editComposite} onClose={() => { setCompositeOpen(false); setEditComposite(null) }} />
+      )}
     </div>
   )
 }
@@ -177,10 +268,11 @@ function PurchaseModal({ onClose }) {
   const toast = useToast()
   const qc = useQueryClient()
   const itemsQ = useInventoryItems()
+  const valuesQ = useCompositeValues()
   const unitsQ = useUnits()
   const NEW = '__new__'
   const NEW_UNIT = '__new_unit__'
-  const [form, setForm] = useState({ item_id: '', new_name: '', new_unit: 'SHEET', new_unit_name: '', quantity: '', unit_cost: '', date: new Date().toISOString().slice(0, 10) })
+  const [form, setForm] = useState({ item_id: '', new_name: '', new_category: '', new_unit: 'SHEET', new_unit_name: '', quantity: '', unit_cost: '', date: new Date().toISOString().slice(0, 10) })
   const [saving, setSaving] = useState(false)
   const creating = form.item_id === NEW
 
@@ -202,7 +294,7 @@ function PurchaseModal({ onClose }) {
         qc.invalidateQueries({ queryKey: ['units'] })
       }
       const { data: newId, error: createErr } = await supabase.rpc('ensure_inventory_item', {
-        p_name: form.new_name, p_unit_code: unitCode,
+        p_name: form.new_name, p_unit_code: unitCode, p_category: form.new_category || null,
       })
       if (createErr) { setSaving(false); return toast.error(createErr.message) }
       itemId = newId
@@ -226,9 +318,12 @@ function PurchaseModal({ onClose }) {
       <form onSubmit={submit} className="card p-5 w-full max-w-md space-y-3">
         <div className="text-sm font-semibold text-ink-950">Record a direct purchase into company inventory</div>
         <Field label="Material">
-          <Select required value={form.item_id} onChange={(e) => setForm({ ...form, item_id: e.target.value })}>
+          <Select required value={form.item_id} onChange={(e) => {
+            const it = (itemsQ.data || []).find((i) => i.id === e.target.value)
+            setForm({ ...form, item_id: e.target.value, unit_cost: it?.is_composite && (valuesQ.data?.get(it.id) || it.default_rate) ? String(valuesQ.data?.get(it.id) || it.default_rate) : form.unit_cost })
+          }}>
             <option value="">Select…</option>
-            {(itemsQ.data || []).filter((i) => i.active !== false).map((i) => <option key={i.id} value={i.id}>{i.name}{i.units ? ` (${i.units.name || i.units.code})` : ''}</option>)}
+            {(itemsQ.data || []).filter((i) => i.active !== false).map((i) => <option key={i.id} value={i.id}>{i.name}{i.is_composite ? ' (composite)' : ''}{i.units ? ` (${i.units.name || i.units.code})` : ''}</option>)}
             <option value={NEW}>+ New material…</option>
           </Select>
         </Field>
@@ -239,6 +334,12 @@ function PurchaseModal({ onClose }) {
                 <Input required autoFocus value={form.new_name} onChange={(e) => setForm({ ...form, new_name: e.target.value })} placeholder="e.g. Century 18MM MR" />
               </Field>
             </div>
+            <Field label="Category">
+              <Select value={form.new_category} onChange={(e) => setForm({ ...form, new_category: e.target.value })}>
+                <option value="">Others</option>
+                {INVENTORY_CATEGORIES.filter((c) => c !== 'Others').map((c) => <option key={c} value={c}>{c}</option>)}
+              </Select>
+            </Field>
             <Field label="Unit">
               <Select value={form.new_unit} onChange={(e) => setForm({ ...form, new_unit: e.target.value })}>
                 {(unitsQ.data || []).filter((u) => u.active !== false && u.inventory_unit).map((u) => <option key={u.id} value={u.code}>{u.name || u.code}</option>)}
