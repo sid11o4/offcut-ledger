@@ -250,8 +250,9 @@ function rawBoardName(typed) {
 // A material chosen from the inventory category it belongs to, or typed as a new one. A new material is
 // created on the spot and shows as negative stock until it is bought.
 const NEW_MATERIAL = '__new__'
-function MaterialPicker({ label, category, items, value, onChange, placeholder }) {
-  const options = items.filter((i) => i.active !== false && !i.is_composite && i.category === category)
+function MaterialPicker({ label, category, items, stocked, value, onChange, placeholder }) {
+  // Only materials with stock on hand are listed (the selected one stays); a new one is added with "+ New".
+  const options = items.filter((i) => i.active !== false && !i.is_composite && i.category === category && (stocked.has(i.id) || i.id === value.id))
   return (
     <div>
       <label className="field-label">{label}</label>
@@ -294,6 +295,8 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
   const [laminate, setLaminate] = useState({ raw: EMPTY_MAT, skin1: EMPTY_MAT, skin2: EMPTY_MAT })
   const confirm = useConfirm()
   const inventoryItemsQ = useInventoryItems()
+  const stockValueQ = useCompanyInventoryValue()
+  const stocked = new Set((stockValueQ.data || []).filter((r) => Number(r.quantity) > 0).map((r) => r.item_id))
 
   const project = projects.find((p) => p.id === projectId)
   const service = services.find((s) => s.id === serviceId)
@@ -468,20 +471,20 @@ function JobWorkEntryForm({ date, projects, services, components, rates, units, 
               <MaterialPicker
                 label={lamKind === 'edgeband' ? 'Edgeband' : lamKind === 'core' ? 'Core board' : 'Raw board'}
                 category={lamKind === 'edgeband' ? 'Edgeband' : 'Raw Boards'}
-                items={inventoryItemsQ.data || []}
+                items={inventoryItemsQ.data || []} stocked={stocked}
                 value={laminate.raw} onChange={(v) => setLaminate({ ...laminate, raw: v })}
                 placeholder={lamKind === 'edgeband' ? 'Edgeband code, e.g. 2013' : 'e.g. 16MM MR PLY'}
               />
               {lamKind !== 'core' && lamKind !== 'edgeband' && (
                 <MaterialPicker
-                  label="Skin 1" category="Skins" items={inventoryItemsQ.data || []}
+                  label="Skin 1" category="Skins" items={inventoryItemsQ.data || []} stocked={stocked}
                   value={laminate.skin1} onChange={(v) => setLaminate({ ...laminate, skin1: v })}
                   placeholder="Laminate code, e.g. 6965SUD"
                 />
               )}
               {lamKind === 'double' && (
                 <MaterialPicker
-                  label="Skin 2" category="Skins" items={inventoryItemsQ.data || []}
+                  label="Skin 2" category="Skins" items={inventoryItemsQ.data || []} stocked={stocked}
                   value={laminate.skin2} onChange={(v) => setLaminate({ ...laminate, skin2: v })}
                   placeholder="Laminate code, e.g. 6965SUD"
                 />

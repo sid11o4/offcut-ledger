@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Field, Input, Select } from '../../components/ui'
-import { useInventoryItems, invalidateInventory } from '../../lib/queries'
+import { useInventoryItems, useCompanyInventoryValue, invalidateInventory } from '../../lib/queries'
 import { money, qty } from '../../lib/format'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
@@ -102,7 +102,10 @@ export default function CompositeModal({ onClose, costOf, existing }) {
   const partsQ = useCompositeParts(existing?.id)
   const materials = (itemsQ.data || []).filter((i) => i.active !== false && !i.is_composite)
   // Each slot offers only its own inventory category, with an option to add a new one on the spot.
-  const optionsFor = (category) => materials.filter((m) => m.category === category)
+  // Only materials with stock on hand are listed; anything else is added with the "+ New" option.
+  const stockQ = useCompanyInventoryValue()
+  const inStock = new Set((stockQ.data || []).filter((r) => Number(r.quantity) > 0).map((r) => r.item_id))
+  const optionsFor = (category) => materials.filter((m) => m.category === category && inStock.has(m.id))
 
   const pastingQ = usePastingRate()
   const [raw, setRaw] = useState({ item: '', cost: '', newName: '' })
