@@ -37,7 +37,17 @@ export default function CompanyInventory() {
       }))
     },
   })
+  const projectLocQ = useQuery({
+    queryKey: ['design_project_location', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const { data, error } = await supabase.from('inventory_locations').select('id').eq('design_project_id', projectId).maybeSingle()
+      if (error) throw error
+      return data?.id || null
+    },
+  })
   const valueQ = projectId ? projectStockQ : companyQ
+  const companyTotal = (companyQ.data || []).reduce((sum, r) => sum + Number(r.value), 0)
   const itemsQ = useInventoryItems()
   // Each material's unit, to show beside its quantity.
   const unitOf = new Map((itemsQ.data || []).map((i) => [i.id, i.units?.name || i.units?.code]))
@@ -85,34 +95,34 @@ export default function CompanyInventory() {
       <PageHeader
         title={projectId ? `${currentProject?.name || 'Project'} Inventory` : 'Company Inventory'}
         subtitle={projectId
-          ? "This project's own stock. Move stock back to the company or return it to a vendor from the project page."
+          ? "This project's own stock. Stock reaches it by transfer from the company pool or a direct purchase; the cost moves with it."
           : "The shared pool. Transferred to a project's own inventory on request; the cost moves with it."}
-        actions={projectId ? (
+        actions={(
           <>
-            <Link className="btn-secondary" to={`/design-build/projects/${projectId}`}>Project page</Link>
-            <Link className="btn-secondary" to="/design-build/inventory">Company inventory</Link>
-          </>
-        ) : canOperate && (
-          <>
-            <button className="btn-secondary" onClick={() => setCompositeOpen(true)}>New composite material</button>
-            <button className="btn-secondary" onClick={() => setMakeOpen(true)}>Make composite</button>
-            <button className="btn-secondary" onClick={() => setTransferOpen(true)}>Transfer</button>
-            <button className="btn-primary" onClick={() => setPurchaseOpen(true)}>Record purchase</button>
+            {projectId && <Link className="btn-secondary" to={`/design-build/projects/${projectId}`}>Project page</Link>}
+            {canOperate && (
+              <>
+                <button className="btn-secondary" onClick={() => setCompositeOpen(true)}>New composite material</button>
+                {!projectId && <button className="btn-secondary" onClick={() => setMakeOpen(true)}>Make composite</button>}
+                <button className="btn-secondary" onClick={() => setTransferOpen(true)}>Transfer</button>
+                <button className="btn-primary" onClick={() => setPurchaseOpen(true)}>Record purchase</button>
+              </>
+            )}
           </>
         )}
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
-        <Card>
-          <div className="text-xs text-ink-500">{projectId ? `${currentProject?.name || 'Project'} Inventory` : 'Company Inventory'}</div>
-          <div className="text-2xl font-medium tnum mt-1">{money(total)}</div>
-          <div className="text-xs text-ink-500 mt-1">{rows.length} material{rows.length === 1 ? '' : 's'} {projectId ? 'at this project' : 'in the shared pool'}</div>
-        </Card>
-        {!projectId && (projectsQ.data || []).filter((p) => p.status !== 'completed').map((p) => (
-          <Link key={p.id} to={`/design-build/inventory?project=${p.id}`} className="card p-4 hover:bg-ink-50 block">
+        <Link to="/design-build/inventory" className={`card p-4 block hover:bg-ink-50 ${!projectId ? 'ring-2 ring-brand-600' : ''}`}>
+          <div className="text-xs text-ink-500">Company Inventory</div>
+          <div className="text-2xl font-medium tnum mt-1">{money(companyTotal)}</div>
+          <div className="text-xs text-ink-500 mt-1">{(companyQ.data || []).length} material{(companyQ.data || []).length === 1 ? '' : 's'} in the shared pool</div>
+        </Link>
+        {(projectsQ.data || []).filter((p) => p.status !== 'completed' || p.id === projectId).map((p) => (
+          <Link key={p.id} to={`/design-build/inventory?project=${p.id}`} className={`card p-4 hover:bg-ink-50 block ${p.id === projectId ? 'ring-2 ring-brand-600' : ''}`}>
             <div className="text-xs text-ink-500 font-mono">{p.code}</div>
             <div className="font-medium text-ink-950 mt-0.5">{p.name}</div>
-            <div className="text-2xl font-medium tnum mt-2">{money(p.current_inventory_value)}</div>
+            <div className="text-2xl font-medium tnum mt-2">{money(p.id === projectId ? total : p.current_inventory_value)}</div>
             <div className="text-xs text-ink-500 mt-1">Project warehouse</div>
           </Link>
         ))}
@@ -195,7 +205,7 @@ export default function CompanyInventory() {
         )}
       </Card>
 
-      {!projectId && <Card title="Composite materials" className="mb-5">
+      <Card title="Composite materials" className="mb-5">
         {!compositeItems.length ? (
           <EmptyState title="No composite materials yet" hint={canOperate ? 'Use New composite material to set one up.' : undefined} />
         ) : (
@@ -213,17 +223,18 @@ export default function CompanyInventory() {
             </tbody>
           </table>
         )}
-      </Card>}
+      </Card>
 
-      {canOperate && !projectId && <LinkPlaceholders />}
+      {canOperate && <LinkPlaceholders />}
 
       {transferOpen && (
         <TransferModal
+          designProjectId={projectId || undefined}
           onClose={() => setTransferOpen(false)}
           onSaved={() => { invalidateInventory(qc); setTransferOpen(false) }}
         />
       )}
-      {purchaseOpen && <PurchaseModal onClose={() => setPurchaseOpen(false)} />}
+      {purchaseOpen && <PurchaseModal locationId={projectId ? projectLocQ.data : null} onClose={() => setPurchaseOpen(false)} />}
       {makeOpen && <MakeCompositeModal stockRows={rows} composites={(itemsQ.data || []).filter((i) => i.is_composite && i.active !== false)} onClose={() => setMakeOpen(false)} />}
       {(compositeOpen || editComposite) && (
         <CompositeModal costOf={costOf} existing={editComposite} onClose={() => { setCompositeOpen(false); setEditComposite(null) }} />
@@ -305,7 +316,7 @@ function LinkPlaceholders() {
   )
 }
 
-function PurchaseModal({ onClose }) {
+function PurchaseModal({ onClose, locationId = null }) {
   const toast = useToast()
   const qc = useQueryClient()
   const itemsQ = useInventoryItems()
@@ -320,8 +331,13 @@ function PurchaseModal({ onClose }) {
   async function submit(e) {
     e.preventDefault()
     setSaving(true)
-    const { data: company, error: locErr } = await supabase.from('inventory_locations').select('id').eq('kind', 'company').single()
-    if (locErr) { setSaving(false); return toast.error(locErr.message) }
+    // Into the company pool, or straight into a project's own stock when opened from a project's inventory.
+    let company = { id: locationId }
+    if (!locationId) {
+      const { data, error: locErr } = await supabase.from('inventory_locations').select('id').eq('kind', 'company').single()
+      if (locErr) { setSaving(false); return toast.error(locErr.message) }
+      company = data
+    }
 
     // A material that is not on the list yet is created here, in the unit chosen, then purchased.
     let itemId = form.item_id
@@ -357,7 +373,7 @@ function PurchaseModal({ onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <form onSubmit={submit} className="card p-5 w-full max-w-md space-y-3">
-        <div className="text-sm font-semibold text-ink-950">Record a direct purchase into company inventory</div>
+        <div className="text-sm font-semibold text-ink-950">{locationId ? "Record a direct purchase into this project's inventory" : 'Record a direct purchase into company inventory'}</div>
         <Field label="Material">
           <Select required value={form.item_id} onChange={(e) => {
             const it = (itemsQ.data || []).find((i) => i.id === e.target.value)
