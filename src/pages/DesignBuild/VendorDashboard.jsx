@@ -49,10 +49,10 @@ export default function VendorDashboard() {
                     <td>{displayDate(b.bill_date)}</td>
                     <td>{b.bill_source === 'vendor' ? 'Vendor bill' : 'FORMGRID bill'}</td>
                     <td>{b.design_projects?.name || 'Factory'}</td>
-                    <td className="capitalize">{b.status === 'void' ? 'Voided' : b.status.replace('_', ' ')}</td>
+                    <td className="capitalize">{b.status === 'void' ? 'Voided' : b.status === 'applied' ? 'Paid vendor credit' : b.status.replace('_', ' ')}</td>
                     <td className="num">{b.status === 'void' ? '—' : money(b.grand_total)}</td>
                     <td className="num">{money(b.paid)}</td>
-                    <td className="num font-medium">{b.status === 'void' ? '—' : money(b.owed)}</td>
+                    <td className="num font-medium">{b.status === 'void' || b.status === 'applied' ? '—' : money(b.owed)}</td>
                     <td className="capitalize">{b.gst || '—'}</td>
                   </tr>
                 ))}

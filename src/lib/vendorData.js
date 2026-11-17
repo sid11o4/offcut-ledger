@@ -58,7 +58,8 @@ export async function loadVendorDashboard(supplierId) {
   check(stockR)
 
   const billById = new Map(bills.map((b) => [b.id, b]))
-  const live = bills.filter((b) => b.status !== 'void')
+  // A FORMGRID bill that paid vendor credit ('applied') has put its payments on the vendor's bills; it is not a bill itself.
+  const live = bills.filter((b) => b.status !== 'void' && b.status !== 'applied')
   const billLabel = (b) => (b.bill_source === 'vendor' ? 'Vendor bill' : 'FORMGRID bill')
   const projectOf = (b) => b.design_projects?.name || 'Factory'
 
@@ -131,7 +132,7 @@ export async function loadVendorDashboard(supplierId) {
     const mine = payments.filter((p) => p.bill_id === b.id)
     const paid = mine.reduce((s, p) => s + paidOf(p), 0)
     const waived = mine.reduce((s, p) => s + waiverOf(p), 0)
-    const total = b.status === 'void' ? 0 : Number(b.grand_total || 0)
+    const total = b.status === 'void' || b.status === 'applied' ? 0 : Number(b.grand_total || 0)
     // Return credit adjusted against this bill counts as paid on it.
     const credited = slips.filter((r) => r.adjusted_bill_id === b.id && r.credit_status === 'settled').reduce((sum, r) => sum + creditOf(r), 0)
     return {

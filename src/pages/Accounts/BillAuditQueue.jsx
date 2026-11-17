@@ -143,7 +143,7 @@ export default function BillAuditQueue() {
     if (fnErr) throw new Error(fnResult?.error || fnErr.message)
     if (fnResult?.error) throw new Error(fnResult.error)
     // The AI then proposes an inventory match for each material line; the auditor confirms them in review.
-    try { await supabase.functions.invoke('match-bill-items', { body: { bill_id: bill.id } }) } catch { /* matching can be run again from the bill */ }
+    if (kind === 'vendor') try { await supabase.functions.invoke('match-bill-items', { body: { bill_id: bill.id } }) } catch { /* matching can be run again from the bill */ }
     // A vendor bill's amount is owed to the vendor on credit until it is paid.
     if (kind === 'vendor') {
       const { data: scanned } = await supabase.from('supplier_bills').select('grand_total').eq('id', bill.id).single()
@@ -638,6 +638,17 @@ function AuditPanel({ billId, onDone }) {
                 {(projectsQ.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </Select>
             </Field>
+            {b.bill_source === 'formgrid' && (
+              <Field label="What is this FORMGRID bill for?">
+                <Select value={b.purpose || 'direct_expense'} onChange={(e) => patchBill({ purpose: e.target.value })}>
+                  <option value="direct_expense">A direct expense (never added to inventory)</option>
+                  <option value="vendor_credit">Payment of credit the vendor already holds on their bills</option>
+                </Select>
+                {b.purpose === 'vendor_credit' && (
+                  <p className="mt-1 text-xs text-ink-500">On approval its cash and RTGS / NEFT payments are applied to this vendor's outstanding bills, oldest first. It is not counted again as a cost or a payable. It needs the vendor above, and no credit or round-off payments.</p>
+                )}
+              </Field>
+            )}
             <Field label="Expense nature (indicative — follows the line items)">
               <Select value={b.expense_nature} onChange={(e) => patchBill({ expense_nature: e.target.value })}>
                 <option value="material">Material</option><option value="labour">Labour</option><option value="both">Both</option>
@@ -663,13 +674,13 @@ function AuditPanel({ billId, onDone }) {
           </div>
         </Card>
 
-        <Card title={`Line items (${itemsLineQ.data?.length || 0})`} actions={itemsLineQ.data?.length ? (
+        <Card title={`Line items (${itemsLineQ.data?.length || 0})`} actions={itemsLineQ.data?.length && b.bill_source !== 'formgrid' ? (
           <button className="btn-secondary text-xs" disabled={matching} onClick={matchWithAi}>{matching ? 'Matching…' : 'Match with inventory (AI)'}</button>
         ) : null}>
           {!itemsLineQ.data?.length ? <EmptyState title="No line items extracted" /> : (
             <div className="space-y-2">
               {itemsLineQ.data.map((li) => (
-                <LineItemRow key={li.id} item={li} suggestions={(suggestionsQ.data || []).filter((s) => s.supplier_bill_item_id === li.id)} billId={billId} />
+                <LineItemRow key={li.id} item={li} suggestions={(suggestionsQ.data || []).filter((s) => s.supplier_bill_item_id === li.id)} billId={billId} formgrid={b.bill_source === 'formgrid'} />
               ))}
             </div>
           )}
@@ -715,7 +726,7 @@ function EditCell({ label, value, onSave, type = 'text', className = '', step })
   )
 }
 
-function LineItemRow({ item, suggestions, billId }) {
+function LineItemRow({ item, suggestions, billId, formgrid = false }) {
   const toast = useToast()
   const qc = useQueryClient()
   const itemsQ = useInventoryItems()
@@ -742,7 +753,7 @@ function LineItemRow({ item, suggestions, billId }) {
   // The AI proposes the matching inventory item (match-bill-items); it is never applied silently: the
   // auditor confirms it and chooses which name the item keeps.
   const candidate = (() => {
-    if (item.item_type !== 'material' || item.inventory_item_id || skipGuess) return null
+    if (formgrid || item.item_type !== 'material' || item.inventory_item_id || skipGuess) return null
     if (suggestion?.suggested_inventory_item_id) {
       const inv = (itemsQ.data || []).find((i) => i.id === suggestion.suggested_inventory_item_id)
       if (inv) return { inv, confidence: suggestion.confidence, suggestionId: suggestion.id }
@@ -823,7 +834,7 @@ function LineItemRow({ item, suggestions, billId }) {
           </div>
         </div>
       )}
-      {item.item_type === 'material' && !item.inventory_item_id && (!candidate || skipGuess) && !picking && (
+      {!formgrid && item.item_type === 'material' && !item.inventory_item_id && (!candidate || skipGuess) && !picking && (
         <div className="flex items-center gap-2 mt-2">
           <span className="text-xs text-ink-500">Link to inventory</span>
           <Select value={manualId} onChange={(e) => {
@@ -836,7 +847,7 @@ function LineItemRow({ item, suggestions, billId }) {
           </Select>
         </div>
       )}
-      {item.inventory_item_id && (
+      {!formgrid && item.inventory_item_id && (
         <div className="mt-1.5 flex items-center gap-2">
           <Badge tone="ok">Matched to inventory{linked ? `: ${linked.name}` : ''}</Badge>
           <button className="btn-ghost text-xs px-1.5 py-0.5" onClick={unlink}>Unlink</button>
