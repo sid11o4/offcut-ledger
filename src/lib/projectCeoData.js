@@ -40,8 +40,9 @@ export async function loadProjectRaw(projectId) {
   const billById = new Map(bills.map((b) => [b.id, b]))
 
   const itemsR = await supabase.from('supplier_bill_items')
-    .select('id, bill_id, description, item_type, quantity, unit_text, total_amount, inventory_item_id, cost_head')
+    .select('id, bill_id, description, item_type, quantity, unit_text, total_amount, inventory_item_id, cost_head, pays_vendor_credit')
     .in('bill_id', inList(billIds))
+    .eq('pays_vendor_credit', false)
   if (itemsR.error) throw itemsR.error
 
   // Consumption at this project, and exactly which stock lots each one drew (recorded as it happened).

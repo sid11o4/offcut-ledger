@@ -114,3 +114,64 @@ function ExpensesByCategory({ data }) {
     </Card>
   )
 }
+
+function MaterialsConsumed({ data }) {
+  if (!data.projects.length) return <EmptyState title="No materials consumed in this period" />
+  return (
+    <Card>
+      <div className="overflow-x-auto -mx-4">
+        <table className="table-base">
+          <thead><tr><th>Project / material</th><th className="num">Quantity</th><th className="num">Cost</th></tr></thead>
+          <tbody>
+            {data.projects.map((p) => (
+              <ProjectMaterialRows key={p.name} project={p} />
+            ))}
+          </tbody>
+          <tfoot><tr><td className="font-medium">Total</td><td /><td className="num font-medium">{money(data.grand)}</td></tr></tfoot>
+        </table>
+      </div>
+    </Card>
+  )
+}
+
+function ProjectMaterialRows({ project }) {
+  return (
+    <>
+      <tr className="bg-ink-50">
+        <td className="font-medium">{project.name}</td><td />
+        <td className="num font-medium">{money(project.cost)}</td>
+      </tr>
+      {project.items.map((i) => (
+        <tr key={i.name}>
+          <td className="pl-8">{i.name}</td>
+          <td className="num">{qty(i.quantity)} {i.unit}</td>
+          <td className="num">{money(i.cost)}</td>
+        </tr>
+      ))}
+    </>
+  )
+}
+
+function LabourReport({ data }) {
+  if (!data.lines.length) return <EmptyState title="No labour recorded in this period" />
+  return (
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+        <StatCard label="Total labour" value={money(data.total)} tone="bad" />
+      </div>
+      <Card>
+        <div className="overflow-x-auto -mx-4">
+          <table className="table-base">
+            <thead><tr><th>Date</th><th>Project</th><th>Description</th><th>Supplier / category</th><th className="num">Cost</th></tr></thead>
+            <tbody>
+              {data.lines.map((l, i) => (
+                <tr key={i}><td>{displayDate(l.date)}</td><td>{l.project}</td><td>{l.description}</td><td>{l.party}</td><td className="num">{money(l.amount)}</td></tr>
+              ))}
+            </tbody>
+            <tfoot><tr><td colSpan={4} className="font-medium">Total</td><td className="num font-medium">{money(data.total)}</td></tr></tfoot>
+          </table>
+        </div>
+      </Card>
+    </>
+  )
+}
