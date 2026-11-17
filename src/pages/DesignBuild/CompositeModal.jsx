@@ -154,12 +154,12 @@ export default function CompositeModal({ onClose, costOf, existing }) {
 
 // Makes composites from stock: one raw board and one skin (or two) leave company stock per unit made,
 // and the composite comes in at their cost plus the completed job works.
-export function MakeCompositeModal({ onClose, stockRows, composites, initialId }) {
+export function MakeCompositeModal({ onClose, stockRows, composites, initialId, initialDate }) {
   const toast = useToast()
   const qc = useQueryClient()
   const [itemId, setItemId] = useState(initialId || '')
   const [quantity, setQuantity] = useState('')
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(initialDate || new Date().toISOString().slice(0, 10))
   const [saving, setSaving] = useState(false)
   const partsQ = useCompositeParts(itemId)
   const parts = partsQ.data || []
