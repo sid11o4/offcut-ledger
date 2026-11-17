@@ -71,7 +71,9 @@ const EXTRACT_SCHEMA = {
           item_type: { type: 'string', enum: ['material', 'labour'] },
           unit_text: { type: ['string', 'null'] },
           quantity: { type: 'number' },
-          rate_inclusive: { type: 'number', description: 'The GST-inclusive rate for this line.' },
+          rate_inclusive: { type: 'number', description: 'The rate for this line exactly as printed in the rate column (before any line discount). See rate_includes_gst.' },
+          rate_includes_gst: { type: 'boolean', description: 'true if the printed rate already includes GST (MRP / inclusive); false if the document adds tax separately at the bottom (IGST/CGST/SGST) so the printed rate is before tax. FORMGRID slips are always true.' },
+          discount_percent: { type: ['number', 'null'], description: 'The line discount percentage printed for this line (a DISC / Disc % column). Null if the line has none. Do not apply it yourself.' },
           gst_percent: { type: 'number', description: 'The GST % for this line (0, 5, 12, 18, or whatever is written).' },
           material_match: { type: ['string', 'null'], description: 'For a material line: the EXACT name (character-for-character) from the known inventory item list, only if confident this is the same product under a different term. Otherwise null.' },
           material_confidence: { type: 'number', description: '0-1 confidence that material_match is the same product (0 if material_match is null).' },
@@ -160,7 +162,7 @@ function vendorBillPrompt(isPdf: boolean, suppliers: string[], projects: string[
 
 Read the supplier's name, GSTIN, phone and address from the vendor's own letterhead. Never copy the FORMGRID company's details into the supplier fields.
 Read the bill or invoice number and the bill date (as an ISO YYYY-MM-DD date) into bill_number and bill_date.
-Read every line item: description verbatim, quantity, unit, rate, GST % and the line amount. Report rate_inclusive exactly as written, and do not compute anything yourself. Use null for anything blank or illegible.
+Read every line item: description verbatim, quantity, unit, rate, GST % and the line amount. Report rate_inclusive exactly as printed in the rate column, and do not compute anything yourself. If the table has a discount column (DISC, Disc %, Discount), report each line's percentage in discount_percent: the printed rate is the price BEFORE that discount and the amount column is after it. Set rate_includes_gst false when tax is added separately at the bottom (IGST, CGST, SGST) and true when the rate already includes it. If lines carry no GST % column, set gst_percent from the tax summary (total tax divided by the amount before tax, e.g. 9,475.44 on 52,641.32 is 18). Use null for anything blank or illegible.
 Report grand_total as printed (after discount) and any discount as a positive number in discount. The document may be a quotation or price list with no bill number, date or vendor name: report those as null and still read every line (an MRP column is the rate). Leave payments empty unless the document shows payments already made.
 Assign each line its cost_head from what the line is (a material line is raw_boards, skins, edgeband, adhesives, hardware or other; freight is transport; anything else that is not material or labour is miscellaneous; a labour line is factory_labour, site_labour or employee_salary), and item_type as material or labour.
 
@@ -327,7 +329,16 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
         quantity: num(l.quantity) > 0 ? num(l.quantity) : 1,
         rate_inclusive: Math.max(0, num(l.rate_inclusive)),
         gst_percent: Math.max(0, num(l.gst_percent)),
-      })) as unknown as Array<{
+      }))
+      // The printed rate is before the line discount and, on many quotations, before tax. Store the net
+      // GST-inclusive rate so quantity x rate matches the document's amount column.
+      .map((l) => {
+        const raw = l as unknown as { discount_percent?: unknown; rate_includes_gst?: unknown }
+        const disc = Math.min(100, Math.max(0, num(raw.discount_percent)))
+        const net = l.rate_inclusive * (1 - disc / 100)
+        const inclusive = raw.rate_includes_gst !== false
+        return { ...l, rate_inclusive: Math.round((inclusive ? net : net * (1 + l.gst_percent / 100)) * 10000) / 10000 }
+      }) as unknown as Array<{
       description: string; item_type: 'material' | 'labour'; unit_text?: string | null
       quantity: number; rate_inclusive: number; gst_percent: number
       material_match?: string | null; material_confidence?: number; cost_head?: string | null
@@ -337,7 +348,10 @@ ${[...itemIdMap.keys()].map((n) => `- ${n}`).join('\n') || '(none on file)'}`
     // amount payable (the schema has no negative lines).
     const discount = num(extracted.discount)
     const gross = lineItems.reduce((t, l) => t + l.quantity * l.rate_inclusive, 0)
-    if (discount > 0 && gross > discount) {
+    // If the lines (after their own discounts) already add up to the printed total, the discount was line-level and is not applied again.
+    const printedTotal = num(extracted.grand_total)
+    const alreadyNet = printedTotal > 0 && Math.abs(gross - printedTotal) / printedTotal < 0.01
+    if (discount > 0 && gross > discount && !alreadyNet) {
       const f = (gross - discount) / gross
       lineItems = lineItems.map((l) => ({ ...l, rate_inclusive: Math.round(l.rate_inclusive * f * 10000) / 10000 }))
     }
