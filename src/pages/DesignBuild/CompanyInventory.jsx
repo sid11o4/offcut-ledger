@@ -9,6 +9,7 @@ import { money, qty } from '../../lib/format'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import TransferModal from '../../components/TransferModal'
+import CompositeModal, { CompositeBreakdown } from './CompositeModal'
 
 export default function CompanyInventory() {
   const valueQ = useCompanyInventoryValue()
@@ -21,9 +22,14 @@ export default function CompanyInventory() {
   const [transferOpen, setTransferOpen] = useState(false)
   const [openItem, setOpenItem] = useState(null)
   const [purchaseOpen, setPurchaseOpen] = useState(false)
+  const [compositeOpen, setCompositeOpen] = useState(false)
+  const [editComposite, setEditComposite] = useState(null)
   const canOperate = hasPermission('inventory_operate')
 
   const rows = valueQ.data || []
+  const compositeIds = new Set((itemsQ.data || []).filter((i) => i.is_composite).map((i) => i.id))
+  // A component's cost for the composite form: its average cost in the pool, else its default rate.
+  const costOf = (id) => Number(rows.find((r) => r.item_id === id)?.avg_unit_cost || (itemsQ.data || []).find((i) => i.id === id)?.default_rate || 0)
   const total = rows.reduce((s, r) => s + Number(r.value), 0)
 
   return (
@@ -33,6 +39,7 @@ export default function CompanyInventory() {
         subtitle="The shared pool. Transferred to a project's own inventory on request; the cost moves with it."
         actions={canOperate && (
           <>
+            <button className="btn-secondary" onClick={() => setCompositeOpen(true)}>New composite material</button>
             <button className="btn-secondary" onClick={() => setTransferOpen(true)}>Transfer</button>
             <button className="btn-primary" onClick={() => setPurchaseOpen(true)}>Record purchase</button>
           </>
@@ -67,7 +74,7 @@ export default function CompanyInventory() {
                 return (
                   <Fragment key={r.item_id}>
                     <tr className="cursor-pointer" onClick={() => setOpenItem(openItem === r.item_id ? null : r.item_id)}>
-                      <td>{r.item_name} <span className="text-xs text-ink-500">{openItem === r.item_id ? '· hide sources' : '· sources'}</span></td>
+                      <td>{r.item_name} {compositeIds.has(r.item_id) && <Badge tone="brand">Composite</Badge>} <span className="text-xs text-ink-500">{openItem === r.item_id ? '· hide details' : '· details'}</span></td>
                       <td className="num">{qty(r.quantity)}</td>
                       <td>{unitOf.get(r.item_id) || '—'}</td>
                       <td className="num">{money(r.avg_unit_cost)}</td>
@@ -76,7 +83,15 @@ export default function CompanyInventory() {
                     </tr>
                     {openItem === r.item_id && (
                       <tr>
-                        <td colSpan={6} className="bg-ink-50"><MaterialSources itemId={r.item_id} /></td>
+                        <td colSpan={6} className="bg-ink-50">
+                          {compositeIds.has(r.item_id) && (
+                            <>
+                              <CompositeBreakdown itemId={r.item_id} />
+                              {canOperate && <button type="button" className="btn-ghost text-xs ml-3 mb-2" onClick={() => setEditComposite((itemsQ.data || []).find((i) => i.id === r.item_id))}>Edit composite</button>}
+                            </>
+                          )}
+                          <MaterialSources itemId={r.item_id} />
+                        </td>
                       </tr>
                     )}
                   </Fragment>
@@ -96,6 +111,9 @@ export default function CompanyInventory() {
         />
       )}
       {purchaseOpen && <PurchaseModal onClose={() => setPurchaseOpen(false)} />}
+      {(compositeOpen || editComposite) && (
+        <CompositeModal costOf={costOf} existing={editComposite} onClose={() => { setCompositeOpen(false); setEditComposite(null) }} />
+      )}
     </div>
   )
 }
@@ -226,9 +244,12 @@ function PurchaseModal({ onClose }) {
       <form onSubmit={submit} className="card p-5 w-full max-w-md space-y-3">
         <div className="text-sm font-semibold text-ink-950">Record a direct purchase into company inventory</div>
         <Field label="Material">
-          <Select required value={form.item_id} onChange={(e) => setForm({ ...form, item_id: e.target.value })}>
+          <Select required value={form.item_id} onChange={(e) => {
+            const it = (itemsQ.data || []).find((i) => i.id === e.target.value)
+            setForm({ ...form, item_id: e.target.value, unit_cost: it?.is_composite && it.default_rate ? String(it.default_rate) : form.unit_cost })
+          }}>
             <option value="">Select…</option>
-            {(itemsQ.data || []).filter((i) => i.active !== false).map((i) => <option key={i.id} value={i.id}>{i.name}{i.units ? ` (${i.units.name || i.units.code})` : ''}</option>)}
+            {(itemsQ.data || []).filter((i) => i.active !== false).map((i) => <option key={i.id} value={i.id}>{i.name}{i.is_composite ? ' (composite)' : ''}{i.units ? ` (${i.units.name || i.units.code})` : ''}</option>)}
             <option value={NEW}>+ New material…</option>
           </Select>
         </Field>

@@ -1,0 +1,153 @@
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Field, Input, Select } from '../../components/ui'
+import { useInventoryItems, invalidateInventory } from '../../lib/queries'
+import { money } from '../../lib/format'
+import { supabase } from '../../lib/supabaseClient'
+import { useToast } from '../../components/Toast'
+
+// A composite material is a raw board, a skin on one side, an optional skin on the other side and the
+// job works already completed on it. Its value per unit is the sum of the parts.
+export function useCompositeParts(itemId) {
+  return useQuery({
+    queryKey: ['composite_parts', itemId],
+    enabled: !!itemId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('inventory_composite_parts')
+        .select('*, component:inventory_items!component_item_id(name)')
+        .eq('item_id', itemId).order('sort_order')
+      if (error) throw error
+      return data || []
+    },
+  })
+}
+
+const ROLE_LABEL = { raw: 'Raw board', skin1: 'Skin 1', skin2: 'Skin 2', jobwork: 'Job work' }
+
+export function CompositeBreakdown({ itemId }) {
+  const q = useCompositeParts(itemId)
+  const parts = q.data || []
+  if (!parts.length) return <div className="px-3 py-2 text-xs text-ink-500">{q.isLoading ? 'Loading…' : 'No parts recorded.'}</div>
+  const total = parts.reduce((s, p) => s + Number(p.unit_cost), 0)
+  return (
+    <div className="px-3 py-2">
+      <div className="text-xs font-medium text-ink-700 mb-1">Made up of (per unit)</div>
+      <table className="table-base">
+        <tbody>
+          {parts.map((p) => (
+            <tr key={p.id}>
+              <td className="text-ink-500 w-28">{ROLE_LABEL[p.role]}</td>
+              <td>{p.component?.name || p.label}</td>
+              <td className="num">{money(p.unit_cost)}</td>
+            </tr>
+          ))}
+          <tr><td colSpan={2} className="font-medium">Combined value</td><td className="num font-medium">{money(total)}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+export default function CompositeModal({ onClose, costOf, existing }) {
+  const toast = useToast()
+  const qc = useQueryClient()
+  const itemsQ = useInventoryItems()
+  const partsQ = useCompositeParts(existing?.id)
+  const materials = (itemsQ.data || []).filter((i) => i.active !== false && !i.is_composite)
+
+  const [name, setName] = useState(existing?.name || '')
+  const [raw, setRaw] = useState({ item: '', cost: '' })
+  const [skin1, setSkin1] = useState({ item: '', cost: '' })
+  const [skin2, setSkin2] = useState({ item: '', cost: '' })
+  const [jobs, setJobs] = useState([])
+  const [loaded, setLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  // When editing, fill the form from the saved parts once they arrive.
+  if (existing && partsQ.data && !loaded) {
+    const by = (r) => partsQ.data.find((p) => p.role === r)
+    const pick = (p) => (p ? { item: p.component_item_id, cost: String(p.unit_cost) } : { item: '', cost: '' })
+    setRaw(pick(by('raw'))); setSkin1(pick(by('skin1'))); setSkin2(pick(by('skin2')))
+    setJobs(partsQ.data.filter((p) => p.role === 'jobwork').map((p) => ({ label: p.label || '', cost: String(p.unit_cost) })))
+    setLoaded(true)
+  }
+
+  // Choosing a material fills its cost from stock (or its default rate); the cost stays editable.
+  const choose = (setter) => (itemId) => setter({ item: itemId, cost: itemId && costOf(itemId) ? String(costOf(itemId)) : '' })
+  const num = (v) => Number(v) || 0
+  const total = num(raw.cost) + num(skin1.cost) + (skin2.item ? num(skin2.cost) : 0) + jobs.reduce((s, j) => s + num(j.cost), 0)
+
+  async function submit(e) {
+    e.preventDefault()
+    const parts = [
+      { role: 'raw', component_item_id: raw.item, unit_cost: num(raw.cost) },
+      { role: 'skin1', component_item_id: skin1.item, unit_cost: num(skin1.cost) },
+      ...(skin2.item ? [{ role: 'skin2', component_item_id: skin2.item, unit_cost: num(skin2.cost) }] : []),
+      ...jobs.filter((j) => j.label.trim() || j.cost).map((j) => ({ role: 'jobwork', label: j.label, unit_cost: num(j.cost) })),
+    ]
+    setSaving(true)
+    const { error } = await supabase.rpc('save_composite_item', { p_item_id: existing?.id || null, p_name: name, p_parts: parts })
+    setSaving(false)
+    if (error) return toast.error(error.message)
+    toast.success(`${name} saved at ${money(total)} per unit.`)
+    invalidateInventory(qc)
+    qc.invalidateQueries({ queryKey: ['inventory_items'] })
+    qc.invalidateQueries({ queryKey: ['composite_parts'] })
+    onClose()
+  }
+
+  const materialSelect = (state, setter, required) => (
+    <Select required={required} value={state.item} onChange={(e) => choose(setter)(e.target.value)}>
+      <option value="">{required ? 'Select…' : 'None'}</option>
+      {materials.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+    </Select>
+  )
+  const costInput = (state, setter, disabled) => (
+    <Input type="number" min="0" step="0.01" placeholder="Cost / unit" disabled={disabled} required={!disabled}
+      value={state.cost} onChange={(e) => setter({ ...state, cost: e.target.value })} />
+  )
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 overflow-y-auto">
+      <form onSubmit={submit} className="card p-5 w-full max-w-xl space-y-3">
+        <div className="text-sm font-semibold text-ink-950">{existing ? 'Edit composite material' : 'New composite material'}</div>
+        <p className="text-xs text-ink-500">A raw board with its skins and the job works already done on it, held as one material valued at the sum of its parts.</p>
+        <Field label="Name"><Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. 16MM MR + 6965SUD both sides, edge banded" /></Field>
+
+        <div className="grid grid-cols-3 gap-3 items-end">
+          <div className="col-span-2"><Field label="Raw board">{materialSelect(raw, setRaw, true)}</Field></div>
+          <Field label=" ">{costInput(raw, setRaw)}</Field>
+          <div className="col-span-2"><Field label="Skin 1">{materialSelect(skin1, setSkin1, true)}</Field></div>
+          <Field label=" ">{costInput(skin1, setSkin1)}</Field>
+          <div className="col-span-2"><Field label="Skin 2 (optional)">{materialSelect(skin2, setSkin2, false)}</Field></div>
+          <Field label=" ">{costInput(skin2, setSkin2, !skin2.item)}</Field>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-xs font-medium text-ink-700">Completed job works (cost per unit)</div>
+            <button type="button" className="btn-ghost text-xs" onClick={() => setJobs([...jobs, { label: '', cost: '' }])}>+ Add job work</button>
+          </div>
+          {jobs.map((j, i) => (
+            <div key={i} className="grid grid-cols-6 gap-2 mb-2">
+              <div className="col-span-3"><Input placeholder="e.g. Lamination, Edge banding" value={j.label} onChange={(e) => setJobs(jobs.map((x, k) => (k === i ? { ...x, label: e.target.value } : x)))} /></div>
+              <div className="col-span-2"><Input type="number" min="0" step="0.01" placeholder="Cost / unit" value={j.cost} onChange={(e) => setJobs(jobs.map((x, k) => (k === i ? { ...x, cost: e.target.value } : x)))} /></div>
+              <button type="button" className="btn-ghost text-xs" onClick={() => setJobs(jobs.filter((_, k) => k !== i))}>Remove</button>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-ink-100 pt-3">
+          <div className="text-sm text-ink-700">Combined value per unit</div>
+          <div className="text-lg font-medium tnum">{money(total)}</div>
+        </div>
+        {existing && <p className="text-xs text-ink-500">Stock already held keeps the value it was entered at; the new value applies to stock entered from now on.</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : 'Save'}</button>
+        </div>
+      </form>
+    </div>
+  )
+}
