@@ -36,13 +36,14 @@ export default function SupplierReturns() {
   const [billNumber, setBillNumber] = useState('')
   const [voidReason, setVoidReason] = useState('')
   const [filing, setFiling] = useState(null)
+  const [act, setAct] = useState(null) // the follow-up action being filled in: { type, slip, ...fields }
 
   const slipsQ = useQuery({
     queryKey: ['supplier_return_slips'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('supplier_return_slips')
-        .select('id, slip_number, return_date, reason, total_amount, follow_up_status, slip_filed_reference, slip_filed_on, supplier:suppliers(name), location:inventory_locations(name), supplier_return_slip_items(quantity, unit_cost, total_amount, reason, inventory_items(name, units(code)))')
+        .select('id, slip_number, return_date, reason, total_amount, follow_up_status, slip_filed_reference, slip_filed_on, supplier_id, credit_status, credit_note_number, credit_note_date, credit_amount, credit_settled_how, credit_settled_on, credit_settled_reference, adjusted_bill_id, next_follow_up_on, supplier:suppliers(name), location:inventory_locations(name), supplier_return_slip_items(quantity, unit_cost, total_amount, reason, inventory_items(name, units(code)))')
         .order('return_date', { ascending: false })
         .limit(200)
       if (error) throw error
@@ -65,8 +66,21 @@ export default function SupplierReturns() {
   })
 
   const locations = locationsQ.data || []
-  const items = itemsQ.data || []
-  const pending = (slipsQ.data || []).filter((s) => s.follow_up_status === 'pending_slip')
+  const allItems = itemsQ.data || []
+
+  // Only what that supplier supplied and is still in stock at the chosen location can be returned.
+  const returnableQ = useQuery({
+    queryKey: ['returnable_items', form.supplier_id, form.location_id],
+    enabled: !!form.supplier_id && !!form.location_id,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('returnable_items', { p_supplier_id: form.supplier_id, p_location_id: form.location_id })
+      if (error) throw error
+      return data || []
+    },
+  })
+  const available = new Map((returnableQ.data || []).map((r) => [r.item_id, Number(r.quantity)]))
+  const items = allItems.filter((it) => available.has(it.id))
+  const pending = (slipsQ.data || []).filter((s) => s.follow_up_status === 'pending_slip' || s.credit_status !== 'settled')
 
   function setLine(i, patch) {
     setForm((f) => ({ ...f, lines: f.lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)) }))
@@ -161,13 +175,13 @@ export default function SupplierReturns() {
           <form onSubmit={processReturn} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <Field label="Supplier">
-                <Select required value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })}>
+                <Select required value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value, lines: form.lines.map((l) => ({ ...l, item_id: '' })) })}>
                   <option value="">Choose…</option>
                   {(suppliersQ.data || []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </Select>
               </Field>
               <Field label="Returned from">
-                <Select required value={form.location_id} onChange={(e) => setForm({ ...form, location_id: e.target.value })}>
+                <Select required value={form.location_id} onChange={(e) => setForm({ ...form, location_id: e.target.value, lines: form.lines.map((l) => ({ ...l, item_id: '' })) })}>
                   <option value="">Choose…</option>
                   {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </Select>
@@ -185,15 +199,15 @@ export default function SupplierReturns() {
                 <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
                   <div className="md:col-span-5">
                     <Field label={i === 0 ? 'Item' : null}>
-                      <Select value={l.item_id} onChange={(e) => setLine(i, { item_id: e.target.value })}>
-                        <option value="">Choose…</option>
-                        {items.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
+                      <Select value={l.item_id} disabled={!form.supplier_id || !form.location_id} onChange={(e) => setLine(i, { item_id: e.target.value })}>
+                        <option value="">{!form.supplier_id || !form.location_id ? 'Choose the supplier and location first…' : returnableQ.isLoading ? 'Loading…' : items.length ? 'Choose…' : 'Nothing from this supplier is in stock here'}</option>
+                        {items.map((it) => <option key={it.id} value={it.id}>{it.name} — {qty(available.get(it.id))} in stock</option>)}
                       </Select>
                     </Field>
                   </div>
                   <div className="md:col-span-2">
                     <Field label={i === 0 ? 'Quantity' : null}>
-                      <Input type="number" min="0.0001" step="0.0001" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} />
+                      <Input type="number" min="0.0001" max={available.get(l.item_id) || undefined} step="0.0001" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} />
                     </Field>
                   </div>
                   <div className="md:col-span-4">
@@ -217,25 +231,37 @@ export default function SupplierReturns() {
         )}
       </Card>
 
-      <Card title={`Return slips to file (${pending.length})`} className="mb-5">
-        {slipsQ.isLoading ? <LoadingBlock /> : !pending.length ? <EmptyState title="No slips waiting to be filed" /> : (
+      <Card title={`Returns to follow up (${pending.length})`} className="mb-5">
+        {slipsQ.isLoading ? <LoadingBlock /> : !pending.length ? <EmptyState title="Nothing to follow up" hint="Every return has its signed slip filed and its credit settled." /> : (
           <div className="overflow-x-auto -mx-4">
             <table className="table-base">
-              <thead><tr><th>Slip</th><th>Date</th><th>Supplier</th><th>From</th><th className="num">Total</th><th /></tr></thead>
+              <thead><tr><th>Slip</th><th>Date</th><th>Supplier</th><th className="num">Credit</th><th>Signed slip</th><th>Vendor credit</th><th>Next follow-up</th><th /></tr></thead>
               <tbody>
-                {pending.map((s) => (
-                  <tr key={s.id}>
-                    <td className="font-medium">{s.slip_number}</td>
-                    <td>{displayDate(s.return_date)}</td>
-                    <td>{s.supplier?.name}</td>
-                    <td>{s.location?.name}</td>
-                    <td className="num">{money(s.total_amount)}</td>
-                    <td className="text-right whitespace-nowrap">
-                      <button className="btn-ghost text-xs px-2" onClick={() => downloadSlip(s)}>Download slip</button>
-                      <button className="btn-ghost text-xs px-2" onClick={() => setFiling({ slip: s, reference: '', filedOn: today() })}>File signed slip</button>
-                    </td>
-                  </tr>
-                ))}
+                {pending.map((sl) => {
+                  const overdue = sl.next_follow_up_on && sl.next_follow_up_on < today()
+                  return (
+                    <tr key={sl.id}>
+                      <td className="font-medium">{sl.slip_number}<div className="text-xs text-ink-500 font-normal">{sl.location?.name}</div></td>
+                      <td>{displayDate(sl.return_date)}</td>
+                      <td>{sl.supplier?.name}</td>
+                      <td className="num">{money(sl.credit_amount ?? sl.total_amount)}{sl.credit_amount != null && Number(sl.credit_amount) !== Number(sl.total_amount) && <div className="text-[11px] text-ink-500">stock {money(sl.total_amount)}</div>}</td>
+                      <td>{sl.follow_up_status === 'filed' ? `Filed ${sl.slip_filed_reference || ''}` : <span className="text-warn">To file</span>}</td>
+                      <td>
+                        {sl.credit_status === 'awaiting_credit' && <span className="text-warn">Awaiting credit note</span>}
+                        {sl.credit_status === 'credit_received' && <span>Credit note {sl.credit_note_number}<div className="text-[11px] text-ink-500">to settle</div></span>}
+                        {sl.credit_status === 'settled' && 'Settled'}
+                      </td>
+                      <td>{sl.next_follow_up_on ? <span className={overdue ? 'text-bad font-medium' : ''}>{displayDate(sl.next_follow_up_on)}{overdue ? ' · overdue' : ''}</span> : '—'}</td>
+                      <td className="text-right whitespace-nowrap">
+                        <button className="btn-ghost text-xs px-2" onClick={() => downloadSlip(sl)}>Slip PDF</button>
+                        {sl.follow_up_status === 'pending_slip' && <button className="btn-ghost text-xs px-2" onClick={() => setFiling({ slip: sl, reference: '', filedOn: today() })}>File slip</button>}
+                        {sl.credit_status === 'awaiting_credit' && <button className="btn-ghost text-xs px-2" onClick={() => setAct({ type: 'note', slip: sl, number: '', date: today(), amount: String(sl.total_amount) })}>Credit note</button>}
+                        {sl.credit_status === 'credit_received' && <button className="btn-ghost text-xs px-2" onClick={() => setAct({ type: 'settle', slip: sl, how: 'refunded', reference: '', date: today(), billId: '' })}>Settle credit</button>}
+                        <button className="btn-ghost text-xs px-2" onClick={() => setAct({ type: 'log', slip: sl, note: '', next: '' })}>Follow up</button>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -254,6 +280,7 @@ export default function SupplierReturns() {
             </div>
           </div>
         )}
+        {act && <FollowUpForm act={act} setAct={setAct} onDone={() => { setAct(null); qc.invalidateQueries({ queryKey: ['supplier_return_slips'] }); qc.invalidateQueries({ queryKey: ['pending_payables'] }); qc.invalidateQueries({ queryKey: ['vendor_dashboard'] }) }} />}
       </Card>
 
       <Card title="Void an approved bill" className="mb-5">
@@ -287,6 +314,87 @@ export default function SupplierReturns() {
           </div>
         )}
       </Card>
+    </div>
+  )
+}
+
+// One follow-up step on a return: record the vendor's credit note, settle the credit, or log a chase.
+function FollowUpForm({ act, setAct, onDone }) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const slip = act.slip
+  const billsQ = useQuery({
+    queryKey: ['vendor_open_bills', slip.supplier_id],
+    enabled: act.type === 'settle' && act.how === 'adjusted',
+    queryFn: async () => {
+      const { data, error } = await supabase.from('supplier_bills').select('id, internal_bill_number, bill_date, grand_total').eq('supplier_id', slip.supplier_id).eq('status', 'approved').order('bill_date')
+      if (error) throw error
+      return data || []
+    },
+  })
+  const set = (patch) => setAct({ ...act, ...patch })
+
+  async function save() {
+    setBusy(true)
+    let res
+    if (act.type === 'note') {
+      res = await supabase.rpc('record_return_credit_note', { p_slip_id: slip.id, p_number: act.number, p_date: act.date, p_amount: Number(act.amount) })
+    } else if (act.type === 'settle') {
+      res = await supabase.rpc('settle_return_credit', { p_slip_id: slip.id, p_how: act.how, p_reference: act.reference || null, p_on: act.date, p_bill_id: act.how === 'adjusted' ? act.billId || null : null })
+    } else {
+      res = await supabase.rpc('log_return_followup', { p_slip_id: slip.id, p_note: act.note, p_next: act.next || null })
+    }
+    setBusy(false)
+    if (res.error) return toast.error(res.error.message)
+    toast.success(act.type === 'note' ? 'Credit note recorded.' : act.type === 'settle' ? 'Credit settled.' : 'Follow-up logged.')
+    onDone()
+  }
+
+  return (
+    <div className="mt-4 rounded-md border border-brand-500 bg-brand-100 p-4">
+      <div className="text-sm font-medium text-ink-950 mb-3">
+        {act.type === 'note' ? `Vendor credit note for ${slip.slip_number}` : act.type === 'settle' ? `Settle the credit for ${slip.slip_number}` : `Follow up ${slip.slip_number}`}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        {act.type === 'note' && (
+          <>
+            <Field label="Credit note number"><Input value={act.number} onChange={(e) => set({ number: e.target.value })} /></Field>
+            <Field label="Credit note date"><Input type="date" value={act.date} onChange={(e) => set({ date: e.target.value })} /></Field>
+            <Field label={`Credit amount (stock was ${money(slip.total_amount)})`}><Input type="number" step="0.01" value={act.amount} onChange={(e) => set({ amount: e.target.value })} /></Field>
+          </>
+        )}
+        {act.type === 'settle' && (
+          <>
+            <Field label="How was it settled">
+              <Select value={act.how} onChange={(e) => set({ how: e.target.value })}>
+                <option value="refunded">Vendor refunded the money</option>
+                <option value="adjusted">Adjusted against a bill</option>
+              </Select>
+            </Field>
+            {act.how === 'adjusted' ? (
+              <Field label="Against bill">
+                <Select value={act.billId} onChange={(e) => set({ billId: e.target.value })}>
+                  <option value="">Choose…</option>
+                  {(billsQ.data || []).map((b) => <option key={b.id} value={b.id}>{b.internal_bill_number} · {displayDate(b.bill_date)} · {money(b.grand_total)}</option>)}
+                </Select>
+              </Field>
+            ) : (
+              <Field label="Refund reference (UTR / receipt)"><Input value={act.reference} onChange={(e) => set({ reference: e.target.value })} /></Field>
+            )}
+            <Field label="Settled on"><Input type="date" value={act.date} onChange={(e) => set({ date: e.target.value })} /></Field>
+          </>
+        )}
+        {act.type === 'log' && (
+          <>
+            <div className="md:col-span-2"><Field label="What was followed up"><Input value={act.note} onChange={(e) => set({ note: e.target.value })} placeholder="e.g. Called the vendor, credit note promised by Friday" /></Field></div>
+            <Field label="Chase again on"><Input type="date" value={act.next} onChange={(e) => set({ next: e.target.value })} /></Field>
+          </>
+        )}
+        <div className="flex gap-2">
+          <button className="btn-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+          <button className="btn-secondary" onClick={() => setAct(null)}>Cancel</button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -6,7 +6,7 @@ import { buildTableDoc, saveDoc } from '../../lib/reportPdf'
 import { money, pdfMoney } from '../../lib/format'
 import { displayDate, today } from '../../lib/dates'
 
-const FILTERS = [['all', 'All'], ['Material', 'Material'], ['Labour', 'Labour']]
+const FILTERS = [['all', 'All'], ['Material', 'Material'], ['Labour', 'Labour'], ['Return credit', 'Return credits']]
 
 const daysOld = (d) => Math.max(0, Math.floor((Date.now() - new Date(`${d}T00:00:00`).getTime()) / 86400000))
 
@@ -29,11 +29,12 @@ export default function PendingPayables() {
   const isLabour = (r) => r.kind === 'Labour'
   const shown = useMemo(
     () => rows
-      .filter((r) => filter === 'all' || (filter === 'Labour' ? r.kind !== 'Material' : r.kind !== 'Labour'))
+      .filter((r) => filter === 'all' || (filter === 'Return credit' ? r.kind === 'Return credit' : filter === 'Labour' ? r.kind === 'Labour' || r.kind === 'Material + labour' : r.kind === 'Material' || r.kind === 'Material + labour'))
       .sort((a, b) => String(a.doc_date).localeCompare(String(b.doc_date))),
     [rows, filter],
   )
   const sum = (xs) => xs.reduce((s, r) => s + r.balance, 0)
+  const creditTotal = sum(rows.filter((r) => r.kind === 'Return credit'))
   const materialTotal = sum(rows.filter((r) => r.kind === 'Material'))
   const labourTotal = sum(rows.filter(isLabour))
   const mixedTotal = sum(rows.filter((r) => r.kind === 'Material + labour'))
@@ -91,7 +92,7 @@ export default function PendingPayables() {
       />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <StatCard label="Total payable" value={money(total)} sub={`${rows.length} item${rows.length === 1 ? '' : 's'}`} tone={total ? 'bad' : 'neutral'} money />
+        <StatCard label="Total payable" value={money(total)} sub={creditTotal ? `After ${money(-creditTotal)} of return credit` : `${rows.length} item${rows.length === 1 ? '' : 's'}`} tone={total ? 'bad' : 'neutral'} money />
         <StatCard label="Material" value={money(materialTotal + mixedTotal)} sub="Vendor bills" money />
         <StatCard label="Labour" value={money(labourTotal)} sub="Labour bills and contractors" money />
         <StatCard label="Oldest" value={`${oldest} days`} sub="Since the oldest bill or entry" />
@@ -113,7 +114,7 @@ export default function PendingPayables() {
                     {shown.map((r, i) => (
                       <tr key={`${r.bill_id || r.party}-${i}`}>
                         <td className="tnum">{displayDate(r.doc_date)}</td>
-                        <td><Badge tone={r.kind === 'Labour' ? 'warn' : 'neutral'}>{r.kind}</Badge></td>
+                        <td><Badge tone={r.kind === 'Labour' ? 'warn' : r.kind === 'Return credit' ? 'ok' : 'neutral'}>{r.kind}</Badge></td>
                         <td>{r.party}</td>
                         <td>{r.project_name || '—'}</td>
                         <td>
