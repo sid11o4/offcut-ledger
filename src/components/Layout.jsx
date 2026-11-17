@@ -83,6 +83,7 @@ const WORKSPACE_GROUPS = {
         { to: '/accounts/bills', label: 'Bill Audit Queue', icon: 'bill', perm: 'supplier_bills_manage' },
         { to: '/accounts/gst', label: 'GST Follow-up', icon: 'compliance', perm: 'gst_compliance' },
         { to: '/accounts', label: 'Accounts Overview', icon: 'queue', perm: 'supplier_bills_manage', end: true },
+        { to: '/accounts/payables', label: 'Pending Payables', icon: 'queue', perm: 'supplier_bills_manage' },
         { to: '/accounts/rtgs', label: 'RTGS / NEFT Payments', icon: 'bank', perm: 'supplier_bills_manage' },
         { to: '/accounts/rtgs-ledger', label: 'RTGS / NEFT Ledger', icon: 'ledger', perm: 'supplier_bills_manage' },
         { to: '/accounts/bank', label: 'Bank Reconciliation', icon: 'bank', perm: 'bank_reconciliation' },

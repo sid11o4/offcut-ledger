@@ -43,6 +43,7 @@ import AccountsOverview from './pages/Accounts/AccountsOverview'
 import BillAuditQueue from './pages/Accounts/BillAuditQueue'
 import BankReconciliation from './pages/Accounts/BankReconciliation'
 import RtgsPayments from './pages/Accounts/RtgsPayments'
+import PendingPayables from './pages/Accounts/PendingPayables'
 import RtgsLedger from './pages/Accounts/RtgsLedger'
 import GstFollowUp from './pages/Accounts/GstFollowUp'
 
@@ -118,6 +119,7 @@ export default function App() {
         <Route path="accounts" element={<RequirePermission perm="supplier_bills_manage"><AccountsOverview /></RequirePermission>} />
         <Route path="accounts/bills" element={<RequirePermission perm="supplier_bills_manage"><BillAuditQueue /></RequirePermission>} />
         <Route path="accounts/bank" element={<RequirePermission perm="bank_reconciliation"><BankReconciliation /></RequirePermission>} />
+        <Route path="accounts/payables" element={<RequirePermission perm="supplier_bills_manage"><PendingPayables /></RequirePermission>} />
         <Route path="accounts/rtgs" element={<RequirePermission perm="supplier_bills_manage"><RtgsPayments /></RequirePermission>} />
         <Route path="accounts/rtgs-ledger" element={<RequirePermission perm="supplier_bills_manage"><RtgsLedger /></RequirePermission>} />
         <Route path="accounts/gst" element={<RequirePermission perm="gst_compliance"><GstFollowUp /></RequirePermission>} />
