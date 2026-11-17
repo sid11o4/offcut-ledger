@@ -3,7 +3,7 @@ import MaterialSources from './MaterialSources'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, StatCard, EmptyState, LoadingBlock, Field, Input, Select, Badge } from '../../components/ui'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useCompanyInventoryValue, useInventoryItems, useDesignProjectsSummary, useUnits, invalidateInventory } from '../../lib/queries'
 import { money, qty } from '../../lib/format'
 import { supabase } from '../../lib/supabaseClient'
@@ -17,7 +17,27 @@ export const INVENTORY_CATEGORIES = ['Raw Boards', 'Skins', 'Edgeband', 'Hardwar
 const GROUPS = [...INVENTORY_CATEGORIES, 'Composite']
 
 export default function CompanyInventory() {
-  const valueQ = useCompanyInventoryValue()
+  // /design-build/inventory?project=<id> shows that project's own stock; without it, the company pool.
+  const [searchParams] = useSearchParams()
+  const projectId = searchParams.get('project')
+  const companyQ = useCompanyInventoryValue()
+  const projectStockQ = useQuery({
+    queryKey: ['design_project_stock_list', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const { data: loc, error: locErr } = await supabase.from('inventory_locations').select('id').eq('design_project_id', projectId).maybeSingle()
+      if (locErr) throw locErr
+      if (!loc) return []
+      const { data, error } = await supabase.from('inventory_stock')
+        .select('item_id, quantity, avg_unit_cost, inventory_items(name)').eq('location_id', loc.id).neq('quantity', 0)
+      if (error) throw error
+      return (data || []).map((r) => ({
+        item_id: r.item_id, item_name: r.inventory_items?.name, quantity: Number(r.quantity),
+        avg_unit_cost: Number(r.avg_unit_cost), value: Number(r.quantity) * Number(r.avg_unit_cost),
+      }))
+    },
+  })
+  const valueQ = projectId ? projectStockQ : companyQ
   const itemsQ = useInventoryItems()
   // Each material's unit, to show beside its quantity.
   const unitOf = new Map((itemsQ.data || []).map((i) => [i.id, i.units?.name || i.units?.code]))
@@ -33,6 +53,7 @@ export default function CompanyInventory() {
   const [group, setGroup] = useState('All')
   const toast = useToast()
   const canOperate = hasPermission('inventory_operate')
+  const currentProject = (projectsQ.data || []).find((p) => p.id === projectId)
 
   const rows = valueQ.data || []
   const valuesQ = useCompositeValues()
@@ -62,9 +83,16 @@ export default function CompanyInventory() {
   return (
     <div>
       <PageHeader
-        title="Company Inventory"
-        subtitle="The shared pool. Transferred to a project's own inventory on request; the cost moves with it."
-        actions={canOperate && (
+        title={projectId ? `${currentProject?.name || 'Project'} Inventory` : 'Company Inventory'}
+        subtitle={projectId
+          ? "This project's own stock. Move stock back to the company or return it to a vendor from the project page."
+          : "The shared pool. Transferred to a project's own inventory on request; the cost moves with it."}
+        actions={projectId ? (
+          <>
+            <Link className="btn-secondary" to={`/design-build/projects/${projectId}`}>Project page</Link>
+            <Link className="btn-secondary" to="/design-build/inventory">Company inventory</Link>
+          </>
+        ) : canOperate && (
           <>
             <button className="btn-secondary" onClick={() => setCompositeOpen(true)}>New composite material</button>
             <button className="btn-secondary" onClick={() => setMakeOpen(true)}>Make composite</button>
@@ -76,12 +104,12 @@ export default function CompanyInventory() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
         <Card>
-          <div className="text-xs text-ink-500">Company Inventory</div>
+          <div className="text-xs text-ink-500">{projectId ? `${currentProject?.name || 'Project'} Inventory` : 'Company Inventory'}</div>
           <div className="text-2xl font-medium tnum mt-1">{money(total)}</div>
-          <div className="text-xs text-ink-500 mt-1">{rows.length} material{rows.length === 1 ? '' : 's'} in the shared pool</div>
+          <div className="text-xs text-ink-500 mt-1">{rows.length} material{rows.length === 1 ? '' : 's'} {projectId ? 'at this project' : 'in the shared pool'}</div>
         </Card>
-        {(projectsQ.data || []).filter((p) => p.status !== 'completed').map((p) => (
-          <Link key={p.id} to={`/design-build/projects/${p.id}`} className="card p-4 hover:bg-ink-50 block">
+        {!projectId && (projectsQ.data || []).filter((p) => p.status !== 'completed').map((p) => (
+          <Link key={p.id} to={`/design-build/inventory?project=${p.id}`} className="card p-4 hover:bg-ink-50 block">
             <div className="text-xs text-ink-500 font-mono">{p.code}</div>
             <div className="font-medium text-ink-950 mt-0.5">{p.name}</div>
             <div className="text-2xl font-medium tnum mt-2">{money(p.current_inventory_value)}</div>
@@ -108,7 +136,7 @@ export default function CompanyInventory() {
 
       <Card>
         {valueQ.isLoading ? <LoadingBlock /> : !shownRows.length ? (
-          <EmptyState title="No stock in the company pool" hint={canOperate ? 'Record a purchase to add material.' : undefined} />
+          <EmptyState title={projectId ? 'No stock at this project' : 'No stock in the company pool'} hint={!projectId && canOperate ? 'Record a purchase to add material.' : undefined} />
         ) : (
           <table className="table-base">
             <thead><tr><th>Material</th><th>Category</th><th className="num">Quantity</th><th>Unit</th><th className="num">Avg cost</th><th className="num">Value</th><th className="num"></th></tr></thead>
@@ -166,7 +194,7 @@ export default function CompanyInventory() {
         )}
       </Card>
 
-      <Card title="Composite materials" className="mb-5">
+      {!projectId && <Card title="Composite materials" className="mb-5">
         {!compositeItems.length ? (
           <EmptyState title="No composite materials yet" hint={canOperate ? 'Use New composite material to set one up.' : undefined} />
         ) : (
@@ -184,9 +212,9 @@ export default function CompanyInventory() {
             </tbody>
           </table>
         )}
-      </Card>
+      </Card>}
 
-      {canOperate && <LinkPlaceholders />}
+      {canOperate && !projectId && <LinkPlaceholders />}
 
       {transferOpen && (
         <TransferModal
