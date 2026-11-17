@@ -38,14 +38,14 @@ function Summary({ total, opening, rows }) {
 }
 
 function CategoryTable({ categories, total }) {
-  if (!categories.length) return <EmptyState title="Nothing spent in this period" />
+  if (!total) return <EmptyState title="Nothing spent in this period" />
   return (
     <table className="table-base">
       <thead><tr><th>Category</th><th className="num">Amount</th><th className="num">Share</th></tr></thead>
       <tbody>
         {categories.map((c) => (
-          <tr key={c.name}>
-            <td>{c.name}</td>
+          <tr key={`${c.level || 0}-${c.name}`} className={c.level ? '' : 'bg-ink-50'}>
+            <td className={c.level ? 'pl-8 text-ink-700' : 'font-medium'}>{c.name}</td>
             <td className="num">{money(c.amount)}</td>
             <td className="num">{total ? `${((c.amount / total) * 100).toFixed(1)}%` : '—'}</td>
           </tr>

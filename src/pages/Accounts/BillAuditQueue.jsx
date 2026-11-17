@@ -10,7 +10,8 @@ import { money } from '../../lib/format'
 
 // Material lines are costed to one of these heads, the same groups the inventory is split into.
 const MATERIAL_HEADS = [
-  ['raw_boards', 'Raw Boards'], ['skins', 'Skins'], ['edgeband', 'Edgeband'], ['hardware', 'Hardware'], ['other', 'Others'],
+  ['raw_boards', 'Raw Boards'], ['skins', 'Skins'], ['edgeband', 'Edgeband'], ['adhesives', 'Adhesives'],
+  ['hardware', 'Hardware'], ['other', 'Others'], ['transport', 'Transport'], ['miscellaneous', 'Miscellaneous'],
 ]
 const LABOUR_HEADS = [['factory_labour', 'Factory Labour'], ['site_labour', 'Site Labour'], ['employee_salary', 'Employee Salary']]
 const COST_HEADS = [...MATERIAL_HEADS, ...LABOUR_HEADS]

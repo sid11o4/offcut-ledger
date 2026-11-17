@@ -1,3 +1,4 @@
+import { flatCosts } from './costGroups'
 import { displayDate } from './dates'
 import { pdfMoney as money, qty } from './format'
 import { newReportDoc, sectionLabel, summaryCards, brandTable, brandFooter, saveDoc } from './reportPdf'
@@ -5,7 +6,7 @@ import { newReportDoc, sectionLabel, summaryCards, brandTable, brandFooter, save
 // One Design Build project report as a single branded PDF: dashboard, overall details and cash
 // position, expenses by category, materials consumed, labour, then the full ledger statement.
 export function buildDesignProjectReportDoc({ project, data }) {
-  const { financials: f = {}, contract = {}, spent, categories, materials, labour, ledger, ledgerTotal } = data
+  const { financials: f = {}, contract = {}, spent, costRows, materials, labour, ledger, ledgerTotal } = data
   const meta = [
     ['Code', project.code || '—'],
     ['Client', project.clients?.name || '—'],
@@ -43,7 +44,7 @@ export function buildDesignProjectReportDoc({ project, data }) {
   y = sectionLabel(doc, y, 'Expenses by category')
   y = brandTable(doc, y, {
     head: ['Category', 'Amount'],
-    body: categories.length ? categories.map((c) => [c.name, money(c.amount)]) : [['No expenses recorded', '—']],
+    body: costRows.length ? flatCosts(costRows).map((c) => [c.level ? `    ${c.name}` : c.name, money(c.amount)]) : [['No expenses recorded', '—']],
     foot: ['Total', money(spent)],
     columnStyles: { 1: { halign: 'right' } },
   })

@@ -7,6 +7,7 @@ import DateRangePicker, { presetRanges } from '../../components/DateRangePicker'
 import { displayDate } from '../../lib/dates'
 import { money, qty } from '../../lib/format'
 import { saveDoc } from '../../lib/reportPdf'
+import CostBreakdown from '../../components/CostBreakdown'
 import { loadProjectSummary, loadExpensesByCategory, loadMaterials, loadLabour, designReportPdf } from '../../lib/designReportData'
 
 // Design Build's detailed reports. One page, four sections, each reachable from its own sidebar
@@ -104,100 +105,12 @@ function ProjectSummary({ rows }) {
 }
 
 function ExpensesByCategory({ data }) {
-  if (!data.categories.length) return <EmptyState title="No Design Build expenses in this period" />
+  if (!data.rows.length) return <EmptyState title="No Design Build costs in this period" />
   return (
     <Card>
       <div className="overflow-x-auto -mx-4">
-        <table className="table-base">
-          <thead><tr><th>Category / charged to</th><th className="num">Amount</th><th className="num">Share</th></tr></thead>
-          <tbody>
-            {data.categories.map((c) => (
-              <CategoryRows key={c.name} category={c} grand={data.grand} />
-            ))}
-          </tbody>
-          <tfoot><tr><td className="font-medium">Total</td><td className="num font-medium">{money(data.grand)}</td><td /></tr></tfoot>
-        </table>
+        <CostBreakdown rows={data.rows} showPlaces />
       </div>
     </Card>
-  )
-}
-
-function CategoryRows({ category, grand }) {
-  return (
-    <>
-      <tr className="bg-ink-50">
-        <td className="font-medium">{category.name}</td>
-        <td className="num font-medium">{money(category.total)}</td>
-        <td className="num">{grand ? `${((category.total / grand) * 100).toFixed(1)}%` : '—'}</td>
-      </tr>
-      {category.places.map(([place, amount]) => (
-        <tr key={place}>
-          <td className="pl-8 text-ink-600">{place}</td>
-          <td className="num">{money(amount)}</td>
-          <td className="num text-ink-500">{category.total ? `${((amount / category.total) * 100).toFixed(1)}%` : '—'}</td>
-        </tr>
-      ))}
-    </>
-  )
-}
-
-function MaterialsConsumed({ data }) {
-  if (!data.projects.length) return <EmptyState title="No materials consumed in this period" />
-  return (
-    <Card>
-      <div className="overflow-x-auto -mx-4">
-        <table className="table-base">
-          <thead><tr><th>Project / material</th><th className="num">Quantity</th><th className="num">Cost</th></tr></thead>
-          <tbody>
-            {data.projects.map((p) => (
-              <ProjectMaterialRows key={p.name} project={p} />
-            ))}
-          </tbody>
-          <tfoot><tr><td className="font-medium">Total</td><td /><td className="num font-medium">{money(data.grand)}</td></tr></tfoot>
-        </table>
-      </div>
-    </Card>
-  )
-}
-
-function ProjectMaterialRows({ project }) {
-  return (
-    <>
-      <tr className="bg-ink-50">
-        <td className="font-medium">{project.name}</td><td />
-        <td className="num font-medium">{money(project.cost)}</td>
-      </tr>
-      {project.items.map((i) => (
-        <tr key={i.name}>
-          <td className="pl-8">{i.name}</td>
-          <td className="num">{qty(i.quantity)} {i.unit}</td>
-          <td className="num">{money(i.cost)}</td>
-        </tr>
-      ))}
-    </>
-  )
-}
-
-function LabourReport({ data }) {
-  if (!data.lines.length) return <EmptyState title="No labour recorded in this period" />
-  return (
-    <>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
-        <StatCard label="Total labour" value={money(data.total)} tone="bad" />
-      </div>
-      <Card>
-        <div className="overflow-x-auto -mx-4">
-          <table className="table-base">
-            <thead><tr><th>Date</th><th>Project</th><th>Description</th><th>Supplier / category</th><th className="num">Cost</th></tr></thead>
-            <tbody>
-              {data.lines.map((l, i) => (
-                <tr key={i}><td>{displayDate(l.date)}</td><td>{l.project}</td><td>{l.description}</td><td>{l.party}</td><td className="num">{money(l.amount)}</td></tr>
-              ))}
-            </tbody>
-            <tfoot><tr><td colSpan={4} className="font-medium">Total</td><td className="num font-medium">{money(data.total)}</td></tr></tfoot>
-          </table>
-        </div>
-      </Card>
-    </>
   )
 }
