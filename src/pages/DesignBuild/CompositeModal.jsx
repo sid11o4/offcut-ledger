@@ -53,6 +53,12 @@ export function useCompositeValues() {
   })
 }
 
+const NEW_MATERIAL = '__new__'
+// A raw board typed with a leading number is a Century board, as everywhere else in the app.
+const rawBoardLabel = (typed) => {
+  const clean = String(typed).trim().replace(/\s+/g, ' ')
+  return /^\d/.test(clean) ? `Century ${clean.toUpperCase()}` : clean
+}
 const PASTING_LABELS = ['Pasting w/ fevicol (single side)', 'Pasting w/ fevicol (both sides)']
 
 const ROLE_LABEL = { raw: 'Raw board', skin1: 'Skin 1', skin2: 'Skin 2', jobwork: 'Job work' }
@@ -95,11 +101,13 @@ export default function CompositeModal({ onClose, costOf, existing }) {
   const itemsQ = useInventoryItems()
   const partsQ = useCompositeParts(existing?.id)
   const materials = (itemsQ.data || []).filter((i) => i.active !== false && !i.is_composite)
+  // Each slot offers only its own inventory category, with an option to add a new one on the spot.
+  const optionsFor = (category) => materials.filter((m) => m.category === category)
 
   const pastingQ = usePastingRate()
-  const [raw, setRaw] = useState({ item: '', cost: '' })
-  const [skin1, setSkin1] = useState({ item: '', cost: '' })
-  const [skin2, setSkin2] = useState({ item: '', cost: '' })
+  const [raw, setRaw] = useState({ item: '', cost: '', newName: '' })
+  const [skin1, setSkin1] = useState({ item: '', cost: '', newName: '' })
+  const [skin2, setSkin2] = useState({ item: '', cost: '', newName: '' })
   const [jobs, setJobs] = useState([])
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -107,47 +115,73 @@ export default function CompositeModal({ onClose, costOf, existing }) {
   // When editing, fill the form from the saved parts once they arrive.
   if (existing && partsQ.data && !loaded) {
     const by = (r) => partsQ.data.find((p) => p.role === r)
-    const pick = (p) => (p ? { item: p.component_item_id, cost: String(p.unit_cost) } : { item: '', cost: '' })
+    const pick = (p) => (p ? { item: p.component_item_id, cost: String(p.unit_cost), newName: '' } : { item: '', cost: '', newName: '' })
     setRaw(pick(by('raw'))); setSkin1(pick(by('skin1'))); setSkin2(pick(by('skin2')))
     setJobs(partsQ.data.filter((p) => p.role === 'jobwork' && !PASTING_LABELS.includes(p.label)).map((p) => ({ label: p.label || '', cost: String(p.unit_cost) })))
     setLoaded(true)
   }
 
   // Choosing a material fills its cost from stock (or its default rate); the cost stays editable.
-  const choose = (setter) => (itemId) => setter({ item: itemId, cost: itemId && costOf(itemId) ? String(costOf(itemId)) : '' })
+  const choose = (setter) => (itemId) => setter({ item: itemId, newName: '', cost: itemId && itemId !== NEW_MATERIAL && costOf(itemId) ? String(costOf(itemId)) : '' })
   const num = (v) => Number(v) || 0
   // Pasting is costed by the sides skinned: one skin is single-side pasting, two skins is both sides.
-  const nameOf = (id) => materials.find((m) => m.id === id)?.name
-  const name = [nameOf(raw.item), nameOf(skin1.item), skin2.item ? nameOf(skin2.item) : null].filter(Boolean).join(' / ')
+  const nameOf = (slot) => (slot.item === NEW_MATERIAL ? (slot === raw ? rawBoardLabel(slot.newName) : slot.newName.trim().toUpperCase()) : materials.find((m) => m.id === slot.item)?.name)
+  const name = [nameOf(raw), nameOf(skin1), skin2.item ? nameOf(skin2) : null].filter(Boolean).join(' / ')
   const pastingRate = pastingQ.data || 0
   const pasting = skin1.item ? { label: skin2.item ? PASTING_LABELS[1] : PASTING_LABELS[0], cost: skin2.item ? pastingRate * 2 : pastingRate } : null
   const total = num(raw.cost) + num(skin1.cost) + (skin2.item ? num(skin2.cost) : 0) + (pasting?.cost || 0) + jobs.reduce((s, j) => s + num(j.cost), 0)
 
+  // A new raw board or skin typed in the form is created first, in its own category, with no stock.
+  async function resolveSlot(slot, category) {
+    if (slot.item !== NEW_MATERIAL) return slot.item
+    const { data, error } = await supabase.rpc('ensure_inventory_item', { p_name: category === 'Raw Boards' ? rawBoardLabel(slot.newName) : slot.newName.trim().toUpperCase(), p_unit_code: 'SHEET', p_category: category })
+    if (error) throw error
+    return data
+  }
+
   async function submit(e) {
     e.preventDefault()
-    const parts = [
-      { role: 'raw', component_item_id: raw.item, unit_cost: num(raw.cost) },
-      { role: 'skin1', component_item_id: skin1.item, unit_cost: num(skin1.cost) },
-      ...(skin2.item ? [{ role: 'skin2', component_item_id: skin2.item, unit_cost: num(skin2.cost) }] : []),
-      ...jobs.filter((j) => j.label.trim() || j.cost).map((j) => ({ role: 'jobwork', label: j.label, unit_cost: num(j.cost) })),
-    ]
+    if ([raw, skin1, skin2].some((x) => x.item === NEW_MATERIAL && !x.newName.trim())) return toast.error('Type the name of the new material.')
     setSaving(true)
+    let parts
+    try {
+      const [rawId, skin1Id, skin2Id] = await Promise.all([
+        resolveSlot(raw, 'Raw Boards'), resolveSlot(skin1, 'Skins'), skin2.item ? resolveSlot(skin2, 'Skins') : Promise.resolve(null),
+      ])
+      parts = [
+        { role: 'raw', component_item_id: rawId, unit_cost: num(raw.cost) },
+        { role: 'skin1', component_item_id: skin1Id, unit_cost: num(skin1.cost) },
+        ...(skin2Id ? [{ role: 'skin2', component_item_id: skin2Id, unit_cost: num(skin2.cost) }] : []),
+        ...jobs.filter((j) => j.label.trim() || j.cost).map((j) => ({ role: 'jobwork', label: j.label, unit_cost: num(j.cost) })),
+      ]
+    } catch (err) {
+      setSaving(false)
+      return toast.error(err.message || 'Could not add the new material.')
+    }
     const { error } = await supabase.rpc('save_composite_item', { p_item_id: existing?.id || null, p_name: name, p_parts: parts })
     setSaving(false)
     if (error) return toast.error(error.message)
     toast.success(`${name} saved at ${money(total)} per unit.`)
     invalidateInventory(qc)
     qc.invalidateQueries({ queryKey: ['inventory_items'] })
+    qc.invalidateQueries({ queryKey: ['company_inventory_value'] })
     qc.invalidateQueries({ queryKey: ['composite_parts'] })
     qc.invalidateQueries({ queryKey: ['composite_values'] })
     onClose()
   }
 
-  const materialSelect = (state, setter, required) => (
-    <Select required={required} value={state.item} onChange={(e) => choose(setter)(e.target.value)}>
-      <option value="">{required ? 'Select…' : 'None'}</option>
-      {materials.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-    </Select>
+  const materialSelect = (state, setter, required, category) => (
+    <>
+      <Select required={required} value={state.item} onChange={(e) => choose(setter)(e.target.value)}>
+        <option value="">{required ? `Select ${category.toLowerCase()}…` : 'None'}</option>
+        {[...optionsFor(category), ...materials.filter((m) => m.id === state.item && m.category !== category)].map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+        <option value={NEW_MATERIAL}>{category === 'Raw Boards' ? '+ New raw board…' : '+ New skin…'}</option>
+      </Select>
+      {state.item === NEW_MATERIAL && (
+        <Input className="mt-2" autoFocus required placeholder={category === 'Raw Boards' ? 'e.g. 18MM MR PLY' : 'Laminate code, e.g. 6965SUD'}
+          value={state.newName} onChange={(e) => setter({ ...state, newName: e.target.value })} />
+      )}
+    </>
   )
   const costInput = (state, setter, disabled) => (
     <Input type="number" min="0" step="0.01" placeholder="Cost / unit" disabled={disabled} required={!disabled}
@@ -160,11 +194,11 @@ export default function CompositeModal({ onClose, costOf, existing }) {
         <div className="text-sm font-semibold text-ink-950">{existing ? 'Edit composite material' : 'New composite material'}</div>
         <p className="text-xs text-ink-500">A raw board with its skins and the job works already done on it, held as one material valued at the sum of its parts.</p>
         <div className="grid grid-cols-3 gap-3 items-end">
-          <div className="col-span-2"><Field label="Raw board">{materialSelect(raw, setRaw, true)}</Field></div>
+          <div className="col-span-2"><Field label="Raw board">{materialSelect(raw, setRaw, true, 'Raw Boards')}</Field></div>
           <Field label=" ">{costInput(raw, setRaw)}</Field>
-          <div className="col-span-2"><Field label="Skin 1">{materialSelect(skin1, setSkin1, true)}</Field></div>
+          <div className="col-span-2"><Field label="Skin 1">{materialSelect(skin1, setSkin1, true, 'Skins')}</Field></div>
           <Field label=" ">{costInput(skin1, setSkin1)}</Field>
-          <div className="col-span-2"><Field label="Skin 2 (optional)">{materialSelect(skin2, setSkin2, false)}</Field></div>
+          <div className="col-span-2"><Field label="Skin 2 (optional)">{materialSelect(skin2, setSkin2, false, 'Skins')}</Field></div>
           <Field label=" ">{costInput(skin2, setSkin2, !skin2.item)}</Field>
         </div>
 
