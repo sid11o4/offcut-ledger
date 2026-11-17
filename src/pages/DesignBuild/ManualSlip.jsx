@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
-import { PageHeader, Card, Field, Input, Select } from '../../components/ui'
+import { PageHeader, Card, Field, Input, Select, Badge } from '../../components/ui'
 import { useInventoryItems, useInventoryLocations, useDesignProjects, useUnits, invalidateInventory } from '../../lib/queries'
 import { INVENTORY_CATEGORIES } from './CompanyInventory'
 
@@ -25,6 +25,33 @@ export default function ManualSlip() {
   const [lines, setLines] = useState([blankLine()])
   const [saving, setSaving] = useState(false)
   const [lastSlip, setLastSlip] = useState(null)
+  const [editing, setEditing] = useState(null) // the consumption slip being corrected
+
+  const slipsQ = useQuery({
+    queryKey: ['inventory_slips'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('inventory_slips')
+        .select('*, design_projects(name), inventory_slip_items(id, item_id, quantity, inventory_items(name))')
+        .order('created_at', { ascending: false }).limit(50)
+      if (error) throw error
+      return data
+    },
+  })
+
+  function startEdit(slip) {
+    setEditing(slip)
+    setSlipType('consumption')
+    setDesignProjectId(slip.design_project_id || '')
+    setDate(slip.slip_date)
+    setNotes(slip.notes || '')
+    setLines((slip.inventory_slip_items || []).map((i) => ({ ...blankLine(), item_id: i.item_id, text: i.inventory_items?.name || '', quantity: String(i.quantity) })))
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+  function cancelEdit() {
+    setEditing(null)
+    setLines([blankLine()])
+    setNotes('')
+  }
 
   function updateLine(i, patch) {
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
@@ -59,6 +86,21 @@ export default function ManualSlip() {
       return toast.error(err.message || 'Could not add the new material.')
     }
     qc.invalidateQueries({ queryKey: ['inventory_items'] })
+    if (editing) {
+      const { error: corrErr } = await supabase.rpc('correct_consumption_slip', {
+        p_slip_id: editing.id, p_date: date, p_design_project_id: designProjectId, p_notes: notes || null,
+        p_lines: validLines.map((l) => ({ item_id: l.item_id, quantity: Number(l.quantity) })),
+      })
+      setSaving(false)
+      if (corrErr) return toast.error(corrErr.message)
+      invalidateInventory(qc)
+      qc.invalidateQueries({ queryKey: ['inventory_slips'] })
+      toast.success(`${editing.slip_number} corrected.`)
+      setEditing(null)
+      setLines([blankLine()])
+      setNotes('')
+      return
+    }
     const { data: slip, error: slipErr } = await supabase.from('inventory_slips').insert({
       slip_type: slipType, slip_date: date, design_project_id: slipType === 'consumption' ? designProjectId : null, notes: notes || null,
     }).select().single()
@@ -78,6 +120,7 @@ export default function ManualSlip() {
     if (postErr) return toast.error(postErr.message)
 
     invalidateInventory(qc)
+    qc.invalidateQueries({ queryKey: ['inventory_slips'] })
     toast.success(`${slip.slip_number} posted.`)
     setLastSlip(slip.slip_number)
     setLines([blankLine()])
@@ -87,11 +130,16 @@ export default function ManualSlip() {
   return (
     <div>
       <PageHeader title="Manual Consumption / Transfer Slip" subtitle="For site consumption or a stock move not already captured by an Design Build Order bill." />
+      {editing && (
+        <div className="mb-3 rounded-md border border-brand-500 bg-brand-100 p-3 text-sm text-ink-900">
+          Correcting <strong>{editing.slip_number}</strong>. Saving reverses what it took out of stock and posts the corrected lines. The earlier entries stay in the audit trail.
+        </div>
+      )}
       <Card>
         <form onSubmit={submit} className="space-y-4">
           <div className="grid grid-cols-3 gap-3">
             <Field label="Slip type">
-              <Select value={slipType} onChange={(e) => setSlipType(e.target.value)}>
+              <Select value={slipType} disabled={!!editing} onChange={(e) => setSlipType(e.target.value)}>
                 <option value="consumption">Consumption</option>
                 <option value="transfer">Transfer</option>
               </Select>
@@ -168,10 +216,36 @@ export default function ManualSlip() {
           <Field label="Notes (optional)"><Input value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
 
           <div className="flex items-center gap-3 pt-2">
-            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Posting…' : 'Post slip'}</button>
+            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : editing ? `Save correction to ${editing.slip_number}` : 'Post slip'}</button>
+            {editing && <button type="button" className="btn-secondary" onClick={cancelEdit}>Cancel correction</button>}
             {lastSlip && <span className="text-xs text-ok">Last posted: {lastSlip}</span>}
           </div>
         </form>
+      </Card>
+
+      <Card title="Past slips" className="mt-5">
+        {!slipsQ.data?.length ? <p className="text-sm text-ink-500">No slips yet.</p> : (
+          <div className="divide-y divide-ink-100">
+            {slipsQ.data.map((sl) => (
+              <div key={sl.id} className="py-2.5 flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="font-medium text-ink-950">{sl.slip_number}</span>
+                    <Badge tone={sl.slip_type === 'consumption' ? 'warn' : 'ok'}>{sl.slip_type}</Badge>
+                    <span className="text-ink-500 tnum">{sl.slip_date}</span>
+                    {sl.design_projects?.name && <span className="text-ink-600">· {sl.design_projects.name}</span>}
+                  </div>
+                  <div className="text-xs text-ink-500 mt-0.5 truncate">
+                    {(sl.inventory_slip_items || []).map((i) => `${i.inventory_items?.name} × ${Number(i.quantity)}`).join(', ')}
+                  </div>
+                </div>
+                {sl.slip_type === 'consumption' && (
+                  <button className="btn-secondary text-xs" onClick={() => startEdit(sl)}>Correct</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   )
