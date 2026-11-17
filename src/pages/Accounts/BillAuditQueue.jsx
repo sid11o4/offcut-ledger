@@ -5,7 +5,7 @@ import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Badge, ConfidencePill, EmptyState, LoadingBlock, Field, Input, Select } from '../../components/ui'
-import { useSuppliers, useDesignProjects, invalidateInventory } from '../../lib/queries'
+import { useSuppliers, useDesignProjects, useInventoryItems, invalidateInventory } from '../../lib/queries'
 import { money } from '../../lib/format'
 
 // Material lines are costed to one of these heads, the same groups the inventory is split into.
@@ -142,6 +142,8 @@ export default function BillAuditQueue() {
     const { data: fnResult, error: fnErr } = await supabase.functions.invoke('extract-supplier-bill-scan', { body: { bill_id: bill.id, kind } })
     if (fnErr) throw new Error(fnResult?.error || fnErr.message)
     if (fnResult?.error) throw new Error(fnResult.error)
+    // The AI then proposes an inventory match for each material line; the auditor confirms them in review.
+    try { await supabase.functions.invoke('match-bill-items', { body: { bill_id: bill.id } }) } catch { /* matching can be run again from the bill */ }
     // A vendor bill's amount is owed to the vendor on credit until it is paid.
     if (kind === 'vendor') {
       const { data: scanned } = await supabase.from('supplier_bills').select('grand_total').eq('id', bill.id).single()
@@ -333,18 +335,21 @@ export default function BillAuditQueue() {
   )
 }
 
-// Shown when the scan read a supplier name that is not in the suppliers master. Asks before adding,
-// reuses a supplier that already has the same name, and links the bill to it.
-function NewSupplierPrompt({ bill }) {
+// Add a supplier right on the bill: name and details are prefilled from what the scan read and can
+// be typed or corrected. Reuses a supplier that already has the same name, and links the bill to it.
+function NewSupplierPrompt({ bill, onClose }) {
   const toast = useToast()
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
   const [dismissed, setDismissed] = useState(false)
   const d = bill.supplier_details || {}
-  const [typed, setTyped] = useState('')
-  // When no vendor name could be read (a quotation or price list), it is typed in here.
-  const name = (typed || d.name || bill.supplier_text || '').trim()
+  const [f, setF] = useState({
+    name: (d.name || bill.supplier_text || '').trim(),
+    gstin: d.gstin || '', phone: d.phone || '', address: d.address || '',
+  })
   if (dismissed) return null
+  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }))
+  const name = f.name.trim()
 
   async function add() {
     setBusy(true)
@@ -354,7 +359,7 @@ function NewSupplierPrompt({ bill }) {
     let supplierId = existing?.[0]?.id
     if (!supplierId) {
       const { data, error } = await supabase.from('suppliers').insert({
-        name, gstin: d.gstin || null, phone: d.phone || null, address: d.address || null,
+        name, gstin: f.gstin.trim() || null, phone: f.phone.trim() || null, address: f.address.trim() || null,
       }).select('id').single()
       if (error) { setBusy(false); return toast.error(error.message) }
       supplierId = data.id
@@ -366,33 +371,39 @@ function NewSupplierPrompt({ bill }) {
     qc.invalidateQueries({ queryKey: ['supplier_bill', bill.id] })
     qc.invalidateQueries({ queryKey: ['supplier_bills_queue'] })
     toast.success(`${name} added to suppliers`)
+    onClose?.()
   }
+
+  function close() { setDismissed(true); onClose?.() }
 
   return (
     <div className="rounded-md border border-brand-500 bg-brand-100 p-3 text-sm">
-      {!(d.name || bill.supplier_text)
-        ? (
-          <>
-            <div className="font-medium text-ink-950">No vendor name was found on this bill</div>
-            <input className="field-input mt-2" placeholder="Type the vendor name" value={typed} onChange={(e) => setTyped(e.target.value)} />
-          </>
-        )
-        : <div className="font-medium text-ink-950">New supplier on this bill: {name}</div>}
-      <div className="mt-1 text-xs text-ink-600 space-y-0.5">
-        {d.gstin && <div>GSTIN: <span className="tnum">{d.gstin}</span></div>}
-        {d.phone && <div>Phone: <span className="tnum">{d.phone}</span></div>}
-        {d.address && <div>Address: {d.address}</div>}
-        {!d.gstin && !d.phone && !d.address && <div>No GSTIN, phone or address was read from the slip.</div>}
+      <div className="font-medium text-ink-950">{d.name || bill.supplier_text ? 'New supplier on this bill' : 'Add the vendor for this bill'}</div>
+      <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <input className="field-input sm:col-span-2" placeholder="Supplier name" value={f.name} onChange={set('name')} />
+        <input className="field-input" placeholder="GSTIN (optional)" value={f.gstin} onChange={set('gstin')} />
+        <input className="field-input" placeholder="Phone (optional)" value={f.phone} onChange={set('phone')} />
+        <input className="field-input sm:col-span-2" placeholder="Address (optional)" value={f.address} onChange={set('address')} />
       </div>
       <div className="mt-3 flex gap-2">
-        <button className="btn-primary" onClick={add} disabled={busy || !name}>{busy ? 'Adding…' : 'Add to suppliers'}</button>
-        <button className="btn-secondary" onClick={() => setDismissed(true)} disabled={busy}>Not now</button>
+        <button className="btn-primary" onClick={add} disabled={busy || !name}>{busy ? 'Adding…' : 'Add supplier'}</button>
+        <button className="btn-secondary" onClick={close} disabled={busy}>Cancel</button>
       </div>
     </div>
   )
 }
 
 function AuditPanel({ billId, onDone }) {
+  const [matching, setMatching] = useState(false)
+  async function matchWithAi() {
+    setMatching(true)
+    const { data, error } = await supabase.functions.invoke('match-bill-items', { body: { bill_id: billId } })
+    setMatching(false)
+    if (error || data?.error) return toast.error(data?.error || error.message)
+    qc.invalidateQueries({ queryKey: ['material_match_suggestions', billId] })
+    toast.success(data?.suggested ? `${data.suggested} match${data.suggested === 1 ? '' : 'es'} suggested — confirm them below.` : 'No inventory matches found.')
+  }
+  const [addingSupplier, setAddingSupplier] = useState(false)
   const toast = useToast()
   const qc = useQueryClient()
   const { profile } = useAuth()
@@ -606,7 +617,7 @@ function AuditPanel({ billId, onDone }) {
 
         <Card title="Basic details">
           <div className="space-y-3">
-            {billQ.data && !billQ.data.supplier_id && <NewSupplierPrompt bill={billQ.data} />}
+            {billQ.data && (!billQ.data.supplier_id || addingSupplier) && <NewSupplierPrompt key={`${billQ.data.id}-${addingSupplier}`} bill={billQ.data} onClose={() => setAddingSupplier(false)} />}
             <div className="flex items-center justify-between gap-2">
               <Field label="Supplier">
                 <Select value={b.supplier_id || ''} onChange={(e) => patchBill({ supplier_id: e.target.value || null })}>
@@ -614,6 +625,7 @@ function AuditPanel({ billId, onDone }) {
                   {(suppliersQ.data || []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </Select>
               </Field>
+              <button type="button" className="btn-ghost shrink-0" onClick={() => setAddingSupplier(true)}>+ New supplier</button>
               <ConfidencePill value={conf.supplier_name} />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -651,7 +663,9 @@ function AuditPanel({ billId, onDone }) {
           </div>
         </Card>
 
-        <Card title={`Line items (${itemsLineQ.data?.length || 0})`}>
+        <Card title={`Line items (${itemsLineQ.data?.length || 0})`} actions={itemsLineQ.data?.length ? (
+          <button className="btn-secondary text-xs" disabled={matching} onClick={matchWithAi}>{matching ? 'Matching…' : 'Match with inventory (AI)'}</button>
+        ) : null}>
           {!itemsLineQ.data?.length ? <EmptyState title="No line items extracted" /> : (
             <div className="space-y-2">
               {itemsLineQ.data.map((li) => (
@@ -686,61 +700,147 @@ function AuditPanel({ billId, onDone }) {
   )
 }
 
+function EditCell({ label, value, onSave, type = 'text', className = '', step }) {
+  const [v, setV] = useState(value ?? '')
+  useEffect(() => { setV(value ?? '') }, [value])
+  return (
+    <label className={`block ${className}`}>
+      <span className="block text-[10px] uppercase tracking-wide text-ink-400">{label}</span>
+      <input
+        className="field-input py-1 text-sm w-full" type={type} step={step} value={v}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={() => { if (String(v) !== String(value ?? '')) onSave(v) }}
+      />
+    </label>
+  )
+}
+
 function LineItemRow({ item, suggestions, billId }) {
   const toast = useToast()
   const qc = useQueryClient()
+  const itemsQ = useInventoryItems()
   const suggestion = suggestions[0]
+  const [picking, setPicking] = useState(null) // an inventory item awaiting the "which title" choice
+  const [manualId, setManualId] = useState('')
+  const [skipGuess, setSkipGuess] = useState(false)
 
-  async function confirmMatch() {
-    const { error } = await supabase.rpc('confirm_material_match', { p_suggestion_id: suggestion.id })
-    if (error) return toast.error(error.message)
-    qc.invalidateQueries({ queryKey: ['supplier_bill_items', billId] })
-    qc.invalidateQueries({ queryKey: ['material_match_suggestions', billId] })
-  }
-  async function rejectMatch() {
-    await supabase.rpc('reject_material_match', { p_suggestion_id: suggestion.id })
-    qc.invalidateQueries({ queryKey: ['material_match_suggestions', billId] })
-  }
-
-  // The cost head is the auditor's call: the scan proposes one per line, and this corrects it.
-  async function setCostHead(value) {
-    const { error } = await supabase.from('supplier_bill_items').update({ cost_head: value || null }).eq('id', item.id)
-    if (error) return toast.error(error.message)
-    await syncBillFromLines(billId)
+  const refresh = () => {
     qc.invalidateQueries({ queryKey: ['supplier_bill_items', billId] })
     qc.invalidateQueries({ queryKey: ['supplier_bill', billId] })
+    qc.invalidateQueries({ queryKey: ['material_match_suggestions', billId] })
   }
+
+  // Every extracted field on the line can be corrected; totals recalculate from the saved values.
+  async function patch(fields) {
+    const { error } = await supabase.from('supplier_bill_items').update(fields).eq('id', item.id)
+    if (error) return toast.error(error.message)
+    await syncBillFromLines(billId)
+    refresh()
+  }
+  const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
+
+  // The AI proposes the matching inventory item (match-bill-items); it is never applied silently: the
+  // auditor confirms it and chooses which name the item keeps.
+  const candidate = (() => {
+    if (item.item_type !== 'material' || item.inventory_item_id || skipGuess) return null
+    if (suggestion?.suggested_inventory_item_id) {
+      const inv = (itemsQ.data || []).find((i) => i.id === suggestion.suggested_inventory_item_id)
+      if (inv) return { inv, confidence: suggestion.confidence, suggestionId: suggestion.id }
+    }
+    return null
+  })()
+
+  async function applyMatch(inv, keep) {
+    // keep: 'bill' renames the inventory item to the bill's wording; 'inventory' keeps the inventory name.
+    const fields = { inventory_item_id: inv.id }
+    if (keep === 'inventory') { fields.description = inv.name }
+    else if (item.description.trim() !== inv.name) {
+      const { error } = await supabase.from('inventory_items').update({ name: item.description.trim() }).eq('id', inv.id)
+      if (error) return toast.error(`Could not rename the inventory item: ${error.message}`)
+      qc.invalidateQueries({ queryKey: ['inventory_items'] })
+    }
+    const { error } = await supabase.from('supplier_bill_items').update(fields).eq('id', item.id)
+    if (error) return toast.error(error.message)
+    if (candidate?.suggestionId) await supabase.rpc('confirm_material_match', { p_suggestion_id: candidate.suggestionId })
+    setPicking(null)
+    refresh()
+  }
+  async function rejectMatch() {
+    if (candidate?.suggestionId) await supabase.rpc('reject_material_match', { p_suggestion_id: candidate.suggestionId })
+    setSkipGuess(true)
+    refresh()
+  }
+  async function unlink() { await patch({ inventory_item_id: null }) }
+
+  const linked = item.inventory_item_id ? (itemsQ.data || []).find((i) => i.id === item.inventory_item_id) : null
+  const inStockOptions = itemsQ.data || []
 
   return (
     <div className="border border-ink-100 rounded-md p-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm text-ink-900">{item.description}</span>
-        <span className="text-xs text-ink-500">{item.item_type}</span>
-      </div>
-      <div className="flex items-center gap-3 text-xs text-ink-500 mt-1 tnum">
-        <span>{item.quantity} {item.unit_text}</span>
-        <span>@ {money(item.rate_inclusive)}</span>
-        <span>GST {item.gst_percent}%</span>
-        <span className="font-medium text-ink-900 ml-auto">{money(item.total_amount)}</span>
+      <div className="grid grid-cols-12 gap-2">
+        <EditCell label="Description" className="col-span-12 sm:col-span-8" value={item.description} onSave={(v) => patch({ description: v.trim() || item.description, description_text: v.trim() || item.description })} />
+        <label className="block col-span-12 sm:col-span-4">
+          <span className="block text-[10px] uppercase tracking-wide text-ink-400">Type</span>
+          <Select value={item.item_type} onChange={(e) => patch({ item_type: e.target.value, cost_head: null })} className="py-1 text-sm">
+            <option value="material">material</option>
+            <option value="labour">labour</option>
+          </Select>
+        </label>
+        <EditCell label="Qty" type="number" step="any" className="col-span-4 sm:col-span-3" value={item.quantity} onSave={(v) => num(v) > 0 ? patch({ quantity: num(v) }) : toast.error('Quantity must be more than zero.')} />
+        <EditCell label="Unit" className="col-span-4 sm:col-span-3" value={item.unit_text} onSave={(v) => patch({ unit_text: v.trim() || null })} />
+        <EditCell label="Rate (incl. GST)" type="number" step="any" className="col-span-4 sm:col-span-3" value={item.rate_inclusive} onSave={(v) => patch({ rate_inclusive: Math.max(0, num(v)) })} />
+        <EditCell label="GST %" type="number" step="any" className="col-span-6 sm:col-span-2" value={item.gst_percent} onSave={(v) => patch({ gst_percent: Math.max(0, num(v)), ...(num(v) > 0 ? { zero_gst_reason: null } : {}) })} />
+        <div className="col-span-6 sm:col-span-1 flex items-end justify-end">
+          <span className="text-sm font-medium text-ink-900 tnum">{money(item.total_amount)}</span>
+        </div>
       </div>
       <div className="flex items-center gap-2 mt-2">
         <span className="text-xs text-ink-500">Cost head</span>
-        <Select value={item.cost_head || ''} onChange={(e) => setCostHead(e.target.value)} className="w-auto py-1 text-xs">
+        <Select value={item.cost_head || ''} onChange={(e) => patch({ cost_head: e.target.value || null })} className="w-auto py-1 text-xs">
           <option value="">Not set</option>
           {(item.item_type === 'labour' ? LABOUR_HEADS : MATERIAL_HEADS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
         </Select>
         {!item.cost_head && <span className="text-xs text-ink-400">Needs a cost head</span>}
       </div>
-      {suggestion && (
-        <div className="flex items-center gap-2 mt-2 bg-ink-50 rounded px-2 py-1.5">
-          <span className="text-xs text-ink-600">Match "{suggestion.inventory_items?.name}"?</span>
-          <ConfidencePill value={suggestion.confidence} />
-          <button className="btn-ghost text-xs px-1.5 py-0.5 ml-auto" onClick={confirmMatch}>Confirm</button>
-          <button className="btn-ghost text-xs px-1.5 py-0.5" onClick={rejectMatch}>Reject</button>
+
+      {candidate && !picking && (
+        <div className="flex flex-wrap items-center gap-2 mt-2 bg-ink-50 rounded px-2 py-1.5">
+          <span className="text-xs text-ink-700">Is this <strong>{candidate.inv.name}</strong> in your inventory?</span>
+          <ConfidencePill value={candidate.confidence} />
+          <button className="btn-ghost text-xs px-1.5 py-0.5 ml-auto" onClick={() => setPicking(candidate.inv)}>Yes, that's it</button>
+          <button className="btn-ghost text-xs px-1.5 py-0.5" onClick={rejectMatch}>No</button>
         </div>
       )}
-      {item.inventory_item_id && !suggestion && (
-        <div className="mt-1.5"><Badge tone="ok">Matched to inventory</Badge></div>
+      {picking && (
+        <div className="mt-2 rounded border border-brand-500 bg-brand-100 p-2 text-xs">
+          <div className="text-ink-950 font-medium">Which name should be kept?</div>
+          <div className="mt-1 text-ink-700">Bill: <strong>{item.description}</strong></div>
+          <div className="text-ink-700">Inventory: <strong>{picking.name}</strong></div>
+          <div className="mt-2 flex gap-2">
+            <button className="btn-primary text-xs" onClick={() => applyMatch(picking, 'bill')}>Keep the bill's name</button>
+            <button className="btn-secondary text-xs" onClick={() => applyMatch(picking, 'inventory')}>Keep the inventory name</button>
+            <button className="btn-ghost text-xs" onClick={() => setPicking(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {item.item_type === 'material' && !item.inventory_item_id && (!candidate || skipGuess) && !picking && (
+        <div className="flex items-center gap-2 mt-2">
+          <span className="text-xs text-ink-500">Link to inventory</span>
+          <Select value={manualId} onChange={(e) => {
+            const inv = inStockOptions.find((i) => i.id === e.target.value)
+            setManualId(e.target.value)
+            if (inv) setPicking(inv)
+          }} className="w-auto py-1 text-xs max-w-[16rem]">
+            <option value="">Not linked (added as new)</option>
+            {inStockOptions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+          </Select>
+        </div>
+      )}
+      {item.inventory_item_id && (
+        <div className="mt-1.5 flex items-center gap-2">
+          <Badge tone="ok">Matched to inventory{linked ? `: ${linked.name}` : ''}</Badge>
+          <button className="btn-ghost text-xs px-1.5 py-0.5" onClick={unlink}>Unlink</button>
+        </div>
       )}
     </div>
   )
