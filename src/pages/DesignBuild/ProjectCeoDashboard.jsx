@@ -51,7 +51,7 @@ export default function ProjectCeoDashboard() {
   if (rawQ.isLoading) return <LoadingBlock />
   if (rawQ.error) return <EmptyState title="Could not load this project" hint={rawQ.error.message} />
   if (!data) return null
-  // Spent = labour + materials consumed in the period + the stock the project holds now.
+  // Spent = every cost in the period + the stock the project holds now.
   const spentNow = spendFromCostRows(costQ.data || [], data.kpis.inventoryValue).spent
   const p = data.project
 
@@ -82,7 +82,7 @@ export default function ProjectCeoDashboard() {
         <Kpi label="Contract value" value={money(data.kpis.contractValue)} />
         <Kpi label="Received from client" value={money(data.kpis.received)} />
         <Kpi label="Balance due" value={money(data.kpis.balanceDue)} tone={data.kpis.balanceDue > 0 ? undefined : undefined} />
-        <Kpi label="Spent (labour + materials consumed + project inventory)" value={money(spentNow)} />
+        <Kpi label="Spent (all costs + project inventory)" value={money(spentNow)} />
         <Kpi label="Spent of contract" value={data.kpis.contractValue ? `${Math.round((spentNow / data.kpis.contractValue) * 100)}%` : '—'} tone={data.kpis.contractValue && spentNow > data.kpis.contractValue ? 'bad' : undefined} />
         <Kpi label="Left of contract" value={data.kpis.contractValue ? money(data.kpis.contractValue - spentNow) : '—'} tone={data.kpis.contractValue && data.kpis.contractValue - spentNow < 0 ? 'bad' : undefined} />
         <Kpi label="Stock on hand" value={money(data.kpis.inventoryValue)} />

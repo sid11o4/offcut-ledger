@@ -14,7 +14,7 @@ import { loadProjectSummary, loadExpensesByCategory, loadMaterials, loadLabour, 
 // subheader: Projects, Expenses, Materials and Labour. Each section has a Download PDF button that
 // builds the PDF from the same data the page shows.
 export const DESIGN_REPORT_SECTIONS = {
-  projects: { title: 'Project summary', subtitle: 'Every Design Build project with its contract value and what is spent (labour + materials consumed + project inventory).' },
+  projects: { title: 'Project summary', subtitle: 'Every Design Build project with its contract value and what is spent (every cost charged to it, plus the stock it holds).' },
   expenses: { title: 'Expenses by category', subtitle: 'Design Build expenses grouped by category, with the split by project or company.' },
   materials: { title: 'Materials consumed', subtitle: 'Stock used on each project in the period, at average cost.' },
   labour: { title: 'Labour', subtitle: 'Labour bills and labour expenses in the period, by project.' },
@@ -80,7 +80,7 @@ function ProjectSummary({ rows }) {
       <Card>
         <div className="overflow-x-auto -mx-4">
           <table className="table-base">
-            <thead><tr><th>Project</th><th>Client</th><th>Status</th><th className="num">Contract value</th><th className="num">Labour</th><th className="num">Materials consumed</th><th className="num">Project inventory</th><th className="num">Spent</th><th className="num">Left of contract</th><th /></tr></thead>
+            <thead><tr><th>Project</th><th>Client</th><th>Status</th><th className="num">Contract value</th><th className="num">Labour</th><th className="num">Materials consumed</th><th className="num">Job work, transport &amp; other</th><th className="num">Project inventory</th><th className="num">Spent</th><th className="num">Left of contract</th><th /></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
@@ -90,6 +90,7 @@ function ProjectSummary({ rows }) {
                   <td className="num">{r.contract ? money(r.contract) : '—'}</td>
                   <td className="num">{money(r.labour)}</td>
                   <td className="num">{money(r.materials)}</td>
+                  <td className="num">{money(r.other)}</td>
                   <td className="num">{money(r.inventory)}</td>
                   <td className="num font-medium">{money(r.spent)}</td>
                   <td className={`num ${r.left >= 0 ? 'text-ok' : 'text-bad'}`}>{r.contract ? money(r.left) : '—'}</td>

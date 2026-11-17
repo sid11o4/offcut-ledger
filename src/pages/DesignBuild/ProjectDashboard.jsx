@@ -162,11 +162,12 @@ export default function ProjectDashboard() {
           <div className="pl-4"><StatCard label="Materials consumed" value={money(f.materials_consumed_total)} money /></div>
           <div className="pl-4"><StatCard label="Inventory on hand" value={money(f.current_inventory_value)} money /></div>
         </div>
-        <div className="mt-4 pt-4 border-t border-ink-100 grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="mt-4 pt-4 border-t border-ink-100 grid grid-cols-2 md:grid-cols-5 gap-4">
           <StatCard label="Labour" value={money(spendQ.data?.labour)} money />
           <StatCard label="Materials consumed" value={money(spendQ.data?.materials)} money />
+          <StatCard label="Job work, transport & other" value={money(spendQ.data?.other)} money />
           <StatCard label="Project inventory" value={money(spendQ.data?.inventory)} money />
-          <StatCard label="Spent (labour + materials consumed + project inventory)" value={money(spendQ.data?.spent)} tone="bad" money />
+          <StatCard label="Spent (all costs + project inventory)" value={money(spendQ.data?.spent)} tone="bad" money />
         </div>
         {p?.projects && (
           <div className="mt-4 pt-3 border-t border-ink-100 text-xs text-ink-500">

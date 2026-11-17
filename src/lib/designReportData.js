@@ -20,9 +20,9 @@ export async function loadProjectSummary() {
     })),
   ])
   return projects.map((p, i) => {
-    const sp = spend.get(p.id) || { labour: 0, materials: 0, inventory: 0, spent: 0 }
+    const sp = spend.get(p.id) || { labour: 0, materials: 0, other: 0, inventory: 0, spent: 0 }
     const contract = Number(contracts[i].contract_total || 0)
-    return { id: p.id, name: p.name, code: p.code, status: p.status, client: p.clients?.name || '', contract, labour: sp.labour, materials: sp.materials, inventory: sp.inventory, spent: sp.spent, left: contract - sp.spent }
+    return { id: p.id, name: p.name, code: p.code, status: p.status, client: p.clients?.name || '', contract, labour: sp.labour, materials: sp.materials, other: sp.other, inventory: sp.inventory, spent: sp.spent, left: contract - sp.spent }
   })
 }
 
@@ -105,10 +105,10 @@ export function designReportPdf(section, data, { title, subtitle, period }) {
       cards: [['Total contract value', money(contract)], ['Total spent', money(spent)], ['Total left of contract', money(contract - spent)]],
       sections: [{
         heading: 'Projects',
-        head: ['Project', 'Client', 'Status', 'Contract value', 'Labour', 'Materials consumed', 'Project inventory', 'Spent', 'Left of contract'],
-        body: rows.map((r) => [r.name, r.client || '—', r.status, r.contract ? money(r.contract) : '—', money(r.labour), money(r.materials), money(r.inventory), money(r.spent), r.contract ? money(r.left) : '—']),
-        foot: ['Total', '', '', money(contract), money(rows.reduce((t, r) => t + r.labour, 0)), money(rows.reduce((t, r) => t + r.materials, 0)), money(rows.reduce((t, r) => t + r.inventory, 0)), money(spent), money(contract - spent)],
-        columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' } },
+        head: ['Project', 'Client', 'Status', 'Contract value', 'Labour', 'Materials consumed', 'Job work, transport & other', 'Project inventory', 'Spent', 'Left of contract'],
+        body: rows.map((r) => [r.name, r.client || '—', r.status, r.contract ? money(r.contract) : '—', money(r.labour), money(r.materials), money(r.other), money(r.inventory), money(r.spent), r.contract ? money(r.left) : '—']),
+        foot: ['Total', '', '', money(contract), money(rows.reduce((t, r) => t + r.labour, 0)), money(rows.reduce((t, r) => t + r.materials, 0)), money(rows.reduce((t, r) => t + r.other, 0)), money(rows.reduce((t, r) => t + r.inventory, 0)), money(spent), money(contract - spent)],
+        columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right' } },
       }],
     })
   }
