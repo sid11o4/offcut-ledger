@@ -20,9 +20,9 @@ export async function loadProjectSummary() {
     })),
   ])
   return projects.map((p, i) => {
-    const sp = spend.get(p.id) || { labour: 0, materials: 0, other: 0, inventory: 0, spent: 0 }
+    const sp = spend.get(p.id) || { labour: 0, materials: 0, factory: 0, other: 0, inventory: 0, spent: 0 }
     const contract = Number(contracts[i].contract_total || 0)
-    return { id: p.id, name: p.name, code: p.code, status: p.status, client: p.clients?.name || '', contract, labour: sp.labour, materials: sp.materials, other: sp.other, inventory: sp.inventory, spent: sp.spent, left: contract - sp.spent }
+    return { id: p.id, name: p.name, code: p.code, status: p.status, client: p.clients?.name || '', contract, labour: sp.labour, materials: sp.materials, other: sp.factory + sp.other, inventory: sp.inventory, spent: sp.spent, left: contract - sp.spent }
   })
 }
 

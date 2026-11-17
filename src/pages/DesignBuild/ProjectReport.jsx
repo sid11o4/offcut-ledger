@@ -41,7 +41,7 @@ async function loadProjectReport(id) {
   const ledger = (ledgerR.data || []).filter((r) => r.design_project_id === id).reverse()
 
   const spendMap = await loadProjectSpend()
-  const sp = spendMap.get(id) || { labour: 0, materials: 0, other: 0, inventory: 0, spent: 0 }
+  const sp = spendMap.get(id) || { labour: 0, materials: 0, factory: 0, other: 0, inventory: 0, spent: 0 }
   const spent = sp.spent
   const contractTotal = Number(contractR.data?.[0]?.contract_total || 0)
   const headroom = contractTotal - spent
@@ -142,7 +142,7 @@ export default function DesignProjectReport() {
           <StatCard label="Direct expenses" value={money(f.direct_expenses_total)} money />
           <StatCard label="Labour" value={money(r.spend.labour)} money />
           <StatCard label="Materials consumed" value={money(r.spend.materials)} money />
-          <StatCard label="Job work, transport & other" value={money(r.spend.other)} money />
+          <StatCard label="Job work, transport & other" value={money(r.spend.factory + r.spend.other)} money />
           <StatCard label="Project inventory" value={money(r.spend.inventory)} money />
           <StatCard label="Spent (all costs + project inventory)" value={money(r.spent)} money />
         </div>
