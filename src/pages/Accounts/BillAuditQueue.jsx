@@ -122,6 +122,29 @@ export default function BillAuditQueue() {
     refetchOnWindowFocus: false,
   })
 
+  // Approved bills stay editable: reopening one puts it back in the queue to be corrected and approved again.
+  const approvedQ = useQuery({
+    queryKey: ['supplier_bills_approved'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('supplier_bills').select('id, internal_bill_number, bill_date, grand_total, supplier_text, suppliers(name)')
+        .eq('status', 'approved').order('approved_at', { ascending: false }).limit(60)
+      if (error) throw error
+      return data
+    },
+    refetchOnWindowFocus: false,
+  })
+  async function reopenBill(b) {
+    const reason = window.prompt(`Edit approved bill ${b.internal_bill_number}? Its stock is taken back out until you approve it again. Why is it being edited?`)
+    if (!reason?.trim()) return
+    const { error } = await supabase.rpc('reopen_supplier_bill', { p_bill_id: b.id, p_reason: reason.trim() })
+    if (error) return toast.error(error.message)
+    toast.success('Bill reopened. Correct it below and approve it again.')
+    for (const key of ['supplier_bills_queue', 'supplier_bills_approved']) qc.invalidateQueries({ queryKey: [key] })
+    qc.invalidateQueries({ queryKey: ['inventory_stock'] })
+    setSelectedId(b.id)
+  }
+
   const rows = queueQ.data || []
   useEffect(() => {
     if (!selectedId && queueQ.data?.length) setSelectedId(queueQ.data[0].id)
@@ -323,10 +346,26 @@ export default function BillAuditQueue() {
               ))}
             </ul>
           )}
+          {!!approvedQ.data?.length && (
+            <div>
+              <div className="px-3 py-2 text-[11px] uppercase tracking-wide text-ink-500 bg-ink-50 border-y border-ink-100">Approved bills</div>
+              <ul>
+                {approvedQ.data.map((b) => (
+                  <li key={b.id} className="flex items-center gap-2 px-3 py-2 border-b border-ink-100">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-ink-950 truncate">{b.suppliers?.name || b.supplier_text || 'Unidentified supplier'}</div>
+                      <div className="text-xs text-ink-500 truncate"><span className="tnum">{money(b.grand_total)}</span> · {b.internal_bill_number}</div>
+                    </div>
+                    <button className="btn-ghost text-xs px-2 shrink-0" onClick={() => reopenBill(b)}>Edit</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Card>
 
         {selectedId ? (
-          <AuditPanel key={selectedId} billId={selectedId} onDone={() => { qc.invalidateQueries({ queryKey: ['supplier_bills_queue'] }); goNext(selectedId) }} />
+          <AuditPanel key={selectedId} billId={selectedId} onDone={() => { qc.invalidateQueries({ queryKey: ['supplier_bills_queue'] }); qc.invalidateQueries({ queryKey: ['supplier_bills_approved'] }); goNext(selectedId) }} />
         ) : (
           <Card><EmptyState title="Nothing selected" hint="Scan a bill or pick one from the queue." /></Card>
         )}
