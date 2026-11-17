@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Field, Input, Select } from '../../components/ui'
 import { useInventoryItems, invalidateInventory } from '../../lib/queries'
-import { money } from '../../lib/format'
+import { money, qty } from '../../lib/format'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 
@@ -146,6 +146,84 @@ export default function CompositeModal({ onClose, costOf, existing }) {
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
           <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : 'Save'}</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+// Makes composites from stock: one raw board and one skin (or two) leave company stock per unit made,
+// and the composite comes in at their cost plus the completed job works.
+export function MakeCompositeModal({ onClose, stockRows, composites, initialId }) {
+  const toast = useToast()
+  const qc = useQueryClient()
+  const [itemId, setItemId] = useState(initialId || '')
+  const [quantity, setQuantity] = useState('')
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [saving, setSaving] = useState(false)
+  const partsQ = useCompositeParts(itemId)
+  const parts = partsQ.data || []
+  const q = Number(quantity) || 0
+  const stockOf = (id) => stockRows.find((r) => r.item_id === id)
+  const materialParts = parts.filter((p) => p.role !== 'jobwork')
+  const jobCost = parts.filter((p) => p.role === 'jobwork').reduce((s, p) => s + Number(p.unit_cost), 0)
+  const unitCost = materialParts.reduce((s, p) => s + Number(stockOf(p.component_item_id)?.avg_unit_cost || 0), 0) + jobCost
+  const short = materialParts.filter((p) => Number(stockOf(p.component_item_id)?.quantity || 0) < q)
+
+  async function submit(e) {
+    e.preventDefault()
+    setSaving(true)
+    const { error } = await supabase.rpc('make_composite', { p_item_id: itemId, p_quantity: q, p_date: date })
+    setSaving(false)
+    if (error) return toast.error(error.message)
+    toast.success(`${q} made. Materials used from stock.`)
+    invalidateInventory(qc)
+    qc.invalidateQueries({ queryKey: ['company_inventory_value'] })
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 overflow-y-auto">
+      <form onSubmit={submit} className="card p-5 w-full max-w-lg space-y-3">
+        <div className="text-sm font-semibold text-ink-950">Make composite material</div>
+        <p className="text-xs text-ink-500">Uses up one of each material per unit made, and adds the finished composite to company stock at their combined cost plus its job works.</p>
+        <Field label="Composite">
+          <Select required value={itemId} onChange={(e) => setItemId(e.target.value)}>
+            <option value="">Select…</option>
+            {composites.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Quantity to make"><Input type="number" min="1" step="1" required value={quantity} onChange={(e) => setQuantity(e.target.value)} /></Field>
+          <Field label="Date"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        </div>
+        {itemId && (
+          <table className="table-base">
+            <thead><tr><th>Used up</th><th className="num">Needed</th><th className="num">In stock</th><th className="num">Cost / unit</th></tr></thead>
+            <tbody>
+              {materialParts.map((p) => {
+                const s = stockOf(p.component_item_id)
+                const lacking = Number(s?.quantity || 0) < q
+                return (
+                  <tr key={p.id}>
+                    <td>{ROLE_LABEL[p.role]}: {p.component?.name}</td>
+                    <td className="num">{q || '—'}</td>
+                    <td className={`num ${lacking ? 'text-bad' : ''}`}>{qty(s?.quantity || 0)}</td>
+                    <td className="num">{money(s?.avg_unit_cost || 0)}</td>
+                  </tr>
+                )
+              })}
+              {parts.filter((p) => p.role === 'jobwork').map((p) => (
+                <tr key={p.id}><td colSpan={3}>Job work: {p.label}</td><td className="num">{money(p.unit_cost)}</td></tr>
+              ))}
+              <tr><td colSpan={3} className="font-medium">Cost per composite</td><td className="num font-medium">{money(unitCost)}</td></tr>
+            </tbody>
+          </table>
+        )}
+        {short.length > 0 && q > 0 && <p className="text-xs text-bad">Not enough {short.map((p) => p.component?.name).join(', ')} in company stock.</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="submit" disabled={saving || !itemId || !q || short.length > 0} className="btn-primary">{saving ? 'Making…' : 'Make'}</button>
         </div>
       </form>
     </div>

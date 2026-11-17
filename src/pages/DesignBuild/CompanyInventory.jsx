@@ -9,7 +9,7 @@ import { money, qty } from '../../lib/format'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import TransferModal from '../../components/TransferModal'
-import CompositeModal, { CompositeBreakdown } from './CompositeModal'
+import CompositeModal, { CompositeBreakdown, MakeCompositeModal } from './CompositeModal'
 
 export default function CompanyInventory() {
   const valueQ = useCompanyInventoryValue()
@@ -24,6 +24,7 @@ export default function CompanyInventory() {
   const [purchaseOpen, setPurchaseOpen] = useState(false)
   const [compositeOpen, setCompositeOpen] = useState(false)
   const [editComposite, setEditComposite] = useState(null)
+  const [makeOpen, setMakeOpen] = useState(false)
   const canOperate = hasPermission('inventory_operate')
 
   const rows = valueQ.data || []
@@ -40,6 +41,7 @@ export default function CompanyInventory() {
         actions={canOperate && (
           <>
             <button className="btn-secondary" onClick={() => setCompositeOpen(true)}>New composite material</button>
+            <button className="btn-secondary" onClick={() => setMakeOpen(true)}>Make composite</button>
             <button className="btn-secondary" onClick={() => setTransferOpen(true)}>Transfer</button>
             <button className="btn-primary" onClick={() => setPurchaseOpen(true)}>Record purchase</button>
           </>
@@ -111,6 +113,7 @@ export default function CompanyInventory() {
         />
       )}
       {purchaseOpen && <PurchaseModal onClose={() => setPurchaseOpen(false)} />}
+      {makeOpen && <MakeCompositeModal stockRows={rows} composites={(itemsQ.data || []).filter((i) => i.is_composite && i.active !== false)} onClose={() => setMakeOpen(false)} />}
       {(compositeOpen || editComposite) && (
         <CompositeModal costOf={costOf} existing={editComposite} onClose={() => { setCompositeOpen(false); setEditComposite(null) }} />
       )}
