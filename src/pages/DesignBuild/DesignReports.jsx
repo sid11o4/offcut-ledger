@@ -80,7 +80,7 @@ function ProjectSummary({ rows }) {
       <Card>
         <div className="overflow-x-auto -mx-4">
           <table className="table-base">
-            <thead><tr><th>Project</th><th>Client</th><th>Status</th><th className="num">Contract value</th><th className="num">Supplier bills</th><th className="num">Design Build Order</th><th className="num">Direct</th><th className="num">Spent</th><th className="num">Left of contract</th><th /></tr></thead>
+            <thead><tr><th>Project</th><th>Client</th><th>Status</th><th className="num">Contract value</th><th className="num">Supplier bills</th><th className="num">Design Build Order</th><th className="num">Direct</th><th className="num">Past consumption</th><th className="num">Spent</th><th className="num">Left of contract</th><th /></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
@@ -91,6 +91,7 @@ function ProjectSummary({ rows }) {
                   <td className="num">{money(r.bills)}</td>
                   <td className="num">{money(r.internal)}</td>
                   <td className="num">{money(r.direct)}</td>
+                  <td className="num">{money(r.past)}</td>
                   <td className="num font-medium">{money(r.spent)}</td>
                   <td className={`num ${r.left >= 0 ? 'text-ok' : 'text-bad'}`}>{r.contract ? money(r.left) : '—'}</td>
                   <td className="text-right"><Link className="btn-ghost text-xs px-2" to={`/design-build/projects/${r.id}/report`}>Report</Link></td>

@@ -68,6 +68,16 @@ export async function loadProjectRaw(projectId) {
     : { data: [], error: null }
   if (draw_billsR.error) throw draw_billsR.error
 
+  // Materials this project already used before the system held its stock: a cost, never taken from inventory.
+  const pastR = await supabase.from('past_material_consumption')
+    .select('id, consumed_on, quantity, unit_cost, total_cost, item_id, inventory_items(name, units(code))')
+    .eq('design_project_id', projectId).eq('voided', false)
+  if (pastR.error) throw pastR.error
+  const pastConsumptions = (pastR.data || []).map((x) => ({
+    id: `past-${x.id}`, txn_date: x.consumed_on, created_at: x.consumed_on, quantity: -Number(x.quantity),
+    total_cost: -Number(x.total_cost), unit_cost: Number(x.unit_cost), item_id: x.item_id, inventory_items: x.inventory_items, _past: true,
+  }))
+
   return {
     project,
     locationId,
@@ -77,7 +87,7 @@ export async function loadProjectRaw(projectId) {
     billItems: itemsR.data || [],
     expenses: expR.data || [],
     jobWork: jobR.data || [],
-    consumptions: consR.data || [],
+    consumptions: [...(consR.data || []), ...pastConsumptions],
     draws,
     drawBills: draw_billsR.data || [],
   }
@@ -123,8 +133,9 @@ export function computeProjectCeo(raw, { start = '', end = '' } = {}) {
       vendorMat.set(p.vendor, (vendorMat.get(p.vendor) || 0) + v)
     }
     if (!parts.length) {
-      row.vendors.set('No purchase on record', (row.vendors.get('No purchase on record') || 0) + cost)
-      vendorMat.set('No purchase on record', (vendorMat.get('No purchase on record') || 0) + cost)
+      const label = c._past ? 'Past consumption (not from stock)' : 'No purchase on record'
+      row.vendors.set(label, (row.vendors.get(label) || 0) + cost)
+      vendorMat.set(label, (vendorMat.get(label) || 0) + cost)
     }
   }
   const materials = [...matMap.values()].sort((a, b) => b.cost - a.cost)
