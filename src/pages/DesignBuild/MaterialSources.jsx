@@ -130,7 +130,7 @@ function DirectPurchases({ rows, itemId, projectId }) {
     refresh()
   }
   async function reverse(r) {
-    const reason = window.prompt('Reverse this direct purchase? Why?')
+    const reason = window.prompt('Reverse this direct purchase? Anything already used from it goes back into negative stock until a purchase covers it. Why?')
     if (!reason) return
     const { error } = await supabase.rpc('reverse_inventory_transaction', { p_txn_id: r.id, p_reason: reason })
     if (error) return toast.error(error.message)
