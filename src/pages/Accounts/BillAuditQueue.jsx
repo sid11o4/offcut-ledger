@@ -671,7 +671,7 @@ function AuditPanel({ billId, onDone }) {
           {!itemsLineQ.data?.length ? <EmptyState title="No line items extracted" /> : (
             <div className="space-y-2">
               {itemsLineQ.data.map((li) => (
-                <LineItemRow key={li.id} item={li} suggestions={(suggestionsQ.data || []).filter((s) => s.supplier_bill_item_id === li.id)} billId={billId} formgrid={b.bill_source === 'formgrid'} />
+                <LineItemRow key={li.id} item={li} suggestions={(suggestionsQ.data || []).filter((s) => s.supplier_bill_item_id === li.id)} billId={billId} formgrid={b.bill_source === 'formgrid'} projects={projectsQ.data || []} billProjectId={b.design_project_id} />
               ))}
             </div>
           )}
@@ -717,7 +717,7 @@ function EditCell({ label, value, onSave, type = 'text', className = '', step })
   )
 }
 
-function LineItemRow({ item, suggestions, billId, formgrid = false }) {
+function LineItemRow({ item, suggestions, billId, formgrid = false, projects = [], billProjectId = null }) {
   const toast = useToast()
   const qc = useQueryClient()
   const itemsQ = useInventoryItems()
@@ -802,8 +802,13 @@ function LineItemRow({ item, suggestions, billId, formgrid = false }) {
           Pays credit the vendor already holds. Only the payment is applied to their bills; no cost head, no cost, no inventory.
         </label>
       )}
-      {!item.pays_vendor_credit && <div className="flex items-center gap-2 mt-2">
-        <span className="text-xs text-ink-500">Cost head</span>
+      {!item.pays_vendor_credit && <div className="flex flex-wrap items-center gap-2 mt-2">
+        <span className="text-xs text-ink-500">Project</span>
+        <Select value={item.design_project_id || ''} onChange={(e) => patch({ design_project_id: e.target.value || null })} className="w-auto py-1 text-xs">
+          <option value="">{billProjectId ? 'Same as the bill' : 'Same as the bill (Factory expense)'}</option>
+          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </Select>
+        <span className="text-xs text-ink-500 ml-2">Cost head</span>
         <Select value={item.cost_head || ''} onChange={(e) => patch({ cost_head: e.target.value || null })} className="w-auto py-1 text-xs">
           <option value="">Not set</option>
           {(item.item_type === 'labour' ? LABOUR_HEADS : MATERIAL_HEADS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
