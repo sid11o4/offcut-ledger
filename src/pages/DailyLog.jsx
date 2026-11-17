@@ -327,14 +327,14 @@ function hasDoubt(matches) {
 // The lamination fields for the entry, creating any new item first. Each sheet uses one of each.
 async function laminationArgs(picks, quantity, unitCode = 'SHEET') {
   const sheets = Number(quantity)
-  const idOf = async (pick) => {
+  const idOf = async (pick, category) => {
     if (!pick) return null
     if (pick.id) return pick.id
-    const { data, error } = await supabase.rpc('ensure_inventory_item', { p_name: pick.create, p_unit_code: unitCode })
+    const { data, error } = await supabase.rpc('ensure_inventory_item', { p_name: pick.create, p_unit_code: unitCode, p_category: category })
     if (error) throw error
     return data
   }
-  const [raw, skin1, skin2] = await Promise.all([idOf(picks.raw), idOf(picks.skin1), idOf(picks.skin2)])
+  const [raw, skin1, skin2] = await Promise.all([idOf(picks.raw, unitCode === 'RM' ? 'Edgeband' : 'Raw Boards'), idOf(picks.skin1, unitCode === 'RM' ? 'Edgeband' : 'Skins'), idOf(picks.skin2, 'Skins')])
   return {
     p_raw_material_item_id: raw, p_raw_material_qty: sheets,
     p_skin1_item_id: skin1, p_skin1_qty: skin1 ? sheets : null,
