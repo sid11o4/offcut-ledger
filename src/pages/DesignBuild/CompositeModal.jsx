@@ -23,6 +23,26 @@ export function useCompositeParts(itemId) {
   })
 }
 
+// The pasting cost per sheet: the "Pasting" job work's current Design Build Order rate.
+export function usePastingRate() {
+  return useQuery({
+    queryKey: ['pasting_rate'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('rates')
+        .select('rate, job_work_services!inner(name), rate_categories!inner(name)')
+        .eq('job_work_services.name', 'Pasting')
+        .eq('rate_categories.name', 'Design Build Order')
+        .is('effective_to', null)
+        .limit(1)
+      if (error) throw error
+      return Number(data?.[0]?.rate || 0)
+    },
+  })
+}
+
+const PASTING_LABELS = ['Pasting (single side)', 'Pasting (both sides)']
+
 const ROLE_LABEL = { raw: 'Raw board', skin1: 'Skin 1', skin2: 'Skin 2', jobwork: 'Job work' }
 
 export function CompositeBreakdown({ itemId }) {
@@ -56,7 +76,7 @@ export default function CompositeModal({ onClose, costOf, existing }) {
   const partsQ = useCompositeParts(existing?.id)
   const materials = (itemsQ.data || []).filter((i) => i.active !== false && !i.is_composite)
 
-  const [name, setName] = useState(existing?.name || '')
+  const pastingQ = usePastingRate()
   const [raw, setRaw] = useState({ item: '', cost: '' })
   const [skin1, setSkin1] = useState({ item: '', cost: '' })
   const [skin2, setSkin2] = useState({ item: '', cost: '' })
@@ -69,14 +89,19 @@ export default function CompositeModal({ onClose, costOf, existing }) {
     const by = (r) => partsQ.data.find((p) => p.role === r)
     const pick = (p) => (p ? { item: p.component_item_id, cost: String(p.unit_cost) } : { item: '', cost: '' })
     setRaw(pick(by('raw'))); setSkin1(pick(by('skin1'))); setSkin2(pick(by('skin2')))
-    setJobs(partsQ.data.filter((p) => p.role === 'jobwork').map((p) => ({ label: p.label || '', cost: String(p.unit_cost) })))
+    setJobs(partsQ.data.filter((p) => p.role === 'jobwork' && !PASTING_LABELS.includes(p.label)).map((p) => ({ label: p.label || '', cost: String(p.unit_cost) })))
     setLoaded(true)
   }
 
   // Choosing a material fills its cost from stock (or its default rate); the cost stays editable.
   const choose = (setter) => (itemId) => setter({ item: itemId, cost: itemId && costOf(itemId) ? String(costOf(itemId)) : '' })
   const num = (v) => Number(v) || 0
-  const total = num(raw.cost) + num(skin1.cost) + (skin2.item ? num(skin2.cost) : 0) + jobs.reduce((s, j) => s + num(j.cost), 0)
+  // Pasting is costed by the sides skinned: one skin is single-side pasting, two skins is both sides.
+  const nameOf = (id) => materials.find((m) => m.id === id)?.name
+  const name = [nameOf(raw.item), nameOf(skin1.item), skin2.item ? nameOf(skin2.item) : null].filter(Boolean).join(' / ')
+  const pastingRate = pastingQ.data || 0
+  const pasting = skin1.item ? { label: skin2.item ? PASTING_LABELS[1] : PASTING_LABELS[0], cost: skin2.item ? pastingRate * 2 : pastingRate } : null
+  const total = num(raw.cost) + num(skin1.cost) + (skin2.item ? num(skin2.cost) : 0) + (pasting?.cost || 0) + jobs.reduce((s, j) => s + num(j.cost), 0)
 
   async function submit(e) {
     e.preventDefault()
@@ -84,6 +109,7 @@ export default function CompositeModal({ onClose, costOf, existing }) {
       { role: 'raw', component_item_id: raw.item, unit_cost: num(raw.cost) },
       { role: 'skin1', component_item_id: skin1.item, unit_cost: num(skin1.cost) },
       ...(skin2.item ? [{ role: 'skin2', component_item_id: skin2.item, unit_cost: num(skin2.cost) }] : []),
+      ...(pasting ? [{ role: 'jobwork', label: pasting.label, unit_cost: pasting.cost }] : []),
       ...jobs.filter((j) => j.label.trim() || j.cost).map((j) => ({ role: 'jobwork', label: j.label, unit_cost: num(j.cost) })),
     ]
     setSaving(true)
@@ -113,8 +139,6 @@ export default function CompositeModal({ onClose, costOf, existing }) {
       <form onSubmit={submit} className="card p-5 w-full max-w-xl space-y-3">
         <div className="text-sm font-semibold text-ink-950">{existing ? 'Edit composite material' : 'New composite material'}</div>
         <p className="text-xs text-ink-500">A raw board with its skins and the job works already done on it, held as one material valued at the sum of its parts.</p>
-        <Field label="Name"><Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. 16MM MR + 6965SUD both sides, edge banded" /></Field>
-
         <div className="grid grid-cols-3 gap-3 items-end">
           <div className="col-span-2"><Field label="Raw board">{materialSelect(raw, setRaw, true)}</Field></div>
           <Field label=" ">{costInput(raw, setRaw)}</Field>
@@ -124,9 +148,20 @@ export default function CompositeModal({ onClose, costOf, existing }) {
           <Field label=" ">{costInput(skin2, setSkin2, !skin2.item)}</Field>
         </div>
 
+        <div className="rounded border border-ink-100 px-3 py-2 text-sm">
+          <div className="text-xs text-ink-500">Name</div>
+          <div className="font-medium text-ink-950">{name || 'Raw board / Skin 1 / Skin 2'}</div>
+          {pasting && (
+            <div className="mt-1 text-xs text-ink-500">
+              {pasting.label}: <span className="tnum text-ink-950">{money(pasting.cost)}</span> per unit, from the Pasting rate{skin2.item ? ' for both sides' : ''}.
+              {!pastingRate && !pastingQ.isLoading && ' No Pasting rate is set for Design Build Order.'}
+            </div>
+          )}
+        </div>
+
         <div>
           <div className="flex items-center justify-between mb-1">
-            <div className="text-xs font-medium text-ink-700">Completed job works (cost per unit)</div>
+            <div className="text-xs font-medium text-ink-700">Other completed job works (cost per unit)</div>
             <button type="button" className="btn-ghost text-xs" onClick={() => setJobs([...jobs, { label: '', cost: '' }])}>+ Add job work</button>
           </div>
           {jobs.map((j, i) => (
@@ -145,7 +180,7 @@ export default function CompositeModal({ onClose, costOf, existing }) {
         {existing && <p className="text-xs text-ink-500">Stock already held keeps the value it was entered at; the new value applies to stock entered from now on.</p>}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving…' : 'Save'}</button>
+          <button type="submit" disabled={saving || !name} className="btn-primary">{saving ? 'Saving…' : 'Save'}</button>
         </div>
       </form>
     </div>

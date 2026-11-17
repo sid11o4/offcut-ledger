@@ -28,6 +28,7 @@ export default function CompanyInventory() {
   const canOperate = hasPermission('inventory_operate')
 
   const rows = valueQ.data || []
+  const compositeItems = (itemsQ.data || []).filter((i) => i.is_composite && i.active !== false)
   const compositeIds = new Set((itemsQ.data || []).filter((i) => i.is_composite).map((i) => i.id))
   // A component's cost for the composite form: its average cost in the pool, else its default rate.
   const costOf = (id) => Number(rows.find((r) => r.item_id === id)?.avg_unit_cost || (itemsQ.data || []).find((i) => i.id === id)?.default_rate || 0)
@@ -99,6 +100,26 @@ export default function CompanyInventory() {
                   </Fragment>
                 )
               })}
+            </tbody>
+          </table>
+        )}
+      </Card>
+
+      <Card title="Composite materials" className="mb-5">
+        {!compositeItems.length ? (
+          <EmptyState title="No composite materials yet" hint={canOperate ? 'Use New composite material to set one up.' : undefined} />
+        ) : (
+          <table className="table-base">
+            <thead><tr><th>Raw board / Skin 1 / Skin 2</th><th className="num">In stock</th><th className="num">Value per unit</th><th className="num"></th></tr></thead>
+            <tbody>
+              {compositeItems.map((c) => (
+                <tr key={c.id}>
+                  <td>{c.name}</td>
+                  <td className="num">{qty(rows.find((r) => r.item_id === c.id)?.quantity || 0)}</td>
+                  <td className="num">{money(c.default_rate || 0)}</td>
+                  <td className="num">{canOperate && <button type="button" className="btn-ghost text-xs" onClick={() => setEditComposite(c)}>Edit</button>}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
