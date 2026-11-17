@@ -142,7 +142,8 @@ export default function CompanyInventory() {
             <thead><tr><th>Material</th><th>Category</th><th className="num">Quantity</th><th>Unit</th><th className="num">Avg cost</th><th className="num">Value</th><th className="num"></th></tr></thead>
             <tbody>
               {shownRows.map((r, idx) => {
-                const low = r.quantity < 10
+                const short = r.quantity < 0
+                const low = !short && r.quantity < 10
                 const g = groupOf(r.item_id)
                 const startsGroup = idx === 0 || groupOf(shownRows[idx - 1].item_id) !== g
                 return (
@@ -167,11 +168,11 @@ export default function CompanyInventory() {
                           </Select>
                         ) : <span className="text-ink-500">{itemById.get(r.item_id)?.category || 'Others'}</span>}
                       </td>
-                      <td className="num">{qty(r.quantity)}</td>
+                      <td className={`num ${r.quantity < 0 ? 'text-bad' : ''}`}>{qty(r.quantity)}</td>
                       <td>{unitOf.get(r.item_id) || '—'}</td>
                       <td className="num">{money(r.avg_unit_cost)}</td>
                       <td className="num font-medium">{money(r.value)}</td>
-                      <td className="num">{low && <Badge tone="warn">Low</Badge>}</td>
+                      <td className="num">{short && <Badge tone="bad">Short</Badge>}{low && <Badge tone="warn">Low</Badge>}</td>
                     </tr>
                     {openItem === r.item_id && (
                       <tr>
