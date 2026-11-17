@@ -23,7 +23,8 @@ export function useCompositeParts(itemId) {
   })
 }
 
-// The pasting cost per sheet: the "Pasting" job work's current Design Build Order rate.
+// The pasting cost per skin: pasting with fevicol, the current Design Build Order rates of the
+// "Pasting" and "FEVICOL" job works added together.
 export function usePastingRate() {
   return useQuery({
     queryKey: ['pasting_rate'],
@@ -31,12 +32,11 @@ export function usePastingRate() {
       const { data, error } = await supabase
         .from('rates')
         .select('rate, job_work_services!inner(name), rate_categories!inner(name)')
-        .eq('job_work_services.name', 'Pasting')
+        .in('job_work_services.name', ['Pasting', 'FEVICOL'])
         .eq('rate_categories.name', 'Design Build Order')
         .is('effective_to', null)
-        .limit(1)
       if (error) throw error
-      return Number(data?.[0]?.rate || 0)
+      return (data || []).reduce((s, r) => s + Number(r.rate || 0), 0)
     },
   })
 }
@@ -53,7 +53,7 @@ export function useCompositeValues() {
   })
 }
 
-const PASTING_LABELS = ['Pasting (single side)', 'Pasting (both sides)']
+const PASTING_LABELS = ['Pasting w/ fevicol (single side)', 'Pasting w/ fevicol (both sides)']
 
 const ROLE_LABEL = { raw: 'Raw board', skin1: 'Skin 1', skin2: 'Skin 2', jobwork: 'Job work' }
 
@@ -79,7 +79,7 @@ export function CompositeBreakdown({ itemId }) {
           ))}
           <tr>
             <td className="text-ink-500">Job work</td>
-            <td>{skins > 1 ? 'Pasting (both sides)' : 'Pasting (single side)'} <span className="text-xs text-ink-500">at the current Pasting rate</span></td>
+            <td>{skins > 1 ? 'Pasting w/ fevicol (both sides)' : 'Pasting w/ fevicol (single side)'} <span className="text-xs text-ink-500">at the current Pasting + Fevicol rates</span></td>
             <td className="num">{money(pasting)}</td>
           </tr>
           <tr><td colSpan={2} className="font-medium">Combined value</td><td className="num font-medium">{money(total)}</td></tr>
@@ -173,8 +173,8 @@ export default function CompositeModal({ onClose, costOf, existing }) {
           <div className="font-medium text-ink-950">{name || 'Raw board / Skin 1 / Skin 2'}</div>
           {pasting && (
             <div className="mt-1 text-xs text-ink-500">
-              {pasting.label}: <span className="tnum text-ink-950">{money(pasting.cost)}</span> per unit, taken live from the Pasting rate in the job work catalogue{skin2.item ? ' (both sides)' : ''}.
-              {!pastingRate && !pastingQ.isLoading && ' No Pasting rate is set for Design Build Order.'}
+              {pasting.label}: <span className="tnum text-ink-950">{money(pasting.cost)}</span> per unit, pasting with fevicol for each skin, taken live from the Pasting and Fevicol rates in the job work catalogue{skin2.item ? ' (both sides)' : ''}.
+              {!pastingRate && !pastingQ.isLoading && ' No Pasting or Fevicol rate is set for Design Build Order.'}
             </div>
           )}
         </div>
@@ -272,7 +272,7 @@ export function MakeCompositeModal({ onClose, stockRows, composites, initialId, 
                 )
               })}
               {itemId && skinCount > 0 && (
-                <tr><td colSpan={3}>Job work: {skinCount > 1 ? 'Pasting (both sides)' : 'Pasting (single side)'}</td><td className="num">{money(pastingCost)}</td></tr>
+                <tr><td colSpan={3}>Job work: {skinCount > 1 ? 'Pasting w/ fevicol (both sides)' : 'Pasting w/ fevicol (single side)'}</td><td className="num">{money(pastingCost)}</td></tr>
               )}
               {parts.filter((p) => p.role === 'jobwork').map((p) => (
                 <tr key={p.id}><td colSpan={3}>Job work: {p.label}</td><td className="num">{money(p.unit_cost)}</td></tr>
