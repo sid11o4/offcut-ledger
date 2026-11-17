@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { supabase } from '../../lib/supabaseClient'
+import { useToast } from '../../components/Toast'
+import { useConfirm } from '../../components/ConfirmDialog'
 import { PageHeader, Card, StatCard, EmptyState, LoadingBlock } from '../../components/ui'
 import DateRangePicker, { presetRanges } from '../../components/DateRangePicker'
 import BankStatement from '../../components/BankStatement'
@@ -108,6 +111,41 @@ export function ConsolidatedReport() {
 export function SupplierList() {
   const q = useQuery({ queryKey: ['suppliers_list'], queryFn: listSuppliers })
   const [search, setSearch] = useState('')
+  const toast = useToast()
+  const confirm = useConfirm()
+  const qc = useQueryClient()
+
+  function refresh() {
+    qc.invalidateQueries({ queryKey: ['suppliers_list'] })
+    qc.invalidateQueries({ queryKey: ['suppliers'] })
+  }
+
+  async function setActive(s, active) {
+    const { error } = await supabase.from('suppliers').update({ active }).eq('id', s.id)
+    if (error) return toast.error(error.message)
+    toast.success(active ? `${s.name} is active again.` : `${s.name} deactivated.`)
+    refresh()
+  }
+
+  // A vendor with no bills is deleted. One with bills keeps its history, so it can only be deactivated.
+  async function remove(s) {
+    const ok = await confirm(`Delete ${s.name}?`, { detail: 'This removes the vendor. It cannot be undone.', confirmLabel: 'Delete vendor' })
+    if (!ok) return
+    const { data, error } = await supabase.rpc('delete_supplier', { p_supplier_id: s.id })
+    if (error) return toast.error(error.message)
+    if (data?.result === 'deleted') {
+      toast.success(`${s.name} deleted.`)
+      return refresh()
+    }
+    const parts = []
+    if (data?.bills) parts.push(`${data.bills} bill${data.bills === 1 ? '' : 's'}`)
+    if (data?.returns) parts.push(`${data.returns} return slip${data.returns === 1 ? '' : 's'}`)
+    const deactivate = await confirm(`${s.name} has ${parts.join(' and ')}`, {
+      detail: 'A vendor with bills cannot be deleted without losing those records. Deactivate it instead? It stays in the books but no longer appears when choosing a vendor.',
+      confirmLabel: 'Deactivate', tone: 'primary',
+    })
+    if (deactivate) setActive(s, false)
+  }
   const rows = (q.data || []).filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase()))
   return (
     <div>
@@ -125,7 +163,11 @@ export function SupplierList() {
                   <td className="font-medium"><Link className="hover:underline" to={`/design-build/suppliers/${s.id}`}>{s.name}</Link></td>
                   <td>{s.gstin || '—'}</td>
                   <td className="capitalize">{s.active === false ? 'Inactive' : 'Active'}</td>
-                  <td className="text-right"><Link className="btn-ghost text-xs px-2" to={`/design-build/suppliers/${s.id}`}>Dashboard</Link></td>
+                  <td className="text-right whitespace-nowrap">
+                    <Link className="btn-ghost text-xs px-2" to={`/design-build/suppliers/${s.id}`}>Dashboard</Link>
+                    {s.active === false && <button type="button" className="btn-ghost text-xs px-2" onClick={() => setActive(s, true)}>Reactivate</button>}
+                    <button type="button" className="btn-ghost text-xs px-2 text-bad" onClick={() => remove(s)}>Delete</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
