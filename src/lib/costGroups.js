@@ -1,8 +1,8 @@
 import { supabase } from './supabaseClient'
 
 // Design Build costs are reported in these groups everywhere: Labour; Materials, split into Raw Board,
-// Edgeband, Skin, Adhesives, Hardware and Others; Factory Job Work; Transport; Miscellaneous.
-export const COST_GROUPS = ['Labour', 'Materials', 'Factory Job Work', 'Transport', 'Miscellaneous']
+// Edgeband, Skin, Adhesives, Hardware and Others; Factory Job Work; Transport; False Ceiling; Miscellaneous.
+export const COST_GROUPS = ['Labour', 'Materials', 'Factory Job Work', 'Transport', 'False Ceiling', 'Miscellaneous']
 export const MATERIAL_SUBS = ['Raw Board', 'Edgeband', 'Skin', 'Adhesives', 'Hardware', 'Others']
 
 // rows: [{ grp, subgrp, amount, design_project_id?, project_name? }] from design_build_cost_breakdown().
