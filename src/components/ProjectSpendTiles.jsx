@@ -24,7 +24,7 @@ export default function ProjectSpendTiles({ spend, contract }) {
       <Tile label="Materials spend" value={money(s.materials)} sub="Materials consumed" />
       <Tile label="Labour spend" value={money(s.labour)} />
       <Tile label="Factory spend" value={money(s.factory)} sub="Factory job work" />
-      <Tile label="Other spend" value={money(s.other)} sub="Transport, miscellaneous" />
+      <Tile label="Other spend" value={money(s.other)} sub="Transport, false ceiling, miscellaneous" />
       <Tile label="Project inventory" value={money(s.inventory)} sub="Stock held at the project" />
       <Tile label="Total spend" value={money(s.spent)} sub="All costs + project inventory" tone="bad" />
       <Tile label="Contract value" value={contractValue ? money(contractValue) : '—'} sub={contractValue ? undefined : 'No contract value yet'} />
