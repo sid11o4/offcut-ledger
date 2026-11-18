@@ -10,6 +10,7 @@ import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import TransferModal from '../../components/TransferModal'
 import MergeItemsModal from '../../components/MergeItemsModal'
+import RecentTransfers from '../../components/RecentTransfers'
 import CompositeModal, { CompositeBreakdown, MakeCompositeModal, useCompositeValues } from './CompositeModal'
 
 // The inventory is split into these groups; a material with no category counts as Others, and
@@ -239,6 +240,7 @@ export default function CompanyInventory() {
           onSaved={() => { invalidateInventory(qc); setTransferOpen(false) }}
         />
       )}
+      <RecentTransfers locationId={projectId ? projectLocQ.data : null} canOperate={canOperate} />
       {mergeItem && <MergeItemsModal item={mergeItem} onClose={() => setMergeItem(null)} />}
       {purchaseOpen && <PurchaseModal locationId={projectId ? projectLocQ.data : null} onClose={() => setPurchaseOpen(false)} />}
       {makeOpen && <MakeCompositeModal stockRows={rows} composites={(itemsQ.data || []).filter((i) => i.is_composite && i.active !== false)} onClose={() => setMakeOpen(false)} />}

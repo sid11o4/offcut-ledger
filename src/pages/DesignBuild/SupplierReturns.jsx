@@ -6,6 +6,8 @@ import { useToast } from '../../components/Toast'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, EmptyState, LoadingBlock, Field, Input, Select } from '../../components/ui'
 import { useInventoryItems, useInventoryLocations, invalidateInventory } from '../../lib/queries'
+import ReturnFromBillCard from '../../components/ReturnFromBillCard'
+import ChangeReturnModal from '../../components/ChangeReturnModal'
 import { listSuppliers } from '../../lib/statementData'
 import { buildTableDoc, saveDoc } from '../../lib/reportPdf'
 import { displayDate, today } from '../../lib/dates'
@@ -36,6 +38,7 @@ export default function SupplierReturns() {
   const [billNumber, setBillNumber] = useState('')
   const [voidReason, setVoidReason] = useState('')
   const [filing, setFiling] = useState(null)
+  const [changing, setChanging] = useState(null)
   const [act, setAct] = useState(null) // the follow-up action being filled in: { type, slip, ...fields }
 
   const slipsQ = useQuery({
@@ -43,7 +46,7 @@ export default function SupplierReturns() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('supplier_return_slips')
-        .select('id, slip_number, return_date, reason, total_amount, follow_up_status, slip_filed_reference, slip_filed_on, supplier_id, credit_status, credit_note_number, credit_note_date, credit_amount, credit_settled_how, credit_settled_on, credit_settled_reference, adjusted_bill_id, next_follow_up_on, supplier:suppliers(name), location:inventory_locations(name), supplier_return_slip_items(quantity, unit_cost, total_amount, reason, inventory_items(name, units(code)))')
+        .select('id, slip_number, return_date, reason, total_amount, bill_id, location_id, follow_up_status, slip_filed_reference, slip_filed_on, supplier_id, credit_status, credit_note_number, credit_note_date, credit_amount, credit_settled_how, credit_settled_on, credit_settled_reference, adjusted_bill_id, next_follow_up_on, supplier:suppliers(name), location:inventory_locations(name), supplier_return_slip_items(item_id, bill_item_id, description, quantity, unit_cost, total_amount, reason, inventory_items(name, units(code)))')
         .order('return_date', { ascending: false })
         .limit(200)
       if (error) throw error
@@ -146,7 +149,7 @@ export default function SupplierReturns() {
         heading: 'Items returned',
         head: ['Item', 'Quantity', 'Rate', 'Amount'],
         body: lines.map((l) => [
-          l.inventory_items?.name || '—',
+          l.inventory_items?.name || l.description || '—',
           `${qty(l.quantity)} ${l.inventory_items?.units?.code || ''}`.trim(),
           money(l.unit_cost),
           money(l.total_amount),
@@ -268,6 +271,7 @@ export default function SupplierReturns() {
                         {sl.credit_status === 'awaiting_credit' && <button className="btn-ghost text-xs px-2" onClick={() => setAct({ type: 'note', slip: sl, number: '', date: today(), amount: String(sl.total_amount) })}>Credit note</button>}
                         {sl.credit_status === 'credit_received' && <button className="btn-ghost text-xs px-2" onClick={() => setAct({ type: 'settle', slip: sl, how: 'refunded', reference: '', date: today(), billId: '' })}>Settle credit</button>}
                         <button className="btn-ghost text-xs px-2" onClick={() => setAct({ type: 'log', slip: sl, note: '', next: '' })}>Follow up</button>
+                        {sl.credit_status !== 'settled' && <button className="btn-ghost text-xs px-2" onClick={() => setChanging(sl)}>Change items</button>}
                         {sl.credit_status !== 'settled' && <button className="btn-ghost text-xs px-2 text-bad" onClick={() => cancelReturn(sl)}>Cancel return</button>}
                       </td>
                     </tr>
@@ -291,8 +295,11 @@ export default function SupplierReturns() {
             </div>
           </div>
         )}
+        {changing && <ChangeReturnModal slip={changing} onClose={() => setChanging(null)} />}
         {act && <FollowUpForm act={act} setAct={setAct} onDone={() => { setAct(null); qc.invalidateQueries({ queryKey: ['supplier_return_slips'] }); qc.invalidateQueries({ queryKey: ['pending_payables'] }); qc.invalidateQueries({ queryKey: ['vendor_dashboard'] }) }} />}
       </Card>
+
+      <ReturnFromBillCard suppliers={suppliersQ.data} />
 
       <Card title="Void an approved bill" className="mb-5">
         {!hasPermission('supplier_bills_manage') ? <EmptyState title="You do not have permission to void bills." /> : (
