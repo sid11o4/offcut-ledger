@@ -44,3 +44,15 @@ export async function loadCostBreakdown({ projectId = null, start = null, end = 
   if (error) throw error
   return data || []
 }
+
+// The material sub-group an inventory item or a bill cost head belongs to (same rules as the database).
+export function materialSubOfItem(category, name) {
+  if (category === 'Raw Boards') return 'Raw Board'
+  if (category === 'Skins') return 'Skin'
+  if (category === 'Edgeband' || category === 'Hardware') return category
+  if (/(fevicol|adhesive|glue|gum)/i.test(name || '')) return 'Adhesives'
+  return 'Others'
+}
+export function materialSubOfHead(head) {
+  return { raw_boards: 'Raw Board', skins: 'Skin', edgeband: 'Edgeband', adhesives: 'Adhesives', hardware: 'Hardware' }[head] || 'Others'
+}
