@@ -5,7 +5,7 @@ import { supabase } from './supabaseClient'
 // view reads these together with stock consumption and past consumption.
 export async function loadDirectConsumption({ projectId = null, start = null, end = null } = {}) {
   const { data, error } = await supabase.from('supplier_bill_items')
-    .select('description, cost_head, quantity, unit_text, total_amount, design_project_id, company_level, design_projects(name), supplier_bills!inner(bill_date, status, design_project_id, supplier_text, suppliers(name), design_projects(name))')
+    .select('description, cost_head, returned_qty, quantity, unit_text, total_amount, design_project_id, company_level, design_projects(name), supplier_bills!inner(bill_date, status, design_project_id, supplier_text, suppliers(name), design_projects(name))')
     .eq('consumed_directly', true).eq('item_type', 'material').eq('pays_vendor_credit', false)
     .eq('supplier_bills.status', 'approved')
   if (error) throw error
@@ -15,7 +15,10 @@ export async function loadDirectConsumption({ projectId = null, start = null, en
     const pname = i.company_level ? null : (i.design_projects?.name || b.design_projects?.name || null)
     return {
       projectId: pid, projectName: pname || 'Company (non-project)',
-      item: i.description, costHead: i.cost_head, unit: i.unit_text || '', quantity: Number(i.quantity), cost: Number(i.total_amount),
+      item: i.description, costHead: i.cost_head, unit: i.unit_text || '',
+      // what was returned to the vendor is not consumed
+      quantity: Number(i.quantity) - Number(i.returned_qty || 0),
+      cost: Number(i.total_amount) * (1 - Math.min(Number(i.returned_qty || 0) / (Number(i.quantity) || 1), 1)),
       date: b.bill_date, vendor: b.suppliers?.name || b.supplier_text || 'Vendor not recorded',
     }
   }).filter((r) => (!projectId || r.projectId === projectId) && (!start || r.date >= start) && (!end || r.date <= end))

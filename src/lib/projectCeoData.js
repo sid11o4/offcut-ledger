@@ -40,7 +40,7 @@ export async function loadProjectRaw(projectId) {
   const billById = new Map(bills.map((b) => [b.id, b]))
 
   // Lines of this project's bills (unless a line names another project), plus lines other bills charge here.
-  const itemCols = 'id, bill_id, description, item_type, quantity, unit_text, total_amount, inventory_item_id, cost_head, pays_vendor_credit, consumed_directly, company_level, design_project_id'
+  const itemCols = 'id, bill_id, description, item_type, quantity, unit_text, total_amount, inventory_item_id, cost_head, pays_vendor_credit, consumed_directly, company_level, returned_qty, design_project_id'
   const [ownItemsR, otherItemsR] = await Promise.all([
     supabase.from('supplier_bill_items').select(itemCols).in('bill_id', inList(billIds)).eq('pays_vendor_credit', false),
     supabase.from('supplier_bill_items').select(`${itemCols}, supplier_bills!inner(id, internal_bill_number, bill_date, supplier_text, bill_source, cost_heads, grand_total, status, suppliers(name))`)
@@ -91,8 +91,8 @@ export async function loadProjectRaw(projectId) {
   const directConsumptions = directItems.map((i) => {
     const b = billById.get(i.bill_id)
     return {
-      id: `direct-${i.id}`, txn_date: b?.bill_date, created_at: b?.bill_date, quantity: -Number(i.quantity),
-      total_cost: -Number(i.total_amount), unit_cost: Number(i.total_amount) / (Number(i.quantity) || 1), item_id: null,
+      id: `direct-${i.id}`, txn_date: b?.bill_date, created_at: b?.bill_date, quantity: -(Number(i.quantity) - Number(i.returned_qty || 0)),
+      total_cost: -(Number(i.total_amount) * (1 - Math.min(Number(i.returned_qty || 0) / (Number(i.quantity) || 1), 1))), unit_cost: Number(i.total_amount) / (Number(i.quantity) || 1), item_id: null,
       inventory_items: { name: i.description, units: { code: i.unit_text || '' } }, _direct: true,
       _vendor: b?.suppliers?.name || b?.supplier_text || 'Vendor not recorded',
     }
