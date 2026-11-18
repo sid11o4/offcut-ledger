@@ -434,6 +434,12 @@ function NewSupplierPrompt({ bill, onClose }) {
 
 function AuditPanel({ billId, onDone }) {
   const [matching, setMatching] = useState(false)
+  async function setAllLines(consumed) {
+    const { error } = await supabase.from('supplier_bill_items').update({ consumed_directly: consumed }).eq('bill_id', billId).eq('item_type', 'material')
+    if (error) return toast.error(error.message)
+    qc.invalidateQueries({ queryKey: ['supplier_bill_items', billId] })
+  }
+
   async function matchWithAi() {
     setMatching(true)
     const { data, error } = await supabase.functions.invoke('match-bill-items', { body: { bill_id: billId } })
@@ -673,9 +679,9 @@ function AuditPanel({ billId, onDone }) {
               <Field label="Bill number"><Input value={b.internal_bill_number} onChange={(e) => patchBill({ internal_bill_number: e.target.value })} /></Field>
               <Field label="Bill date"><Input type="date" value={b.bill_date} onChange={(e) => patchBill({ bill_date: e.target.value })} /></Field>
             </div>
-            <Field label="Design Build project (optional — blank = Factory's own expense)">
+            <Field label="Project (or the Design Build company)">
               <Select value={b.design_project_id || ''} onChange={(e) => patchBill({ design_project_id: e.target.value || null })}>
-                <option value="">— Factory expense —</option>
+                <option value="">Design Build company (no project)</option>
                 {(projectsQ.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </Select>
             </Field>
@@ -705,7 +711,19 @@ function AuditPanel({ billId, onDone }) {
         </Card>
 
         <Card title={`Line items (${itemsLineQ.data?.length || 0})`} actions={itemsLineQ.data?.length && b.bill_source !== 'formgrid' ? (
-          <button className="btn-secondary text-xs" disabled={matching} onClick={matchWithAi}>{matching ? 'Matching…' : 'Match with inventory (AI)'}</button>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-md border border-ink-200 overflow-hidden text-xs" role="group" aria-label="Set every material line">
+              {[['inventory', 'All to inventory', false], ['consumed', 'Consume all', true]].map(([key, label, val]) => {
+                const mats = (itemsLineQ.data || []).filter((l) => l.item_type === 'material')
+                const active = mats.length > 0 && mats.every((l) => !!l.consumed_directly === val)
+                return (
+                  <button key={key} type="button" onClick={() => setAllLines(val)}
+                    className={`px-2.5 py-1 ${active ? 'bg-ink-900 text-white' : 'bg-white text-ink-700 hover:bg-ink-50'}`}>{label}</button>
+                )
+              })}
+            </div>
+            <button className="btn-secondary text-xs" disabled={matching} onClick={matchWithAi}>{matching ? 'Matching…' : 'Match with inventory (AI)'}</button>
+          </div>
         ) : null}>
           {!itemsLineQ.data?.length ? <EmptyState title="No line items extracted" /> : (
             <div className="space-y-2">
@@ -783,7 +801,7 @@ function LineItemRow({ item, suggestions, billId, formgrid = false, projects = [
   // The AI proposes the matching inventory item (match-bill-items); it is never applied silently: the
   // auditor confirms it and chooses which name the item keeps.
   const candidate = (() => {
-    if (formgrid || item.item_type !== 'material' || item.inventory_item_id || skipGuess) return null
+    if (formgrid || item.item_type !== 'material' || item.inventory_item_id || item.consumed_directly || skipGuess) return null
     if (suggestion?.suggested_inventory_item_id) {
       const inv = (itemsQ.data || []).find((i) => i.id === suggestion.suggested_inventory_item_id)
       if (inv) return { inv, confidence: suggestion.confidence, suggestionId: suggestion.id }
@@ -843,10 +861,25 @@ function LineItemRow({ item, suggestions, billId, formgrid = false, projects = [
       )}
       {!item.pays_vendor_credit && <div className="flex flex-wrap items-center gap-2 mt-2">
         <span className="text-xs text-ink-500">Project</span>
-        <Select value={item.design_project_id || ''} onChange={(e) => patch({ design_project_id: e.target.value || null })} className="w-auto py-1 text-xs">
-          <option value="">{billProjectId ? 'Same as the bill' : 'Same as the bill (Factory expense)'}</option>
+        <Select
+          value={item.company_level ? '__company' : (item.design_project_id || '')}
+          onChange={(e) => {
+            const v = e.target.value
+            patch(v === '__company' ? { company_level: true, design_project_id: null } : { company_level: false, design_project_id: v || null })
+          }}
+          className="w-auto py-1 text-xs"
+        >
+          <option value="">{billProjectId ? 'Same as the bill' : 'Same as the bill (company)'}</option>
+          <option value="__company">Design Build company (no project)</option>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </Select>
+        {!formgrid && item.item_type === 'material' && <>
+          <span className="text-xs text-ink-500 ml-2">On approval</span>
+          <Select value={item.consumed_directly ? 'consumed' : 'inventory'} onChange={(e) => patch({ consumed_directly: e.target.value === 'consumed' })} className="w-auto py-1 text-xs">
+            <option value="inventory">Add to inventory</option>
+            <option value="consumed">Consumed directly (cost only, no stock)</option>
+          </Select>
+        </>}
         <span className="text-xs text-ink-500 ml-2">Cost head</span>
         <Select value={item.cost_head || ''} onChange={(e) => patch({ cost_head: e.target.value || null })} className="w-auto py-1 text-xs">
           <option value="">Not set</option>

@@ -40,7 +40,7 @@ export async function loadProjectRaw(projectId) {
   const billById = new Map(bills.map((b) => [b.id, b]))
 
   // Lines of this project's bills (unless a line names another project), plus lines other bills charge here.
-  const itemCols = 'id, bill_id, description, item_type, quantity, unit_text, total_amount, inventory_item_id, cost_head, pays_vendor_credit, design_project_id'
+  const itemCols = 'id, bill_id, description, item_type, quantity, unit_text, total_amount, inventory_item_id, cost_head, pays_vendor_credit, consumed_directly, company_level, design_project_id'
   const [ownItemsR, otherItemsR] = await Promise.all([
     supabase.from('supplier_bill_items').select(itemCols).in('bill_id', inList(billIds)).eq('pays_vendor_credit', false),
     supabase.from('supplier_bill_items').select(`${itemCols}, supplier_bills!inner(id, internal_bill_number, bill_date, supplier_text, bill_source, cost_heads, grand_total, status, suppliers(name))`)
@@ -48,7 +48,7 @@ export async function loadProjectRaw(projectId) {
   ])
   if (otherItemsR.error) throw otherItemsR.error
   const itemsR = { error: ownItemsR.error, data: [
-    ...(ownItemsR.data || []).filter((i) => !i.design_project_id || i.design_project_id === projectId),
+    ...(ownItemsR.data || []).filter((i) => !i.company_level && (!i.design_project_id || i.design_project_id === projectId)),
     ...(otherItemsR.data || []).filter((i) => !billIds.includes(i.bill_id)).map(({ supplier_bills, ...i }) => { if (!billById.has(supplier_bills.id)) { billById.set(supplier_bills.id, supplier_bills); bills.push(supplier_bills) } return i }),
   ] }
   if (itemsR.error) throw itemsR.error
@@ -154,7 +154,7 @@ export function computeProjectCeo(raw, { start = '', end = '' } = {}) {
     return { ...i, billNumber: b?.internal_bill_number || '', date: b?.bill_date || '', vendor: b?.suppliers?.name || b?.supplier_text || 'Vendor not recorded', source: b?.bill_source || 'formgrid' }
   }).filter((r) => inRange(r.date))
   const labour = billRows.filter((r) => r.item_type === 'labour')
-  const other = billRows.filter((r) => r.item_type !== 'labour' && !r.inventory_item_id)
+  const other = billRows.filter((r) => r.item_type !== 'labour' && (!r.inventory_item_id || r.consumed_directly))
   const labourCost = labour.reduce((s, r) => s + num(r.total_amount), 0)
   const labourQty = labour.reduce((s, r) => s + num(r.quantity), 0)
   const otherCost = other.reduce((s, r) => s + num(r.total_amount), 0)
