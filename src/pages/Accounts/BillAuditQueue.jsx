@@ -798,6 +798,37 @@ function LineItemRow({ item, suggestions, billId, formgrid = false, projects = [
   }
   const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
 
+  // Split this line: part of the quantity moves to a new line with the same rate and GST, so the two parts
+  // can go to different projects (or the company). The bill's total does not change.
+  const [splitting, setSplitting] = useState(null) // { qty, project }
+  async function doSplit(e) {
+    e.preventDefault()
+    const move = num(splitting.qty)
+    const keep = num(item.quantity) - move
+    if (move <= 0 || keep <= 0) return toast.error(`Enter a quantity between 0 and ${item.quantity}.`)
+    const last = await supabase.from('supplier_bill_items').select('sort_order').eq('bill_id', billId).order('sort_order', { ascending: false }).limit(1)
+    const copy = {
+      bill_id: billId, description: item.description, description_text: item.description_text, item_type: item.item_type,
+      inventory_item_id: item.inventory_item_id, unit_text: item.unit_text, quantity: move, rate_inclusive: item.rate_inclusive,
+      gst_percent: item.gst_percent, zero_gst_reason: item.zero_gst_reason, cost_head: item.cost_head,
+      consumed_directly: item.consumed_directly, pays_vendor_credit: item.pays_vendor_credit,
+      company_level: splitting.project === '__company',
+      design_project_id: splitting.project && splitting.project !== '__company' ? splitting.project : null,
+      sort_order: (last.data?.[0]?.sort_order ?? item.sort_order ?? 0) + 1,
+    }
+    const upd = await supabase.from('supplier_bill_items').update({ quantity: keep }).eq('id', item.id)
+    if (upd.error) return toast.error(upd.error.message)
+    const ins = await supabase.from('supplier_bill_items').insert(copy)
+    if (ins.error) {
+      await supabase.from('supplier_bill_items').update({ quantity: item.quantity }).eq('id', item.id)
+      return toast.error(ins.error.message)
+    }
+    setSplitting(null)
+    await syncBillFromLines(billId)
+    refresh()
+    toast.success(`${move} moved to a new line. Set the project on each line.`)
+  }
+
   // The AI proposes the matching inventory item (match-bill-items); it is never applied silently: the
   // auditor confirms it and chooses which name the item keeps.
   const candidate = (() => {
@@ -873,6 +904,7 @@ function LineItemRow({ item, suggestions, billId, formgrid = false, projects = [
           <option value="__company">Design Build company (no project)</option>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </Select>
+        {num(item.quantity) > 1 && <button type="button" className="btn-ghost text-xs px-2" onClick={() => setSplitting({ qty: '', project: '' })}>Split quantity</button>}
         {!formgrid && item.item_type === 'material' && <>
           <span className="text-xs text-ink-500 ml-2">On approval</span>
           <Select value={item.consumed_directly ? 'consumed' : 'inventory'} onChange={(e) => patch({ consumed_directly: e.target.value === 'consumed' })} className="w-auto py-1 text-xs">
@@ -887,6 +919,23 @@ function LineItemRow({ item, suggestions, billId, formgrid = false, projects = [
         </Select>
         {!item.cost_head && <span className="text-xs text-ink-400">Needs a cost head</span>}
       </div>}
+
+      {splitting && (
+        <form onSubmit={doSplit} className="flex flex-wrap items-end gap-2 mt-2 bg-ink-50 rounded px-2 py-2">
+          <label className="text-xs text-ink-600">Quantity to move (of {item.quantity})
+            <input autoFocus type="number" min="0" step="any" required className="field-input py-1 text-sm w-28 block mt-0.5" value={splitting.qty} onChange={(e) => setSplitting({ ...splitting, qty: e.target.value })} />
+          </label>
+          <label className="text-xs text-ink-600">Charge it to
+            <Select value={splitting.project} onChange={(e) => setSplitting({ ...splitting, project: e.target.value })} className="w-auto py-1 text-sm mt-0.5">
+              <option value="">Same as the bill</option>
+              <option value="__company">Design Build company (no project)</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </Select>
+          </label>
+          <button type="submit" className="btn-primary text-xs">Split</button>
+          <button type="button" className="btn-ghost text-xs" onClick={() => setSplitting(null)}>Cancel</button>
+        </form>
+      )}
 
       {candidate && !picking && (
         <div className="flex flex-wrap items-center gap-2 mt-2 bg-ink-50 rounded px-2 py-1.5">
