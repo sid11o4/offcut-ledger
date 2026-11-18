@@ -679,9 +679,9 @@ function AuditPanel({ billId, onDone }) {
               <Field label="Bill number"><Input value={b.internal_bill_number} onChange={(e) => patchBill({ internal_bill_number: e.target.value })} /></Field>
               <Field label="Bill date"><Input type="date" value={b.bill_date} onChange={(e) => patchBill({ bill_date: e.target.value })} /></Field>
             </div>
-            <Field label="Design Build project (optional — blank = Factory's own expense)">
+            <Field label="Project (or the Design Build company)">
               <Select value={b.design_project_id || ''} onChange={(e) => patchBill({ design_project_id: e.target.value || null })}>
-                <option value="">— Factory expense —</option>
+                <option value="">Design Build company (no project)</option>
                 {(projectsQ.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </Select>
             </Field>
@@ -861,8 +861,16 @@ function LineItemRow({ item, suggestions, billId, formgrid = false, projects = [
       )}
       {!item.pays_vendor_credit && <div className="flex flex-wrap items-center gap-2 mt-2">
         <span className="text-xs text-ink-500">Project</span>
-        <Select value={item.design_project_id || ''} onChange={(e) => patch({ design_project_id: e.target.value || null })} className="w-auto py-1 text-xs">
-          <option value="">{billProjectId ? 'Same as the bill' : 'Same as the bill (Factory expense)'}</option>
+        <Select
+          value={item.company_level ? '__company' : (item.design_project_id || '')}
+          onChange={(e) => {
+            const v = e.target.value
+            patch(v === '__company' ? { company_level: true, design_project_id: null } : { company_level: false, design_project_id: v || null })
+          }}
+          className="w-auto py-1 text-xs"
+        >
+          <option value="">{billProjectId ? 'Same as the bill' : 'Same as the bill (company)'}</option>
+          <option value="__company">Design Build company (no project)</option>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </Select>
         {!formgrid && item.item_type === 'material' && <>
