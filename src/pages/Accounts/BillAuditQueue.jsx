@@ -107,6 +107,8 @@ export default function BillAuditQueue() {
   const [searchParams] = useSearchParams()
   const [selectedId, setSelectedId] = useState(() => searchParams.get('bill'))
   const [uploading, setUploading] = useState(false)
+  // What a scanned vendor bill's material lines do on approval: join stock, or count as used by the project at once.
+  const [vendorMode, setVendorMode] = useState('inventory')
   const fileRef = useRef(null)
 
   const queueQ = useQuery({
@@ -166,7 +168,9 @@ export default function BillAuditQueue() {
     if (fnErr) throw new Error(fnResult?.error || fnErr.message)
     if (fnResult?.error) throw new Error(fnResult.error)
     // The AI then proposes an inventory match for each material line; the auditor confirms them in review.
-    if (kind === 'vendor') try { await supabase.functions.invoke('match-bill-items', { body: { bill_id: bill.id } }) } catch { /* matching can be run again from the bill */ }
+    if (kind === 'vendor' && vendorMode === 'consumed') {
+      await supabase.from('supplier_bill_items').update({ consumed_directly: true }).eq('bill_id', bill.id).eq('item_type', 'material')
+    } else if (kind === 'vendor') try { await supabase.functions.invoke('match-bill-items', { body: { bill_id: bill.id } }) } catch { /* matching can be run again from the bill */ }
     // A vendor bill's amount is owed to the vendor on credit until it is paid.
     if (kind === 'vendor') {
       const { data: scanned } = await supabase.from('supplier_bills').select('grand_total').eq('id', bill.id).single()
@@ -304,6 +308,10 @@ export default function BillAuditQueue() {
               <input type="file" accept={SCAN_ACCEPT} multiple className="hidden" disabled={uploading}
                 onChange={(e) => handleScan(e, 'slip')} />
             </label>
+            <Select value={vendorMode} onChange={(e) => setVendorMode(e.target.value)} className="w-auto py-1.5 text-sm" title="What a scanned vendor bill's materials do when approved">
+              <option value="inventory">Vendor bill: add to inventory</option>
+              <option value="consumed">Vendor bill: consumed directly</option>
+            </Select>
             <label className="btn-primary cursor-pointer">
               {uploading ? 'Scanning…' : 'Scan vendor bill'}
               <input type="file" accept={SCAN_ACCEPT} multiple className="hidden" disabled={uploading}
@@ -434,6 +442,12 @@ function NewSupplierPrompt({ bill, onClose }) {
 
 function AuditPanel({ billId, onDone }) {
   const [matching, setMatching] = useState(false)
+  async function setAllLines(consumed) {
+    const { error } = await supabase.from('supplier_bill_items').update({ consumed_directly: consumed }).eq('bill_id', billId).eq('item_type', 'material')
+    if (error) return toast.error(error.message)
+    qc.invalidateQueries({ queryKey: ['supplier_bill_items', billId] })
+  }
+
   async function matchWithAi() {
     setMatching(true)
     const { data, error } = await supabase.functions.invoke('match-bill-items', { body: { bill_id: billId } })
@@ -705,7 +719,14 @@ function AuditPanel({ billId, onDone }) {
         </Card>
 
         <Card title={`Line items (${itemsLineQ.data?.length || 0})`} actions={itemsLineQ.data?.length && b.bill_source !== 'formgrid' ? (
-          <button className="btn-secondary text-xs" disabled={matching} onClick={matchWithAi}>{matching ? 'Matching…' : 'Match with inventory (AI)'}</button>
+          <div className="flex items-center gap-2">
+            <Select value="" onChange={(e) => setAllLines(e.target.value === 'consumed')} className="w-auto py-1 text-xs">
+              <option value="">All materials…</option>
+              <option value="inventory">Add to inventory</option>
+              <option value="consumed">Consumed directly</option>
+            </Select>
+            <button className="btn-secondary text-xs" disabled={matching} onClick={matchWithAi}>{matching ? 'Matching…' : 'Match with inventory (AI)'}</button>
+          </div>
         ) : null}>
           {!itemsLineQ.data?.length ? <EmptyState title="No line items extracted" /> : (
             <div className="space-y-2">
@@ -783,7 +804,7 @@ function LineItemRow({ item, suggestions, billId, formgrid = false, projects = [
   // The AI proposes the matching inventory item (match-bill-items); it is never applied silently: the
   // auditor confirms it and chooses which name the item keeps.
   const candidate = (() => {
-    if (formgrid || item.item_type !== 'material' || item.inventory_item_id || skipGuess) return null
+    if (formgrid || item.item_type !== 'material' || item.inventory_item_id || item.consumed_directly || skipGuess) return null
     if (suggestion?.suggested_inventory_item_id) {
       const inv = (itemsQ.data || []).find((i) => i.id === suggestion.suggested_inventory_item_id)
       if (inv) return { inv, confidence: suggestion.confidence, suggestionId: suggestion.id }
@@ -847,6 +868,13 @@ function LineItemRow({ item, suggestions, billId, formgrid = false, projects = [
           <option value="">{billProjectId ? 'Same as the bill' : 'Same as the bill (Factory expense)'}</option>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </Select>
+        {!formgrid && item.item_type === 'material' && <>
+          <span className="text-xs text-ink-500 ml-2">On approval</span>
+          <Select value={item.consumed_directly ? 'consumed' : 'inventory'} onChange={(e) => patch({ consumed_directly: e.target.value === 'consumed' })} className="w-auto py-1 text-xs">
+            <option value="inventory">Add to inventory</option>
+            <option value="consumed">Consumed directly (cost only, no stock)</option>
+          </Select>
+        </>}
         <span className="text-xs text-ink-500 ml-2">Cost head</span>
         <Select value={item.cost_head || ''} onChange={(e) => patch({ cost_head: e.target.value || null })} className="w-auto py-1 text-xs">
           <option value="">Not set</option>
