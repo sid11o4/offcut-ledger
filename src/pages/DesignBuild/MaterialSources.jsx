@@ -63,6 +63,32 @@ function VendorBills({ rows, itemId, projectId }) {
     toast.success(success)
     refresh()
   }
+  // Payments made on these bills: a bill with a payment cannot be voided until the payment is reversed.
+  const billIds = list.map((x) => x.bill.id)
+  const paymentsQ = useQuery({
+    queryKey: ['bill_payments_for_void', billIds.join(',')],
+    enabled: billIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from('supplier_bill_payments')
+        .select('id, bill_id, mode, allocated_amount, utr_reference, confirmed, created_at')
+        .in('bill_id', billIds).neq('mode', 'credit')
+      if (error) throw error
+      return data || []
+    },
+  })
+  const paymentsByBill = new Map()
+  for (const p of paymentsQ.data || []) paymentsByBill.set(p.bill_id, [...(paymentsByBill.get(p.bill_id) || []), p])
+  const MODE = { cash: 'Cash', rtgs_neft: 'RTGS / NEFT', waiver: 'Waiver' }
+  async function reversePayment(p) {
+    const reason = window.prompt(`Reverse the ${MODE[p.mode] || p.mode} payment of ${money(p.allocated_amount)}? It goes back to payables as owed. Why?`)
+    if (!reason?.trim()) return
+    const { error } = await supabase.rpc('reverse_supplier_payment', { p_payment_id: p.id, p_reason: reason.trim() })
+    if (error) return toast.error(error.message)
+    toast.success('Payment reversed. The amount is owed again.')
+    paymentsQ.refetch()
+    refresh()
+  }
+
   async function voidBill(b) {
     const reason = window.prompt(`Void bill ${b.internal_bill_number}? Its stock is taken back out. Why?`)
     if (!reason) return
@@ -86,7 +112,8 @@ function VendorBills({ rows, itemId, projectId }) {
           <thead><tr><th>Bill</th><th>Vendor</th><th>Date</th><th>Status</th><th className="num">Qty</th><th className="num">Value</th><th>Actions</th></tr></thead>
           <tbody>
             {list.map(({ bill: b, quantity, value }) => (
-              <tr key={b.id}>
+              <Fragment key={b.id}>
+              <tr>
                 <td className="font-mono text-xs">{b.internal_bill_number}</td>
                 <td>{b.suppliers?.name || b.supplier_text || '—'}</td>
                 <td>{displayDate(b.bill_date)}</td>
@@ -102,6 +129,15 @@ function VendorBills({ rows, itemId, projectId }) {
                   {b.status === 'void' && <button className="btn-ghost text-xs px-2" onClick={() => reopenBill(b)}>Reopen</button>}
                 </td>
               </tr>
+              {(paymentsByBill.get(b.id) || []).map((p) => (
+                <tr key={p.id} className="bg-ink-50">
+                  <td colSpan={5} className="pl-6 text-xs text-ink-600">
+                    Paid {MODE[p.mode] || p.mode} {money(p.allocated_amount)}{p.utr_reference ? ` · UTR ${p.utr_reference}` : ''}{p.mode === 'rtgs_neft' && !p.confirmed ? ' · awaiting bank' : ''}
+                  </td>
+                  <td colSpan={2}><button className="btn-ghost text-xs px-2" onClick={() => reversePayment(p)}>Reverse payment</button></td>
+                </tr>
+              ))}
+              </Fragment>
             ))}
           </tbody>
         </table>

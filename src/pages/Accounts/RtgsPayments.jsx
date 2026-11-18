@@ -64,6 +64,14 @@ export default function RtgsPayments() {
     toast.success('UTR saved.')
     refreshLists()
   }
+  async function reverse(p) {
+    const reason = window.prompt(`Reverse the ${money(p.allocated_amount)} payment to ${vendorOf(p)}? It goes back to payables as owed${p.bank_transaction_id ? ', and its bank statement line becomes unmatched' : ''}. Why?`)
+    if (!reason?.trim()) return
+    const { error } = await supabase.rpc('reverse_supplier_payment', { p_payment_id: p.id, p_reason: reason.trim() })
+    if (error) return toast.error(error.message)
+    toast.success('Payment reversed. The amount is owed again.')
+    refreshLists()
+  }
   function refreshLists() {
     for (const key of ['rtgs_payments', 'pending_payables', 'vendor_dashboard', 'bank_unmatched']) qc.invalidateQueries({ queryKey: [key] })
   }
@@ -168,7 +176,10 @@ export default function RtgsPayments() {
                     <td className="num">{money(p.allocated_amount)}</td>
                     <td className="num">{p.confirmed ? money(p.confirmed_amount) : '—'}</td>
                     <td>{p.confirmed ? <Badge tone="ok">{p.bank_transaction_id || p.remarks == null ? 'Matched' : (/without bank statement/i.test(p.remarks) ? 'Confirmed, no statement' : 'Matched')} {displayDate(p.confirmed_at.slice(0, 10))}</Badge> : <Badge tone="warn">Pending</Badge>}</td>
-                    <td className="text-right">{!p.confirmed && hasPermission('bank_reconciliation') && <button className="btn-ghost text-xs px-2" onClick={() => startConfirm(p)}>Mark paid</button>}</td>
+                    <td className="text-right whitespace-nowrap">
+                      {!p.confirmed && hasPermission('bank_reconciliation') && <button className="btn-ghost text-xs px-2" onClick={() => startConfirm(p)}>Mark paid</button>}
+                      <button className="btn-ghost text-xs px-2" onClick={() => reverse(p)}>Reverse</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
