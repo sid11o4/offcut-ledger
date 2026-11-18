@@ -9,7 +9,8 @@ import { money, qty } from '../../lib/format'
 import { displayDate } from '../../lib/dates'
 import { useToast } from '../../components/Toast'
 import TransferModal from '../../components/TransferModal'
-import { invalidateInventory, useInventoryLocations } from '../../lib/queries'
+import { invalidateInventory, useInventoryLocations, useInventoryItems } from '../../lib/queries'
+import MergeItemsModal from '../../components/MergeItemsModal'
 import { Fragment, useState } from 'react'
 import MaterialSources from './MaterialSources'
 
@@ -20,6 +21,8 @@ export default function ProjectDashboard() {
   const [transferOpen, setTransferOpen] = useState(false)
   const [returning, setReturning] = useState(null)
   const [openItem, setOpenItem] = useState(null)
+  const [mergeItem, setMergeItem] = useState(null)
+  const allItemsQ = useInventoryItems()
   const companyLocationsQ = useInventoryLocations()
   const companyLocationId = (companyLocationsQ.data || []).find((l) => l.kind === 'company')?.id
   const navigate = useNavigate()
@@ -175,6 +178,7 @@ export default function ProjectDashboard() {
                     <td className="num">{money(s.avg_unit_cost)}</td>
                     <td className="num font-medium">{money(s.quantity * s.avg_unit_cost)}</td>
                     <td className="text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                      <button className="btn-ghost text-xs px-2" title="Merge with another item" onClick={() => setMergeItem((allItemsQ.data || []).find((i) => i.id === s.item_id))}>Merge</button>
                       {s.quantity > 0 ? (
                         <>
                           <button className="btn-ghost text-xs px-2" onClick={() => setReturning(s)}>Move to company</button>
@@ -222,6 +226,7 @@ export default function ProjectDashboard() {
         </Card>
       </div>
 
+      {mergeItem && <MergeItemsModal item={mergeItem} onClose={() => setMergeItem(null)} />}
       {returning && (
         <TransferModal
           title="Move to company inventory"

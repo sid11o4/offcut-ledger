@@ -58,7 +58,7 @@ export default function CompanyInventory() {
   const [transferOpen, setTransferOpen] = useState(false)
   const [openItem, setOpenItem] = useState(null)
   const [purchaseOpen, setPurchaseOpen] = useState(false)
-  const [mergeOpen, setMergeOpen] = useState(false)
+  const [mergeItem, setMergeItem] = useState(null) // the item whose Merge button was clicked
   const [compositeOpen, setCompositeOpen] = useState(false)
   const [editComposite, setEditComposite] = useState(null)
   const [makeOpen, setMakeOpen] = useState(false)
@@ -106,7 +106,6 @@ export default function CompanyInventory() {
               <>
                 <button className="btn-secondary" onClick={() => setCompositeOpen(true)}>New composite material</button>
                 {!projectId && <button className="btn-secondary" onClick={() => setMakeOpen(true)}>Make composite</button>}
-                {!projectId && <button className="btn-secondary" onClick={() => setMergeOpen(true)}>Merge items</button>}
                 <button className="btn-secondary" onClick={() => setTransferOpen(true)}>Transfer</button>
                 <button className="btn-primary" onClick={() => setPurchaseOpen(true)}>Record purchase</button>
               </>
@@ -185,7 +184,10 @@ export default function CompanyInventory() {
                       <td>{unitOf.get(r.item_id) || '—'}</td>
                       <td className="num">{money(r.avg_unit_cost)}</td>
                       <td className="num font-medium">{money(r.value)}</td>
-                      <td className="num">{short && <Badge tone="bad">Short</Badge>}{low && <Badge tone="warn">Low</Badge>}</td>
+                      <td className="num whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        {short && <Badge tone="bad">Short</Badge>}{low && <Badge tone="warn">Low</Badge>}
+                        {canOperate && !compositeIds.has(r.item_id) && <button type="button" className="btn-ghost text-xs px-1.5 ml-1" title="Merge with another item" onClick={() => setMergeItem((itemsQ.data || []).find((i) => i.id === r.item_id))}>Merge</button>}
+                      </td>
                     </tr>
                     {openItem === r.item_id && (
                       <tr>
@@ -237,7 +239,7 @@ export default function CompanyInventory() {
           onSaved={() => { invalidateInventory(qc); setTransferOpen(false) }}
         />
       )}
-      {mergeOpen && <MergeItemsModal onClose={() => setMergeOpen(false)} />}
+      {mergeItem && <MergeItemsModal item={mergeItem} onClose={() => setMergeItem(null)} />}
       {purchaseOpen && <PurchaseModal locationId={projectId ? projectLocQ.data : null} onClose={() => setPurchaseOpen(false)} />}
       {makeOpen && <MakeCompositeModal stockRows={rows} composites={(itemsQ.data || []).filter((i) => i.is_composite && i.active !== false)} onClose={() => setMakeOpen(false)} />}
       {(compositeOpen || editComposite) && (
