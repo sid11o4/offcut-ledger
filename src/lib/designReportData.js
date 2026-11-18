@@ -1,5 +1,6 @@
 import { groupCosts, loadCostBreakdown } from './costGroups'
 import { loadProjectSpend } from './projectSpend'
+import { loadDirectConsumption } from './directConsumption'
 import { supabase } from './supabaseClient'
 import { buildTableDoc } from './reportPdf'
 import { displayDate } from './dates'
@@ -44,11 +45,13 @@ export async function loadMaterials(start, end) {
     .select('quantity, total_cost, design_projects(name), inventory_items(name, units(code))')
     .eq('voided', false).gte('consumed_on', start).lte('consumed_on', end)
   if (past.error) throw past.error
+  const direct = await loadDirectConsumption({ start, end })
   const rows = [
     ...(data || []).filter((x) => x.inventory_locations?.design_project_id).map((t) => ({
       project: t.inventory_locations.design_projects?.name || 'Project', item: t.inventory_items, quantity: t.quantity, total_cost: t.total_cost,
     })),
     ...(past.data || []).map((x) => ({ project: x.design_projects?.name || 'Project', item: x.inventory_items, quantity: x.quantity, total_cost: x.total_cost })),
+    ...direct.map((x) => ({ project: x.projectName, item: { name: x.item, units: { code: x.unit } }, quantity: x.quantity, total_cost: x.cost })),
   ]
   const byProject = new Map()
   for (const t of rows) {
