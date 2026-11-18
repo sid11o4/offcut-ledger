@@ -1,8 +1,8 @@
 import PayReceiveCards from '../../components/PayReceiveCards'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { PageHeader, Card, EmptyState, LoadingBlock, StatCard } from '../../components/ui'
+import { PageHeader, Card, EmptyState, LoadingBlock, StatCard, Select } from '../../components/ui'
 import DateRangePicker, { presetRanges } from '../../components/DateRangePicker'
 import { displayDate } from '../../lib/dates'
 import { money, qty } from '../../lib/format'
@@ -117,39 +117,47 @@ function ExpensesByCategory({ data }) {
 }
 
 function MaterialsConsumed({ data }) {
+  const [only, setOnly] = useState('')
   if (!data.projects.length) return <EmptyState title="No materials consumed in this period" />
+  const shown = only ? data.projects.filter((p) => p.name === only) : data.projects
+  const total = shown.reduce((t, p) => t + p.cost, 0)
   return (
-    <Card>
-      <div className="overflow-x-auto -mx-4">
-        <table className="table-base">
-          <thead><tr><th>Project / material</th><th className="num">Quantity</th><th className="num">Cost</th></tr></thead>
-          <tbody>
-            {data.projects.map((p) => (
-              <ProjectMaterialRows key={p.name} project={p} />
-            ))}
-          </tbody>
-          <tfoot><tr><td className="font-medium">Total</td><td /><td className="num font-medium">{money(data.grand)}</td></tr></tfoot>
-        </table>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={only} onChange={(e) => setOnly(e.target.value)} className="w-auto">
+          <option value="">All projects</option>
+          {data.projects.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+        </Select>
+        <span className="text-sm text-ink-500">{shown.length} project{shown.length === 1 ? '' : 's'} · <span className="tnum font-medium text-ink-900">{money(total)}</span> consumed</span>
       </div>
-    </Card>
-  )
-}
-
-function ProjectMaterialRows({ project }) {
-  return (
-    <>
-      <tr className="bg-ink-50">
-        <td className="font-medium">{project.name}</td><td />
-        <td className="num font-medium">{money(project.cost)}</td>
-      </tr>
-      {project.items.map((i) => (
-        <tr key={i.name}>
-          <td className="pl-8">{i.name}</td>
-          <td className="num">{qty(i.quantity)} {i.unit}</td>
-          <td className="num">{money(i.cost)}</td>
-        </tr>
+      {shown.map((p) => (
+        <Card key={p.name} title={p.name} actions={<span className="tnum font-semibold text-ink-950">{money(p.cost)}</span>}>
+          <div className="overflow-x-auto -mx-4">
+            <table className="table-base">
+              <thead><tr><th>Category / material</th><th className="num">Quantity</th><th className="num">Cost</th></tr></thead>
+              <tbody>
+                {p.groups.map((g) => (
+                  <Fragment key={g.name}>
+                    <tr className="bg-ink-50">
+                      <td className="font-medium">{g.name}</td><td />
+                      <td className="num font-medium">{money(g.cost)}</td>
+                    </tr>
+                    {g.items.map((i) => (
+                      <tr key={i.name}>
+                        <td className="pl-8">{i.name}</td>
+                        <td className="num">{qty(i.quantity)} {i.unit}</td>
+                        <td className="num">{money(i.cost)}</td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                ))}
+              </tbody>
+              <tfoot><tr><td className="font-medium">Total</td><td /><td className="num font-medium">{money(p.cost)}</td></tr></tfoot>
+            </table>
+          </div>
+        </Card>
       ))}
-    </>
+    </div>
   )
 }
 

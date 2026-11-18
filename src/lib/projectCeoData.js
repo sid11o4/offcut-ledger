@@ -86,16 +86,29 @@ export async function loadProjectRaw(projectId) {
     total_cost: -Number(x.total_cost), unit_cost: Number(x.unit_cost), item_id: x.item_id, inventory_items: x.inventory_items, _past: true,
   }))
 
+  // Bill lines marked "consumed directly" count as materials used here, with the bill's vendor.
+  const directItems = (itemsR.data || []).filter((i) => i.consumed_directly && i.item_type === 'material')
+  const directConsumptions = directItems.map((i) => {
+    const b = billById.get(i.bill_id)
+    return {
+      id: `direct-${i.id}`, txn_date: b?.bill_date, created_at: b?.bill_date, quantity: -Number(i.quantity),
+      total_cost: -Number(i.total_amount), unit_cost: Number(i.total_amount) / (Number(i.quantity) || 1), item_id: null,
+      inventory_items: { name: i.description, units: { code: i.unit_text || '' } }, _direct: true,
+      _vendor: b?.suppliers?.name || b?.supplier_text || 'Vendor not recorded',
+    }
+  })
+  const directIds = new Set(directItems.map((i) => i.id))
+
   return {
     project,
     locationId,
     financials: finR.data?.[0] || {},
     contract: contractR.data?.[0] || {},
     bills,
-    billItems: itemsR.data || [],
+    billItems: (itemsR.data || []).filter((i) => !directIds.has(i.id)),
     expenses: expR.data || [],
     jobWork: jobR.data || [],
-    consumptions: [...(consR.data || []), ...pastConsumptions],
+    consumptions: [...(consR.data || []), ...pastConsumptions, ...directConsumptions],
     draws,
     drawBills: draw_billsR.data || [],
   }
@@ -141,7 +154,7 @@ export function computeProjectCeo(raw, { start = '', end = '' } = {}) {
       vendorMat.set(p.vendor, (vendorMat.get(p.vendor) || 0) + v)
     }
     if (!parts.length) {
-      const label = c._past ? 'Past consumption (not from stock)' : 'No purchase on record'
+      const label = c._direct ? c._vendor : c._past ? 'Past consumption (not from stock)' : 'No purchase on record'
       row.vendors.set(label, (row.vendors.get(label) || 0) + cost)
       vendorMat.set(label, (vendorMat.get(label) || 0) + cost)
     }

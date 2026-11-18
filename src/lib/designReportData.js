@@ -1,5 +1,6 @@
-import { groupCosts, loadCostBreakdown } from './costGroups'
+import { groupCosts, loadCostBreakdown, MATERIAL_SUBS, materialSubOfItem, materialSubOfHead } from './costGroups'
 import { loadProjectSpend } from './projectSpend'
+import { loadDirectConsumption } from './directConsumption'
 import { supabase } from './supabaseClient'
 import { buildTableDoc } from './reportPdf'
 import { displayDate } from './dates'
@@ -36,34 +37,48 @@ export async function loadExpensesByCategory(start, end) {
 export async function loadMaterials(start, end) {
   const { data, error } = await supabase
     .from('inventory_transactions')
-    .select('quantity, total_cost, inventory_items(name, units(code)), inventory_locations(design_project_id, design_projects(name))')
+    .select('quantity, total_cost, inventory_items(name, category, units(code)), inventory_locations(design_project_id, design_projects(name))')
     .eq('txn_type', 'consumption').is('reversed_by', null).gte('txn_date', start).lte('txn_date', end)
   if (error) throw error
   // Past consumption (used before the system held stock) counts too; it was never taken from inventory.
   const past = await supabase.from('past_material_consumption')
-    .select('quantity, total_cost, design_projects(name), inventory_items(name, units(code))')
+    .select('quantity, total_cost, design_projects(name), inventory_items(name, category, units(code))')
     .eq('voided', false).gte('consumed_on', start).lte('consumed_on', end)
   if (past.error) throw past.error
+  const direct = await loadDirectConsumption({ start, end })
   const rows = [
     ...(data || []).filter((x) => x.inventory_locations?.design_project_id).map((t) => ({
       project: t.inventory_locations.design_projects?.name || 'Project', item: t.inventory_items, quantity: t.quantity, total_cost: t.total_cost,
     })),
     ...(past.data || []).map((x) => ({ project: x.design_projects?.name || 'Project', item: x.inventory_items, quantity: x.quantity, total_cost: x.total_cost })),
+    ...direct.map((x) => ({ project: x.projectName, item: { name: x.item, units: { code: x.unit } }, sub: materialSubOfHead(x.costHead), quantity: x.quantity, total_cost: x.cost })),
   ]
+  // Project by project; inside each project the materials sit under their category (Raw Board, Edgeband, Skin,
+  // Adhesives, Hardware, Others), each with its own subtotal.
   const byProject = new Map()
   for (const t of rows) {
     const project = t.project
     const item = t.item?.name || 'Unknown item'
-    const p = byProject.get(project) || { name: project, items: new Map(), cost: 0 }
-    const row = p.items.get(item) || { name: item, unit: t.item?.units?.code || '', quantity: 0, cost: 0 }
+    const sub = t.sub || materialSubOfItem(t.item?.category, item)
+    const cost = Math.abs(Number(t.total_cost))
+    const p = byProject.get(project) || { name: project, groups: new Map(), cost: 0 }
+    const g = p.groups.get(sub) || { name: sub, items: new Map(), cost: 0 }
+    const row = g.items.get(item) || { name: item, unit: t.item?.units?.code || '', quantity: 0, cost: 0 }
     row.quantity += Math.abs(Number(t.quantity))
-    row.cost += Math.abs(Number(t.total_cost))
-    p.items.set(item, row)
-    p.cost += Math.abs(Number(t.total_cost))
+    row.cost += cost
+    g.items.set(item, row)
+    g.cost += cost
+    p.groups.set(sub, g)
+    p.cost += cost
     byProject.set(project, p)
   }
   const projects = [...byProject.values()]
-    .map((p) => ({ name: p.name, cost: p.cost, items: [...p.items.values()].sort((a, b) => b.cost - a.cost) }))
+    .map((p) => ({
+      name: p.name, cost: p.cost,
+      groups: [...p.groups.values()]
+        .map((g) => ({ name: g.name, cost: g.cost, items: [...g.items.values()].sort((a, b) => b.cost - a.cost) }))
+        .sort((a, b) => MATERIAL_SUBS.indexOf(a.name) - MATERIAL_SUBS.indexOf(b.name)),
+    }))
     .sort((a, b) => b.cost - a.cost)
   return { projects, grand: projects.reduce((s, p) => s + p.cost, 0) }
 }
@@ -136,13 +151,16 @@ export function designReportPdf(section, data, { title, subtitle, period }) {
     const body = []
     for (const p of data.projects) {
       body.push([p.name, '', money(p.cost)])
-      for (const i of p.items) body.push([`    ${i.name}`, `${qty(i.quantity)} ${i.unit}`.trim(), money(i.cost)])
+      for (const g of p.groups) {
+        body.push([`    ${g.name}`, '', money(g.cost)])
+        for (const i of g.items) body.push([`        ${i.name}`, `${qty(i.quantity)} ${i.unit}`.trim(), money(i.cost)])
+      }
     }
     return buildTableDoc({
       title, subtitle, meta,
       cards: [['Materials consumed', money(data.grand)]],
       sections: [{
-        heading: 'By project, then by material',
+        heading: 'By project, then category, then material',
         head: ['Project / material', 'Quantity', 'Cost'],
         body,
         foot: ['Total', '', money(data.grand)],

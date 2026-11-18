@@ -1,4 +1,5 @@
 import PayReceiveCards from '../../components/PayReceiveCards'
+import { loadDirectConsumption } from '../../lib/directConsumption'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabaseClient'
@@ -78,6 +79,13 @@ async function loadProjectReport(id) {
       row.quantity += Number(t.quantity)
       row.cost += Number(t.total_cost)
       byName.set(key, row)
+    }
+    // Bill lines marked "consumed directly" are costs charged here without touching stock.
+    for (const t of await loadDirectConsumption({ projectId: id })) {
+      const row = byName.get(t.item) || { name: t.item, unit: t.unit, quantity: 0, cost: 0 }
+      row.quantity += t.quantity
+      row.cost += t.cost
+      byName.set(t.item, row)
     }
     materials = [...byName.values()].sort((a, b) => b.cost - a.cost)
   }
