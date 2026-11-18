@@ -5,7 +5,7 @@ import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, EmptyState, LoadingBlock, Field, Input, Select } from '../../components/ui'
-import { useInventoryItems, useInventoryLocations } from '../../lib/queries'
+import { useInventoryItems, useInventoryLocations, invalidateInventory } from '../../lib/queries'
 import { listSuppliers } from '../../lib/statementData'
 import { buildTableDoc, saveDoc } from '../../lib/reportPdf'
 import { displayDate, today } from '../../lib/dates'
@@ -119,6 +119,16 @@ export default function SupplierReturns() {
     toast.success(`Slip ${slip.slip_number} filed.`)
     setFiling(null)
     qc.invalidateQueries({ queryKey: ['supplier_return_slips'] })
+  }
+
+  async function cancelReturn(slip) {
+    const reason = window.prompt(`Cancel return ${slip.slip_number}? The returned stock goes back into ${slip.location?.name || 'its location'} and the slip is removed from the vendor's credit. Why?`)
+    if (!reason?.trim()) return
+    const { error } = await supabase.rpc('cancel_supplier_return', { p_slip_id: slip.id, p_reason: reason.trim() })
+    if (error) return toast.error(error.message)
+    toast.success(`Return ${slip.slip_number} cancelled. The stock is back.`)
+    for (const key of ['supplier_return_slips', 'inventory_stock', 'pending_payables', 'vendor_dashboard', 'returnable_items']) qc.invalidateQueries({ queryKey: [key] })
+    invalidateInventory(qc)
   }
 
   function downloadSlip(slip) {
@@ -258,6 +268,7 @@ export default function SupplierReturns() {
                         {sl.credit_status === 'awaiting_credit' && <button className="btn-ghost text-xs px-2" onClick={() => setAct({ type: 'note', slip: sl, number: '', date: today(), amount: String(sl.total_amount) })}>Credit note</button>}
                         {sl.credit_status === 'credit_received' && <button className="btn-ghost text-xs px-2" onClick={() => setAct({ type: 'settle', slip: sl, how: 'refunded', reference: '', date: today(), billId: '' })}>Settle credit</button>}
                         <button className="btn-ghost text-xs px-2" onClick={() => setAct({ type: 'log', slip: sl, note: '', next: '' })}>Follow up</button>
+                        {sl.credit_status !== 'settled' && <button className="btn-ghost text-xs px-2 text-bad" onClick={() => cancelReturn(sl)}>Cancel return</button>}
                       </td>
                     </tr>
                   )
