@@ -26,7 +26,7 @@ export default function RtgsPayments() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('supplier_bill_payments')
-        .select('id, allocated_amount, utr_reference, confirmed, confirmed_amount, confirmed_at, created_at, remarks, supplier_bills(internal_bill_number, bill_date, status, supplier_text, suppliers(name), design_projects(name))')
+        .select('id, allocated_amount, utr_reference, confirmed, confirmed_amount, confirmed_at, bank_transaction_id, created_at, remarks, supplier_bills(internal_bill_number, bill_date, status, supplier_text, suppliers(name), design_projects(name))')
         .eq('mode', 'rtgs_neft')
         .order('created_at', { ascending: false })
       if (error) throw error
@@ -42,6 +42,16 @@ export default function RtgsPayments() {
   const pendingTotal = rows.filter((p) => !p.confirmed).reduce((s, p) => s + Number(p.allocated_amount), 0)
   const matchedTotal = rows.filter((p) => p.confirmed).reduce((s, p) => s + Number(p.allocated_amount), 0)
   const vendorOf = (p) => p.supplier_bills?.suppliers?.name || p.supplier_bills?.supplier_text || 'Vendor not recorded'
+
+  // A payment the bank statement does not show (or that has no statement yet) can be confirmed by hand, with a reason.
+  async function confirmByHand(p) {
+    const reason = window.prompt(`Confirm ${money(p.allocated_amount)} to ${vendorOf(p)} as paid without a bank statement? Why?`)
+    if (!reason?.trim()) return
+    const { error } = await supabase.rpc('confirm_payment_without_statement', { p_payment_id: p.id, p_reason: reason.trim() })
+    if (error) return toast.error(error.message)
+    toast.success('Payment confirmed without a bank statement.')
+    for (const key of ['rtgs_payments', 'pending_payables', 'vendor_dashboard']) qc.invalidateQueries({ queryKey: [key] })
+  }
 
   async function matchNow() {
     setMatching(true)
@@ -113,7 +123,7 @@ export default function RtgsPayments() {
         ) : (
           <div className="overflow-x-auto">
             <table className="table-base">
-              <thead><tr><th>Date</th><th>Bill</th><th>Vendor / contractor</th><th>Project</th><th>UTR</th><th className="num">Amount</th><th className="num">Bank debit</th><th>Status</th></tr></thead>
+              <thead><tr><th>Date</th><th>Bill</th><th>Vendor / contractor</th><th>Project</th><th>UTR</th><th className="num">Amount</th><th className="num">Bank debit</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {shown.map((p) => (
                   <tr key={p.id}>
@@ -124,7 +134,8 @@ export default function RtgsPayments() {
                     <td>{p.utr_reference || '—'}</td>
                     <td className="num">{money(p.allocated_amount)}</td>
                     <td className="num">{p.confirmed ? money(p.confirmed_amount) : '—'}</td>
-                    <td>{p.confirmed ? <Badge tone="ok">Matched {displayDate(p.confirmed_at.slice(0, 10))}</Badge> : <Badge tone="warn">Pending</Badge>}</td>
+                    <td>{p.confirmed ? <Badge tone="ok">{p.bank_transaction_id || p.remarks == null ? 'Matched' : (/without bank statement/i.test(p.remarks) ? 'Confirmed, no statement' : 'Matched')} {displayDate(p.confirmed_at.slice(0, 10))}</Badge> : <Badge tone="warn">Pending</Badge>}</td>
+                    <td className="text-right">{!p.confirmed && hasPermission('bank_reconciliation') && <button className="btn-ghost text-xs px-2" onClick={() => confirmByHand(p)}>Mark paid</button>}</td>
                   </tr>
                 ))}
               </tbody>
