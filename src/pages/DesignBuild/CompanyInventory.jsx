@@ -9,6 +9,7 @@ import { money, qty } from '../../lib/format'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from '../../components/Toast'
 import TransferModal from '../../components/TransferModal'
+import MergeItemsModal from '../../components/MergeItemsModal'
 import CompositeModal, { CompositeBreakdown, MakeCompositeModal, useCompositeValues } from './CompositeModal'
 
 // The inventory is split into these groups; a material with no category counts as Others, and
@@ -57,6 +58,7 @@ export default function CompanyInventory() {
   const [transferOpen, setTransferOpen] = useState(false)
   const [openItem, setOpenItem] = useState(null)
   const [purchaseOpen, setPurchaseOpen] = useState(false)
+  const [mergeOpen, setMergeOpen] = useState(false)
   const [compositeOpen, setCompositeOpen] = useState(false)
   const [editComposite, setEditComposite] = useState(null)
   const [makeOpen, setMakeOpen] = useState(false)
@@ -104,6 +106,7 @@ export default function CompanyInventory() {
               <>
                 <button className="btn-secondary" onClick={() => setCompositeOpen(true)}>New composite material</button>
                 {!projectId && <button className="btn-secondary" onClick={() => setMakeOpen(true)}>Make composite</button>}
+                {!projectId && <button className="btn-secondary" onClick={() => setMergeOpen(true)}>Merge items</button>}
                 <button className="btn-secondary" onClick={() => setTransferOpen(true)}>Transfer</button>
                 <button className="btn-primary" onClick={() => setPurchaseOpen(true)}>Record purchase</button>
               </>
@@ -234,6 +237,7 @@ export default function CompanyInventory() {
           onSaved={() => { invalidateInventory(qc); setTransferOpen(false) }}
         />
       )}
+      {mergeOpen && <MergeItemsModal onClose={() => setMergeOpen(false)} />}
       {purchaseOpen && <PurchaseModal locationId={projectId ? projectLocQ.data : null} onClose={() => setPurchaseOpen(false)} />}
       {makeOpen && <MakeCompositeModal stockRows={rows} composites={(itemsQ.data || []).filter((i) => i.is_composite && i.active !== false)} onClose={() => setMakeOpen(false)} />}
       {(compositeOpen || editComposite) && (
