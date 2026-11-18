@@ -5,6 +5,7 @@ import { PageHeader, Card, StatCard, Badge, EmptyState, LoadingBlock } from '../
 import { buildTableDoc, saveDoc } from '../../lib/reportPdf'
 import { money, pdfMoney } from '../../lib/format'
 import { displayDate, today } from '../../lib/dates'
+import RecordPaymentModal from '../../components/RecordPaymentModal'
 
 const FILTERS = [['all', 'All'], ['Material', 'Material'], ['Labour', 'Labour'], ['Return credit', 'Return credits']]
 
@@ -14,6 +15,7 @@ const daysOld = (d) => Math.max(0, Math.floor((Date.now() - new Date(`${d}T00:00
 // contractors from their daily entries. Credit, and RTGS still waiting for the bank statement, count as unpaid.
 export default function PendingPayables() {
   const [filter, setFilter] = useState('all')
+  const [paying, setPaying] = useState(false)
   const q = useQuery({
     queryKey: ['pending_payables'],
     queryFn: async () => {
@@ -88,8 +90,14 @@ export default function PendingPayables() {
       <PageHeader
         title="Pending payables"
         subtitle="Everything still owed to vendors and labour. Credit, and RTGS / NEFT still waiting for the bank statement, count as unpaid."
-        actions={<button className="btn-primary" disabled={!shown.length} onClick={downloadPdf}>Download PDF</button>}
+        actions={(
+          <div className="flex items-center gap-2">
+            <button className="btn-primary" onClick={() => setPaying(true)}>Record payment</button>
+            <button className="btn-secondary" disabled={!shown.length} onClick={downloadPdf}>Download PDF</button>
+          </div>
+        )}
       />
+      {paying && <RecordPaymentModal onClose={() => setPaying(false)} />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <StatCard label="Total payable" value={money(total)} sub={creditTotal ? `After ${money(-creditTotal)} of return credit` : `${rows.length} item${rows.length === 1 ? '' : 's'}`} tone={total ? 'bad' : 'neutral'} money />
