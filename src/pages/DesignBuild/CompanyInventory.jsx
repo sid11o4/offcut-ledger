@@ -11,6 +11,7 @@ import { useToast } from '../../components/Toast'
 import TransferModal from '../../components/TransferModal'
 import MergeItemsModal from '../../components/MergeItemsModal'
 import RecentTransfers from '../../components/RecentTransfers'
+import StockRepairBanner from '../../components/StockRepairBanner'
 import CompositeModal, { CompositeBreakdown, MakeCompositeModal, useCompositeValues } from './CompositeModal'
 
 // The inventory is split into these groups; a material with no category counts as Others, and
@@ -114,6 +115,8 @@ export default function CompanyInventory() {
           </>
         )}
       />
+
+      <StockRepairBanner locationId={projectId ? projectLocQ.data : null} canOperate={canOperate} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
         <Link to="/design-build/inventory" className={`card p-4 block hover:bg-ink-50 ${!projectId ? 'ring-2 ring-brand-600' : ''}`}>
