@@ -13,6 +13,7 @@ import { invalidateInventory, useInventoryLocations, useInventoryItems } from '.
 import MergeItemsModal from '../../components/MergeItemsModal'
 import { Fragment, useState } from 'react'
 import MaterialSources from './MaterialSources'
+import TrackProgressCard from '../../components/TrackProgressCard'
 
 export default function ProjectDashboard() {
   const { id } = useParams()
@@ -154,6 +155,7 @@ export default function ProjectDashboard() {
         }
       />
 
+      <TrackProgressCard projectId={id} />
       <ProjectSpendTiles spend={spendQ.data} contract={contractQ.data?.contract_total} />
 
       <CostByCategoryCard projectId={id} />
