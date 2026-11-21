@@ -105,8 +105,8 @@ function Day({ project, data, date, isToday, onChanged }) {
         {completed.length > 0 && <p className="small" style={{ marginBottom: 0 }}><b>Completed:</b> {completed.map((c) => `${c.item} – ${c.task}`).join('; ')}</p>}
       </section>
 
-      <Rows title="Labour on site" cols={[['trade', 'Trade'], ['count', 'People', 'number'], ['hours', 'Hours', 'number']]} rows={draft.labour} readOnly={closed} onChange={(labour) => edit({ labour })} />
-      <Rows title="Materials" cols={[['name', 'Material'], ['qty', 'Qty', 'number'], ['unit', 'Unit'], ['status', 'Status', ['Not ordered', 'Ordered', 'In transit', 'Received']]]} rows={draft.materials} readOnly={closed} onChange={(materials) => edit({ materials })} />
+      <Rows title="Labour on site" cols={[['trade', 'Trade'], ['count', 'People', 'number'], ['shifts', 'Shifts', 'number']]} rows={draft.labour} readOnly={closed} onChange={(labour) => edit({ labour })} />
+      <Rows title="Materials" cols={[['name', 'Material'], ['qty', 'Qty', 'number'], ['unit', 'Unit'], ['status', 'Status', ['Not Ordered', 'Ordered', 'In Transit', 'Received']]]} rows={draft.materials} readOnly={closed} onChange={(materials) => edit({ materials })} />
 
       <section className="card stack">
         <Field label="Issues / blockers"><textarea className="input" readOnly={closed} value={draft.issues} onChange={(e) => edit({ issues: e.target.value })} /></Field>
