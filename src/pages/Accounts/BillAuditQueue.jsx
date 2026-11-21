@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Badge, ConfidencePill, EmptyState, LoadingBlock, Field, Input, Select } from '../../components/ui'
 import { useSuppliers, useDesignProjects, useInventoryItems, invalidateInventory } from '../../lib/queries'
 import { money } from '../../lib/format'
+import { pdfPageCount, extractPdfPages, eachPage, partName } from '../../lib/splitPdf'
 
 // Material lines are costed to one of these heads, the same groups the inventory is split into.
 const MATERIAL_HEADS = [
@@ -150,9 +151,8 @@ export default function BillAuditQueue() {
     if (!selectedId && queueQ.data?.length) setSelectedId(queueQ.data[0].id)
   }, [queueQ.data, selectedId])
 
-  // One uploaded file = one bill, whether it's a PNG/JPG photo or a PDF (a multi-page PDF is
-  // read in full by the extraction function below -- a scanned slip with a back page, or a
-  // front+back pair, is still one bill). Selecting several files at once queues each as its
+  // One bill = one file: a PNG/JPG photo, or a PDF. A multi-page PDF is first split into its bills
+  // (see billFilesFrom below); a bill that itself runs over several pages is read in full by the extraction function. Selecting several files at once queues each as its
   // own bill and extracts them one at a time; one bad file doesn't stop the rest.
   async function createSlipBill(path, kind = 'slip') {
     const { data: bill, error: billErr } = await supabase.from('supplier_bills').insert({
@@ -187,6 +187,41 @@ export default function BillAuditQueue() {
   // listed, so it can be attached from that bill's details. If classification is unavailable, the
   // file is scanned as a slip, as it was before this step existed.
   // A scan takes each file as the kind chosen: a FORMGRID slip, or a vendor's own bill.
+  // A multi-page PDF can hold several bills. For a FORMGRID slip every page is its own bill. For a vendor
+  // bill (and in a mixed upload) the AI reads the PDF and says which pages continue one bill; a page that
+  // starts a different bill becomes another bill. If the pages cannot be told apart, the PDF stays one bill.
+  async function billFilesFrom(file, kind) {
+    if (file.type !== 'application/pdf') return [file]
+    let count
+    try { count = await pdfPageCount(file) } catch { return [file] }
+    if (count <= 1) return [file]
+    let groups
+    if (kind === 'slip') groups = eachPage(count)
+    else {
+      let tmp
+      try {
+        tmp = await storeBillFile(profile.id, file)
+        const { data, error } = await supabase.functions.invoke('analyze-bill-pages', { body: { path: tmp, page_count: count } })
+        if (error || data?.error) throw new Error(data?.error || error.message)
+        groups = data.groups
+      } catch (err) {
+        toast.error(`${file.name}: could not tell its ${count} pages apart (${err.message || err}); kept as one bill.`)
+        return [file]
+      } finally {
+        if (tmp) supabase.storage.from('scan-uploads').remove([tmp])
+      }
+    }
+    if (groups.length === 1) return [file]
+    try {
+      const parts = await Promise.all(groups.map((g) => extractPdfPages(file, g, partName(file.name, g))))
+      toast.success(`${file.name}: ${count} pages split into ${groups.length} bills`)
+      return parts
+    } catch (err) {
+      toast.error(`${file.name}: could not split the PDF (${err.message || err}); kept as one bill.`)
+      return [file]
+    }
+  }
+
   async function handleScan(e, kind) {
     const files = Array.from(e.target.files || [])
     e.target.value = ''
@@ -194,16 +229,26 @@ export default function BillAuditQueue() {
     setUploading(true)
     // The files are scanned at the same time; each is reported on its own if it fails.
     const results = await Promise.all(files.map(async (file) => {
+      let parts
       try {
         if (!SCANNABLE_TYPES.includes(file.type)) throw new Error('Only photos (PNG, JPG, WEBP) and PDFs can be scanned.')
-        const path = await storeBillFile(profile.id, await shrinkForScan(file))
-        return await createSlipBill(path, kind)
+        parts = await billFilesFrom(file, kind)
       } catch (err) {
         toast.error(`${file.name}: ${err.message || err}`)
-        return null
+        return []
       }
+      // Each bill in the file is scanned on its own; one failing does not stop the others.
+      return Promise.all(parts.map(async (part) => {
+        try {
+          const path = await storeBillFile(profile.id, await shrinkForScan(part))
+          return await createSlipBill(path, kind)
+        } catch (err) {
+          toast.error(`${part.name}: ${err.message || err}`)
+          return null
+        }
+      }))
     }))
-    const created = results.filter(Boolean)
+    const created = results.flat().filter(Boolean)
     setUploading(false)
     qc.invalidateQueries({ queryKey: ['supplier_bills_queue'] })
     if (created.length) {
@@ -220,7 +265,10 @@ export default function BillAuditQueue() {
     const slipBills = []
     const docs = []
     let failed = 0
-    for (const file of files) {
+    // A PDF that holds several bills is cut into one file per bill first.
+    const expanded = []
+    for (const f of files) expanded.push(...(SCANNABLE_TYPES.includes(f.type) ? await billFilesFrom(f, 'auto') : [f]))
+    for (const file of expanded) {
       try {
         const path = await storeBillFile(profile.id, file)
         const scannable = SCANNABLE_TYPES.includes(file.type)
