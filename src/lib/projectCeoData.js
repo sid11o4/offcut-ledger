@@ -87,7 +87,9 @@ export async function loadProjectRaw(projectId) {
   }))
 
   // Bill lines marked "consumed directly" count as materials used here, with the bill's vendor.
-  const directItems = (itemsR.data || []).filter((i) => i.consumed_directly && i.item_type === 'material')
+  // FORMGRID bill material lines (no stock, cost head set) are consumption charged to the project too.
+  const isFormgridMaterial = (i) => billById.get(i.bill_id)?.bill_source === 'formgrid' && !i.inventory_item_id && !!i.cost_head
+  const directItems = (itemsR.data || []).filter((i) => (i.consumed_directly || isFormgridMaterial(i)) && i.item_type === 'material')
   const directConsumptions = directItems.map((i) => {
     const b = billById.get(i.bill_id)
     return {
