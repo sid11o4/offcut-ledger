@@ -464,6 +464,11 @@ function AuditPanel({ billId, onDone }) {
       return data
     },
   })
+  const advanceQ = useQuery({
+    queryKey: ['vendor_advance', billQ.data?.supplier_id],
+    enabled: !!billQ.data?.supplier_id,
+    queryFn: async () => { const { data, error } = await supabase.rpc('vendor_advance_balance', { p_supplier: billQ.data.supplier_id }); if (error) throw error; return Number(data || 0) },
+  })
   const itemsLineQ = useQuery({
     queryKey: ['supplier_bill_items', billId],
     queryFn: async () => {
@@ -680,6 +685,7 @@ function AuditPanel({ billId, onDone }) {
               <button type="button" className="btn-ghost shrink-0" onClick={() => setAddingSupplier(true)}>+ New supplier</button>
               <ConfidencePill value={conf.supplier_name} />
             </div>
+            {advanceQ.data > 0.5 && <p className="text-xs text-ink-600 -mt-1">This vendor holds an advance of <b className="tnum">{money(advanceQ.data)}</b>, applied automatically to their next approved bill.</p>}
             <div className="grid grid-cols-2 gap-3">
               <Field label="Bill number"><Input value={b.internal_bill_number} onChange={(e) => patchBill({ internal_bill_number: e.target.value })} /></Field>
               <Field label="Bill date"><Input type="date" value={b.bill_date} onChange={(e) => patchBill({ bill_date: e.target.value })} /></Field>
@@ -892,7 +898,7 @@ function LineItemRow({ item, suggestions, billId, formgrid = false, projects = [
       {formgrid && (
         <label className="mt-2 flex items-center gap-2 text-xs text-ink-700">
           <input type="checkbox" checked={!!item.pays_vendor_credit} onChange={(e) => patch({ pays_vendor_credit: e.target.checked, ...(e.target.checked ? { cost_head: null, inventory_item_id: null } : {}) })} />
-          Pays credit the vendor already holds. Only the payment is applied to their bills; no cost head, no cost, no inventory.
+          Pays what the vendor/contractor is already owed. The payment offsets their open bills, and anything left over is held as an advance for their next bill. No cost head, no project, no cost, no inventory.
         </label>
       )}
       {!item.pays_vendor_credit && <div className="flex flex-wrap items-center gap-2 mt-2">
