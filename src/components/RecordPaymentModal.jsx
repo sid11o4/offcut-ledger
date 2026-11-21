@@ -26,9 +26,24 @@ export default function RecordPaymentModal({ onClose }) {
     },
   })
   const owed = balanceQ.data
+  // What is owed before return credits are taken off: only a payment above this is warned about.
+  const grossQ = useQuery({
+    queryKey: ['vendor_gross_open', form.supplier_id],
+    enabled: !!form.supplier_id,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('vendor_gross_open', { p_supplier_id: form.supplier_id })
+      if (error) throw error
+      return Number(data || 0)
+    },
+  })
+  const gross = grossQ.data
+  const amountNum = Number(form.amount) || 0
+  const overGross = gross != null && amountNum > gross + 0.5
+  const overOpen = owed != null && amountNum > owed + 0.5
 
   async function submit(e) {
     e.preventDefault()
+    if (overGross && !window.confirm(`This is ${money(amountNum - gross)} more than the ${money(gross)} owed on their bills (before return credits). The extra is kept as an advance for their next bill. Record it anyway?`)) return
     setSaving(true)
     const { error } = await supabase.rpc('record_vendor_payment', {
       p_supplier_id: form.supplier_id, p_mode: form.mode, p_amount: Number(form.amount),
@@ -37,7 +52,7 @@ export default function RecordPaymentModal({ onClose }) {
     setSaving(false)
     if (error) return toast.error(error.message)
     toast.success(form.mode === 'cash' ? 'Cash payment recorded.' : 'Payment recorded. It counts as paid once the bank statement matches it.')
-    for (const key of ['pending_payables', 'rtgs_payments', 'vendor_open_balance']) qc.invalidateQueries({ queryKey: [key] })
+    for (const key of ['pending_payables', 'rtgs_payments', 'vendor_open_balance', 'vendor_gross_open', 'vendor_advance']) qc.invalidateQueries({ queryKey: [key] })
     qc.invalidateQueries({ queryKey: ['vendor_dashboard'] })
     onClose()
   }
@@ -46,7 +61,7 @@ export default function RecordPaymentModal({ onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <form onSubmit={submit} className="card p-5 w-full max-w-md space-y-3">
         <div className="text-sm font-semibold text-ink-950">Record a payment to a vendor</div>
-        <p className="text-xs text-ink-500">No FORMGRID bill needed. The amount is taken off the vendor's outstanding bills, oldest first.</p>
+        <p className="text-xs text-ink-500">No FORMGRID bill needed. The amount is taken off the vendor's outstanding bills, oldest first; anything extra is kept as an advance.</p>
         <Field label="Vendor">
           <Select required value={form.supplier_id} onChange={set('supplier_id')}>
             <option value="">Select…</option>
@@ -58,6 +73,8 @@ export default function RecordPaymentModal({ onClose }) {
             {balanceQ.isLoading ? 'Checking what is owed…' : <>Outstanding on their bills: <span className="tnum font-medium text-ink-950">{money(owed || 0)}</span></>}
           </div>
         )}
+        {overGross && <div className="rounded border border-ink-200 bg-pill-warn-bg px-3 py-2 text-xs text-pill-warn-ink">More than the <b className="tnum">{money(gross)}</b> owed on their bills (before return credits). You will be asked to confirm; the extra {money(amountNum - gross)} is kept as an advance.</div>}
+        {!overGross && overOpen && <div className="text-xs text-ink-600">Above what is open after return credits; the extra {money(amountNum - owed)} is kept as an advance for their next bill.</div>}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Paid by">
             <Select value={form.mode} onChange={set('mode')}>
