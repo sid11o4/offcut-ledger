@@ -1059,6 +1059,13 @@ function PaymentAllocation({ billId, payments, grandTotal, waiverAllowed = false
     qc.invalidateQueries({ queryKey: ['supplier_bill_payments', billId] })
   }
 
+  async function removePayment(p) {
+    if (!window.confirm(`Remove this ${PAYMENT_LABEL[p.mode] || p.mode} payment of ${money(p.allocated_amount)}?`)) return
+    const { error } = await supabase.rpc('remove_bill_payment', { p_payment_id: p.id })
+    if (error) return toast.error(error.message)
+    qc.invalidateQueries({ queryKey: ['supplier_bill_payments', billId] })
+  }
+
   const remaining = grandTotal - payments.reduce((s, p) => s + Number(p.allocated_amount), 0)
 
   return (
@@ -1067,7 +1074,11 @@ function PaymentAllocation({ billId, payments, grandTotal, waiverAllowed = false
         <div key={p.id} className="flex items-center justify-between text-sm py-1.5 border-b border-ink-100 last:border-0">
           <span className="text-ink-700">{PAYMENT_LABEL[p.mode] || p.mode}</span>
           <span className="tnum">{money(p.allocated_amount)}</span>
-          <Badge tone={p.confirmed ? 'ok' : 'warn'}>{p.confirmed ? 'Confirmed' : p.mode === 'credit' ? 'Payable' : 'Instructed'}</Badge>
+          <span className="flex items-center gap-2">
+            <Badge tone={p.confirmed ? 'ok' : 'warn'}>{p.confirmed ? 'Confirmed' : p.mode === 'credit' ? 'Payable' : 'Instructed'}</Badge>
+            <button type="button" className="btn-ghost text-xs px-1.5 py-0.5 text-bad" aria-label={`Remove ${PAYMENT_LABEL[p.mode] || p.mode} ${money(p.allocated_amount)}`}
+              onClick={() => removePayment(p)}>Remove</button>
+          </span>
         </div>
       ))}
       <form onSubmit={addPayment} className="flex items-end gap-2 mt-2">
