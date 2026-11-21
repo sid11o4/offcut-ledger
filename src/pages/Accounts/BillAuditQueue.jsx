@@ -669,7 +669,12 @@ function AuditPanel({ billId, onDone }) {
               <Field label="Supplier">
                 <Select value={b.supplier_id || ''} onChange={(e) => patchBill({ supplier_id: e.target.value || null })}>
                   <option value="">{b.supplier_text ? `"${b.supplier_text}" — unmatched` : 'Select…'}</option>
-                  {(suppliersQ.data || []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {(suppliersQ.data || []).filter((s) => !s.labour_contractor_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {(suppliersQ.data || []).some((s) => s.labour_contractor_id) && (
+                    <optgroup label="Labour contractors">
+                      {(suppliersQ.data || []).filter((s) => s.labour_contractor_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </optgroup>
+                  )}
                 </Select>
               </Field>
               <button type="button" className="btn-ghost shrink-0" onClick={() => setAddingSupplier(true)}>+ New supplier</button>
