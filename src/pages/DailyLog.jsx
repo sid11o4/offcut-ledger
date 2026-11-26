@@ -57,6 +57,20 @@ export default function DailyLog() {
     },
   })
 
+  // Design Build expenses (including contractor labour) are logged here too; they live in their own table.
+  const dbExpensesQ = useQuery({
+    queryKey: ['daily-db-expenses', date],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('design_build_expenses')
+        .select('*, expense_categories(name), design_projects(name)')
+        .eq('expense_date', date)
+        .order('created_at')
+      if (error) throw error
+      return data
+    },
+  })
+
   const activeProjects = (projectsQ.data || []).filter((p) => ['draft', 'active', 'on_hold'].includes(p.status))
   const activeServices = (servicesQ.data || []).filter((s) => s.active)
 
@@ -77,6 +91,12 @@ export default function DailyLog() {
   }, [activeEntries])
 
   const totalExpenses = (expensesQ.data || []).filter((x) => x.status === 'active').reduce((s, x) => s + Number(x.amount), 0)
+  const totalDbExpenses = (dbExpensesQ.data || []).filter((x) => x.status === 'active').reduce((s, x) => s + Number(x.amount), 0)
+  // One list for the day: factory expenses and Design Build expenses, in the order they were logged.
+  const dayExpenses = [
+    ...(expensesQ.data || []).map((x) => ({ ...x, side: 'factory' })),
+    ...(dbExpensesQ.data || []).map((x) => ({ ...x, side: 'design_build', status: x.status === 'voided' ? 'void' : x.status })),
+  ].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
 
   function shiftDate(deltaDays) {
     const d = new Date(date + 'T00:00:00Z')
@@ -87,6 +107,7 @@ export default function DailyLog() {
   function invalidate() {
     qc.invalidateQueries({ queryKey: ['daily-entries', date] })
     qc.invalidateQueries({ queryKey: ['daily-expenses', date] })
+    qc.invalidateQueries({ queryKey: ['daily-db-expenses', date] })
   }
 
   return (
@@ -104,10 +125,11 @@ export default function DailyLog() {
         }
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
         <StatCard label="Job Entries" value={summary.count} />
         <StatCard label="Daily Revenue" value={money(summary.total)} tone="brand" />
-        <StatCard label="Daily Expenses" value={money(totalExpenses)} tone="bad" />
+        <StatCard label="Factory Expenses" value={money(totalExpenses)} tone="bad" />
+        <StatCard label="Design Build Expenses" value={money(totalDbExpenses)} tone="bad" />
         <StatCard label="Net" value={money(summary.total - totalExpenses)} tone={summary.total - totalExpenses >= 0 ? 'ok' : 'bad'} />
       </div>
 
@@ -168,8 +190,8 @@ export default function DailyLog() {
           </Card>
 
           <Card title="Expenses">
-            {expensesQ.isLoading ? <LoadingBlock /> : !expensesQ.data?.length ? <EmptyState title="No expenses logged for this day" /> : (
-              <ExpensesList expenses={expensesQ.data} canVoid={hasPermission('expense_manage')} toast={toast} onChanged={invalidate} />
+            {expensesQ.isLoading || dbExpensesQ.isLoading ? <LoadingBlock /> : !dayExpenses.length ? <EmptyState title="No expenses logged for this day" /> : (
+              <ExpensesList expenses={dayExpenses} canVoid={hasPermission('expense_manage')} toast={toast} onChanged={invalidate} profile={profile} />
             )}
           </Card>
         </div>
@@ -847,7 +869,7 @@ function ExpenseEntryForm({ date, categories, projects, profile, toast, onSaved,
   )
 }
 
-function ExpensesList({ expenses, canVoid, toast, onChanged }) {
+function ExpensesList({ expenses, canVoid, toast, onChanged, profile }) {
   const confirm = useConfirm()
 
   async function voidExpense(exp) {
@@ -855,7 +877,11 @@ function ExpensesList({ expenses, canVoid, toast, onChanged }) {
     if (!reason) return
     const ok = await confirm('Void this expense?', { detail: 'This cannot be undone.', confirmLabel: 'Void' })
     if (!ok) return
-    const { error } = await supabase.rpc('void_expense', { p_expense_id: exp.id, p_reason: reason })
+    const { error } = exp.side === 'design_build'
+      ? await supabase.from('design_build_expenses')
+        .update({ status: 'voided', voided_at: new Date().toISOString(), voided_by: profile?.id, void_reason: reason })
+        .eq('id', exp.id)
+      : await supabase.rpc('void_expense', { p_expense_id: exp.id, p_reason: reason })
     if (error) toast.error(error.message)
     else { toast.success('Expense voided.'); onChanged() }
   }
@@ -865,8 +891,8 @@ function ExpensesList({ expenses, canVoid, toast, onChanged }) {
       {expenses.map((x) => (
         <li key={x.id} className={`py-2 flex items-center justify-between text-sm ${x.status === 'void' ? 'opacity-40 line-through' : ''}`}>
           <div>
-            <div className="font-medium">{x.expense_categories?.name}{x.source === 'recurring' && <Badge tone="brand">recurring</Badge>}</div>
-            <div className="text-xs text-ink-400">{x.description || x.projects?.name || '—'}</div>
+            <div className="font-medium">{x.expense_categories?.name}{x.source === 'recurring' && <Badge tone="brand">recurring</Badge>}{x.side === 'design_build' && <span className="ml-2"><Badge tone="neutral">Design Build</Badge></span>}</div>
+            <div className="text-xs text-ink-400">{[x.description, x.side === 'design_build' ? x.design_projects?.name : x.projects?.name].filter(Boolean).join(' · ') || '—'}</div>
           </div>
           <div className="flex items-center gap-2">
             <span className="font-medium">{money(x.amount)}</span>
