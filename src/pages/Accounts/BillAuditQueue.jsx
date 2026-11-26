@@ -136,7 +136,7 @@ export default function BillAuditQueue() {
     refetchOnWindowFocus: false,
   })
   async function reopenBill(b) {
-    const reason = window.prompt(`Edit approved bill ${b.internal_bill_number}? Its stock is taken back out until you approve it again. Why is it being edited?`)
+    const reason = window.prompt(`Edit approved bill ${b.internal_bill_number}? Its stock is taken back out and any payments recorded on it are reversed (kept in the reversal record); enter them again when you approve it. Why is it being edited?`)
     if (!reason?.trim()) return
     const { error } = await supabase.rpc('reopen_supplier_bill', { p_bill_id: b.id, p_reason: reason.trim() })
     if (error) return toast.error(error.message)

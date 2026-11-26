@@ -95,7 +95,7 @@ function VendorBills({ rows, itemId, projectId }) {
     run('void', () => supabase.rpc('void_supplier_bill', { p_bill_id: b.id, p_reason: reason }), 'Bill voided. Its stock is taken back out.')
   }
   async function reopenBill(b) {
-    const reason = window.prompt(`Reopen bill ${b.internal_bill_number} to correct it? Why?`)
+    const reason = window.prompt(`Reopen bill ${b.internal_bill_number} to correct it? Any payments recorded on it are reversed (kept in the reversal record) and entered again when it is approved. Why?`)
     if (!reason) return
     run('reopen', () => supabase.rpc('reopen_supplier_bill', { p_bill_id: b.id, p_reason: reason }), 'Bill reopened. Open it to correct it, then approve it again.')
   }
