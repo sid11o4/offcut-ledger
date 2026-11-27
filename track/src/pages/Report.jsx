@@ -199,7 +199,7 @@ function ClientReport({ r }) {
       {r.nextPlan && (
         <section className="block">
           <Heading>Next on site</Heading>
-          <div className="note-box">{r.nextPlan}</div>
+          <PlanList plan={r.tomorrow} />
         </section>
       )}
 
@@ -319,8 +319,8 @@ function InternalReport({ r, who }) {
       </section>
 
       <section className="block">
-        <Heading>Plan for tomorrow</Heading>
-        <div className="note-box">{r.nextPlan || <span className="quiet">Not written.</span>}</div>
+        <Heading>Plan for tomorrow {r.tomorrow.count > 0 && <Count n={r.tomorrow.count} />}</Heading>
+        {r.nextPlan ? <PlanList plan={r.tomorrow} /> : <p className="quiet">Not set.</p>}
       </section>
 
       {r.hasSnapshot && <section className="block">
@@ -363,3 +363,25 @@ function Heading({ children }) {
   return <div className="h-block"><span className="rule" /><h2>{children}</h2></div>
 }
 const Count = ({ n }) => <span className="count">{n}</span>
+
+// Tomorrow's tasks grouped by room and component; older free-text plans are shown as written.
+function PlanList({ plan }) {
+  if (!plan.structured) return <div className="note-box">{plan.text}</div>
+  return (
+    <div className="tp">
+      {plan.rooms.map((r) => (
+        <div key={r.room} className="tp-room">
+          <div className="tp-room-name">{r.room}</div>
+          <div>
+            {r.items.map((i) => (
+              <div key={i.item} className="tp-row">
+                <div className="item-title">{i.item}</div>
+                <ul>{i.tasks.map((t) => <li key={t}>{t}</li>)}</ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}

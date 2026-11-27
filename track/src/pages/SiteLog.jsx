@@ -3,7 +3,7 @@ import { useAuth } from '../lib/auth'
 import { Empty, Field, Loading, Modal, useAction } from '../components/ui'
 import { dayChanges, localDateKey, pct } from '../lib/progress'
 import { getReport, listReports, startDay, saveDetails, closeDay, reopenDay, listPhotos, uploadPhoto, deletePhoto, summarise } from '../lib/api'
-import { dayNumberOf, parseCaption, photoItemOptions, GENERAL_VIEW } from '../lib/report'
+import { dayNumberOf, parseCaption, photoItemOptions, GENERAL_VIEW, parsePlan, planTaskOptions } from '../lib/report'
 import Report from './Report'
 
 const LONG = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
@@ -115,8 +115,9 @@ function Day({ project, data, date, isToday, onChanged, dayNumber }) {
 
       <section className="card stack">
         <Field label="Issues / blockers"><textarea className="input" readOnly={closed} value={draft.issues} onChange={(e) => edit({ issues: e.target.value })} /></Field>
-        <Field label="Plan for tomorrow"><textarea className="input" readOnly={closed} value={draft.next_day_plan} onChange={(e) => edit({ next_day_plan: e.target.value })} /></Field>
       </section>
+
+      <TomorrowPlan value={draft.next_day_plan} plan={plan} readOnly={closed} onChange={(next_day_plan) => edit({ next_day_plan })} />
 
       <section className="card">
         <div className="card-head"><h2>Photos</h2><span className="spacer" />
@@ -234,6 +235,90 @@ function PhotoTagger({ files, options, onCancel, onSave }) {
           if (!ok) setBusy(false)
         }}>{busy ? 'Uploading…' : files.length > 1 ? `Add ${files.length} photos` : 'Add photo'}</button>
         <button className="btn" disabled={busy} onClick={onCancel}>Cancel</button>
+      </div>
+    </Modal>
+  )
+}
+
+// Plan for tomorrow is picked from the project's unfinished tasks, never typed.
+function TomorrowPlan({ value, plan, readOnly, onChange }) {
+  const [picking, setPicking] = useState(false)
+  const parsed = parsePlan(value)
+  const remove = (line) => onChange(parsed.lines.filter((l) => l !== line).join('\n'))
+  return (
+    <section className="card">
+      <div className="card-head"><h2>Plan for tomorrow</h2>{parsed.count > 0 && <span className="pill">{parsed.count} task{parsed.count > 1 ? 's' : ''}</span>}<span className="spacer" />
+        {!readOnly && <button className="btn btn-sm no-print" onClick={() => setPicking(true)}>{parsed.count ? 'Edit tasks' : 'Pick tasks'}</button>}
+      </div>
+      {parsed.structured ? (
+        <div className="list">
+          {parsed.rooms.map((r) => (
+            <div key={r.room}>
+              <div className="small muted" style={{ fontWeight: 600, letterSpacing: '0.04em' }}>{r.room}</div>
+              {r.items.map((i) => (
+                <div key={i.item} style={{ marginTop: 6 }}>
+                  <b>{i.item}</b>
+                  {i.tasks.map((t) => (
+                    <div key={t} className="row small" style={{ justifyContent: 'space-between', flexWrap: 'nowrap', minHeight: 32 }}>
+                      <span>{t}</span>
+                      {!readOnly && <button className="btn btn-sm btn-danger no-print" style={{ minHeight: 28, padding: '0 8px' }} aria-label={`Remove ${t}`} onClick={() => remove([t, i.item, r.room].join(' · '))}>✕</button>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : parsed.text ? (
+        <>
+          <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{parsed.text}</p>
+          <p className="muted small" style={{ marginBottom: 0 }}>Written in the previous tracker.{!readOnly && ' Picking tasks will replace it.'}</p>
+        </>
+      ) : <p className="muted" style={{ margin: 0 }}>{readOnly ? 'No plan was set.' : 'No tasks picked yet. Pick what the team will work on tomorrow.'}</p>}
+      {picking && <PlanPicker options={planTaskOptions(plan)} selected={parsed.lines} onCancel={() => setPicking(false)} onSave={(lines) => { onChange(lines.join('\n')); setPicking(false) }} />}
+    </section>
+  )
+}
+
+function PlanPicker({ options, selected, onCancel, onSave }) {
+  const [picked, setPicked] = useState(() => new Set(selected))
+  const [q, setQ] = useState('')
+  const toggle = (line) => setPicked((s) => { const n = new Set(s); n.has(line) ? n.delete(line) : n.add(line); return n })
+  const needle = q.trim().toLowerCase()
+  const shown = options.map((r) => ({
+    ...r,
+    items: r.items.map((i) => ({ ...i, tasks: i.tasks.filter((t) => !needle || `${r.room} ${i.item} ${t.name}`.toLowerCase().includes(needle)) })).filter((i) => i.tasks.length),
+  })).filter((r) => r.items.length)
+  // Keep the order of the BOQ, whatever order things were ticked in.
+  const all = options.flatMap((r) => r.items.flatMap((i) => i.tasks.map((t) => t.line)))
+  // Tasks picked earlier that have since been finished are no longer listed; keep them (remove with ✕ on the card).
+  const ordered = [...all.filter((l) => picked.has(l)), ...[...picked].filter((l) => !all.includes(l))]
+  return (
+    <Modal title="Plan for tomorrow" onClose={onCancel}>
+      <input className="input" type="search" placeholder="Search room, component or task" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search tasks" />
+      <div className="plan-pick">
+        {!shown.length && <p className="muted" style={{ margin: '12px 0' }}>{options.length ? 'No unfinished task matches.' : 'Every task is complete.'}</p>}
+        {shown.map((r) => (
+          <div key={r.room} className="plan-room">
+            <div className="plan-room-name">{r.room}</div>
+            {r.items.map((i) => (
+              <div key={i.id} className="plan-item">
+                <div className="plan-item-name">{i.item}</div>
+                {i.tasks.map((t) => (
+                  <label key={t.line} className="plan-task">
+                    <input type="checkbox" checked={picked.has(t.line)} onChange={() => toggle(t.line)} />
+                    <span>{t.name}</span>
+                    <span className="tnum muted small">{t.done}%</span>
+                  </label>
+                ))}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="row" style={{ marginTop: 14 }}>
+        <button className="btn btn-primary" onClick={() => onSave(ordered)}>{ordered.length ? `Save ${ordered.length} task${ordered.length > 1 ? 's' : ''}` : 'Save (no tasks)'}</button>
+        <button className="btn" onClick={onCancel}>Cancel</button>
       </div>
     </Modal>
   )

@@ -92,6 +92,7 @@ export function buildReport({ project, plan, report, dayNumber = null, photos = 
     materials,
     issues: (report.issues || '').trim(),
     nextPlan: (report.next_day_plan || '').trim(),
+    tomorrow: parsePlan(report.next_day_plan),
     photos,
     openRequests: requests.filter((r) => ['requested', 'approved'].includes(r.status)),
   }
@@ -134,6 +135,41 @@ export function photoItemOptions(plan, changed = []) {
     options: [...new Set(plan.items.filter((i) => i.roomId === r.id).map((i) => photoCaption({ item: i.title, room: r.name })))],
   })).filter((g) => g.options.length)
   return { today: [...new Set(today)], groups }
+}
+
+// Plan for tomorrow: tasks picked from the BOQ, saved one per line as "Task · Item · Room" in
+// next_day_plan. Older free-text plans (from the previous tracker) are kept and shown as written.
+export const planLine = ({ task, item, room }) => [task, item, room].map((s) => (s || '').trim()).join(' · ')
+
+export function parsePlan(text) {
+  const lines = (text || '').split('\n').map((s) => s.trim()).filter(Boolean)
+  const parts = lines.map((l) => l.split(' · '))
+  if (!lines.length || !parts.every((p) => p.length === 3 && p[0] && p[1])) {
+    return { structured: false, text: (text || '').trim(), lines: [], rooms: [], count: 0 }
+  }
+  const rooms = []
+  for (const [task, item, room] of parts) {
+    let r = rooms.find((x) => x.room === room)
+    if (!r) rooms.push(r = { room, items: [] })
+    let i = r.items.find((x) => x.item === item)
+    if (!i) r.items.push(i = { item, tasks: [] })
+    if (!i.tasks.includes(task)) i.tasks.push(task)
+  }
+  return { structured: true, text: '', lines, rooms, count: lines.length }
+}
+
+// Unfinished tasks, by room and component, for picking tomorrow's plan.
+export function planTaskOptions(plan) {
+  return plan.rooms.map((r) => ({
+    room: r.name,
+    items: plan.items.filter((i) => i.roomId === r.id).map((i) => ({
+      id: i.id,
+      item: i.title.trim(),
+      tasks: activeTasks(i.cat, i.polish)
+        .map((t, k) => ({ name: t.name, done: num(i.progress[k]), line: planLine({ task: t.name, item: i.title, room: r.name }) }))
+        .filter((t) => t.done < 100),
+    })).filter((i) => i.tasks.length),
+  })).filter((r) => r.items.length)
 }
 
 export const points = (p) => `${p > 0 ? '+' : p < 0 ? '−' : ''}${Math.abs(p * 100).toFixed(1)}`

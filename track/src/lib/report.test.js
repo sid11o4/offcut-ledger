@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildReport, dayNumberOf, taskPhrase, points, photoCaption, parseCaption, photoItemOptions, GENERAL_VIEW } from './report'
+import { buildReport, dayNumberOf, taskPhrase, points, photoCaption, parseCaption, photoItemOptions, GENERAL_VIEW, parsePlan, planTaskOptions, planLine } from './report'
 
 const panel = { name: 'Panelling', weight: 1, hasPolish: false, tasks: [{ name: 'Raw board', points: 50 }, { name: 'Lamination', points: 50 }] }
 const plan = {
@@ -93,5 +93,30 @@ describe('photo captions', () => {
     expect(o.today).toEqual(['TV panel · Living'])
     expect(o.groups.map((g) => g.label)).toEqual(['Living', 'Kitchen'])
     expect(o.groups[1].options).toEqual(['Base unit · Kitchen'])
+  })
+})
+
+describe('plan for tomorrow', () => {
+  it('lists only unfinished tasks, by room and component', () => {
+    const o = planTaskOptions(plan)
+    expect(o.map((r) => r.room)).toEqual(['Living', 'Kitchen'])
+    expect(o[0].items[0].tasks).toEqual([{ name: 'Lamination', done: 50, line: 'Lamination · TV panel · Living' }])
+    expect(o[1].items[0].tasks.map((t) => t.name)).toEqual(['Raw board', 'Lamination'])
+  })
+  it('reads picked tasks back grouped, in order', () => {
+    const p = parsePlan('Lamination · TV panel · Living\nRaw board · Base unit · Kitchen\nLamination · Base unit · Kitchen')
+    expect(p.structured).toBe(true)
+    expect(p.count).toBe(3)
+    expect(p.rooms).toEqual([
+      { room: 'Living', items: [{ item: 'TV panel', tasks: ['Lamination'] }] },
+      { room: 'Kitchen', items: [{ item: 'Base unit', tasks: ['Raw board', 'Lamination'] }] },
+    ])
+  })
+  it('keeps old free-text plans as written', () => {
+    const p = parsePlan('Finish loft shutters.\nStart headboard.')
+    expect(p.structured).toBe(false)
+    expect(p.text).toBe('Finish loft shutters.\nStart headboard.')
+    expect(parsePlan('').structured).toBe(false)
+    expect(planLine({ task: 'Lamination', item: 'TV panel ', room: 'Living' })).toBe('Lamination · TV panel · Living')
   })
 })

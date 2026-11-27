@@ -101,3 +101,11 @@ textarea.input { min-height: 88px; resize: vertical; }
 .photo-cap span { color: var(--ink-500); font-size: 11px; }
 .tag-row { display: grid; grid-template-columns: 72px 1fr; gap: 12px; align-items: end; }
 .tag-row img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--ink-200); }
+
+/* Plan for tomorrow picker */
+.plan-pick { margin-top: 12px; max-height: 56dvh; overflow: auto; border: 1px solid var(--ink-200); border-radius: 8px; }
+.plan-room-name { position: sticky; top: 0; z-index: 1; background: var(--ink-50); padding: 8px 12px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: var(--ink-600); border-bottom: 1px solid var(--ink-200); }
+.plan-item { padding: 6px 12px 8px; border-bottom: 1px solid var(--ink-100); }
+.plan-item-name { font-weight: 600; font-size: 14px; padding: 4px 0; }
+.plan-task { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; min-height: 40px; cursor: pointer; }
+.plan-task input { width: 18px; height: 18px; accent-color: var(--ink-950); }

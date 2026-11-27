@@ -195,3 +195,16 @@
   .rpt { padding: 0; }
   .rpt .sheet { width: auto; margin: 0; padding: 0; box-shadow: none; }
 }
+
+/* Plan for tomorrow */
+.rpt .tp { border-top: 1.2pt solid var(--charcoal); }
+.rpt .tp-room { display: grid; grid-template-columns: 34mm 1fr; gap: 4mm; padding: 2.4mm 0; border-bottom: 0.6pt solid var(--rule); break-inside: avoid; }
+.rpt .tp-room-name { font-size: 7.6pt; letter-spacing: 0.22em; text-transform: uppercase; color: var(--taupe); padding-top: 0.3mm; }
+.rpt .tp-row { display: grid; grid-template-columns: 58mm 1fr; gap: 4mm; }
+.rpt .tp-row + .tp-row { margin-top: 1.8mm; }
+.rpt .tp-row ul { list-style: none; margin: 0; padding: 0; }
+.rpt .tp-row li { padding-left: 4mm; position: relative; }
+.rpt .tp-row li::before { content: ""; position: absolute; left: 0; top: 0.68em; width: 2mm; height: 0.6pt; background: var(--taupe); }
+@media screen and (max-width: 640px) {
+  .rpt .tp-room, .rpt .tp-row { grid-template-columns: 1fr; gap: 1mm; }
+}
