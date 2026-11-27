@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildReport, dayNumberOf, taskPhrase, points } from './report'
+import { buildReport, dayNumberOf, taskPhrase, points, photoCaption, parseCaption, photoTaskOptions, GENERAL_VIEW } from './report'
 
 const panel = { name: 'Panelling', weight: 1, hasPolish: false, tasks: [{ name: 'Raw board', points: 50 }, { name: 'Lamination', points: 50 }] }
 const plan = {
@@ -76,5 +76,22 @@ describe('report helpers', () => {
     expect(points(0.0125)).toBe('+1.3')
     expect(points(-0.003)).toBe('−0.3')
     expect(points(0)).toBe('0.0')
+  })
+})
+
+describe('photo captions', () => {
+  it('stores and reads back task, item and room', () => {
+    const cap = photoCaption({ task: 'Lamination', item: 'TV panel ', room: 'Living' })
+    expect(cap).toBe('Lamination · TV panel · Living')
+    expect(parseCaption(cap)).toEqual({ task: 'Lamination', item: 'TV panel', room: 'Living' })
+    expect(parseCaption(null)).toEqual({ task: '', item: '', room: '' })
+    expect(parseCaption(GENERAL_VIEW).task).toBe(GENERAL_VIEW)
+  })
+  it('offers today\'s tasks first, then every task by room', () => {
+    const changed = [{ itemId: 'a', item: 'TV panel ', task: 'Lamination' }]
+    const o = photoTaskOptions(plan, changed)
+    expect(o.today).toEqual(['Lamination · TV panel · Living'])
+    expect(o.groups.map((g) => g.label)).toEqual(['Living', 'Kitchen'])
+    expect(o.groups[1].options).toEqual(['Raw board · Base unit · Kitchen', 'Lamination · Base unit · Kitchen'])
   })
 })

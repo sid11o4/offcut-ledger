@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useAuth } from '../lib/auth'
 import { listRequests } from '../lib/api'
 import { pct, statusLabel } from '../lib/progress'
-import { buildReport, points, taskPhrase } from '../lib/report'
+import { buildReport, parseCaption, points, taskPhrase } from '../lib/report'
 import { Symbol } from '../components/Brand'
 import '../report.css'
 
@@ -180,12 +180,18 @@ function ClientReport({ r }) {
         <section className="block photos-block">
           <Heading>Site photographs</Heading>
           <div className="gallery">
-            {r.photos.map((p, i) => (
-              <figure key={p.id}>
-                <img src={p.url} alt={p.caption || `Site photograph ${i + 1}`} />
-                <figcaption><span>{String(i + 1).padStart(2, '0')}</span>{p.caption || ''}</figcaption>
-              </figure>
-            ))}
+            {r.photos.map((p, i) => {
+              const c = parseCaption(p.caption)
+              return (
+                <figure key={p.id}>
+                  <img src={p.url} alt={p.caption || `Site photograph ${i + 1}`} />
+                  <figcaption>
+                    <span className="n">{String(i + 1).padStart(2, '0')}</span>
+                    <span className="cap">{c.task && <b>{c.task}</b>}{c.item && <em>{[c.item, c.room].filter(Boolean).join(' · ')}</em>}</span>
+                  </figcaption>
+                </figure>
+              )
+            })}
           </div>
         </section>
       )}
@@ -338,7 +344,10 @@ function InternalReport({ r, who }) {
       {r.photos.length > 0 && (
         <section className="block photos-block">
           <Heading>Photos <Count n={r.photos.length} /></Heading>
-          <div className="thumbs">{r.photos.map((p) => <img key={p.id} src={p.url} alt={p.caption || 'Site photo'} />)}</div>
+          <div className="thumbs">{r.photos.map((p) => {
+            const c = parseCaption(p.caption)
+            return <figure key={p.id}><img src={p.url} alt={p.caption || 'Site photo'} />{c.task && <figcaption><b>{c.task}</b>{c.item && <span>{c.item}</span>}</figcaption>}</figure>
+          })}</div>
         </section>
       )}
 

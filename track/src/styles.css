@@ -93,3 +93,11 @@ textarea.input { min-height: 88px; resize: vertical; }
   .card { border: 0; padding: 0; break-inside: avoid; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* Photo task captions */
+.photos figure { display: flex; flex-direction: column; gap: 4px; }
+.photo-cap { font-size: 12px; line-height: 1.3; }
+.photo-cap b { display: block; font-weight: 600; }
+.photo-cap span { color: var(--ink-500); font-size: 11px; }
+.tag-row { display: grid; grid-template-columns: 72px 1fr; gap: 12px; align-items: end; }
+.tag-row img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--ink-200); }

@@ -98,12 +98,12 @@ export async function listPhotos(projectId, date) {
   const urls = new Map((data || []).map((d) => [d.path, d.signedUrl]))
   return rows.map((r) => ({ ...r, url: urls.get(r.storage_path) }))
 }
-export async function uploadPhoto(projectId, date, file, uid) {
+export async function uploadPhoto(projectId, date, file, uid, caption = null) {
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')
   const path = `${projectId}/${date}/${crypto.randomUUID()}.${ext}`
   const up = await supabase.storage.from('track-photos').upload(path, file, { contentType: file.type || 'image/jpeg' })
   if (up.error) throw new Error(up.error.message)
-  must(await supabase.from('track_photos').insert({ project_id: projectId, report_date: date, storage_path: path, created_by: uid }))
+  must(await supabase.from('track_photos').insert({ project_id: projectId, report_date: date, storage_path: path, caption: caption || null, created_by: uid }))
 }
 export async function deletePhoto(photo) {
   await supabase.storage.from('track-photos').remove([photo.storage_path])
