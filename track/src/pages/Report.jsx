@@ -187,7 +187,7 @@ function ClientReport({ r }) {
                   <img src={p.url} alt={p.caption || `Site photograph ${i + 1}`} />
                   <figcaption>
                     <span className="n">{String(i + 1).padStart(2, '0')}</span>
-                    <span className="cap">{c.task && <b>{c.task}</b>}{c.item && <em>{[c.item, c.room].filter(Boolean).join(' · ')}</em>}</span>
+                    <span className="cap">{c.item && <b>{c.item}</b>}{c.room && <em>{c.room}</em>}</span>
                   </figcaption>
                 </figure>
               )
@@ -346,7 +346,7 @@ function InternalReport({ r, who }) {
           <Heading>Photos <Count n={r.photos.length} /></Heading>
           <div className="thumbs">{r.photos.map((p) => {
             const c = parseCaption(p.caption)
-            return <figure key={p.id}><img src={p.url} alt={p.caption || 'Site photo'} />{c.task && <figcaption><b>{c.task}</b>{c.item && <span>{c.item}</span>}</figcaption>}</figure>
+            return <figure key={p.id}><img src={p.url} alt={p.caption || 'Site photo'} />{c.item && <figcaption><b>{c.item}</b>{c.room && <span>{c.room}</span>}</figcaption>}</figure>
           })}</div>
         </section>
       )}

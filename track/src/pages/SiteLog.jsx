@@ -3,7 +3,7 @@ import { useAuth } from '../lib/auth'
 import { Empty, Field, Loading, Modal, useAction } from '../components/ui'
 import { dayChanges, localDateKey, pct } from '../lib/progress'
 import { getReport, listReports, startDay, saveDetails, closeDay, reopenDay, listPhotos, uploadPhoto, deletePhoto, summarise } from '../lib/api'
-import { dayNumberOf, parseCaption, photoTaskOptions, GENERAL_VIEW } from '../lib/report'
+import { dayNumberOf, parseCaption, photoItemOptions, GENERAL_VIEW } from '../lib/report'
 import Report from './Report'
 
 const LONG = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
@@ -134,7 +134,7 @@ function Day({ project, data, date, isToday, onChanged, dayNumber }) {
                 <img src={p.url} alt={p.caption || 'Site'} loading="lazy" />
                 {!closed && <button className="btn btn-sm no-print" style={{ position: 'absolute', top: 4, right: 4, minHeight: 28, padding: '0 8px' }} aria-label="Delete photo"
                   onClick={async () => { if (confirm('Delete this photo?') && await act(() => deletePhoto(p))) setPhotos(await listPhotos(project.id, date)) }}>✕</button>}
-                {c.task && <figcaption className="photo-cap"><b>{c.task}</b>{c.item && <span>{[c.item, c.room].filter(Boolean).join(' · ')}</span>}</figcaption>}
+                {c.item && <figcaption className="photo-cap"><b>{c.item}</b>{c.room && <span>{c.room}</span>}</figcaption>}
               </figure>
             )
           })}
@@ -143,7 +143,7 @@ function Day({ project, data, date, isToday, onChanged, dayNumber }) {
       </section>
 
       {tagging && (
-        <PhotoTagger files={tagging} options={photoTaskOptions(plan, changed)} onCancel={() => setTagging(null)}
+        <PhotoTagger files={tagging} options={photoItemOptions(plan, changed)} onCancel={() => setTagging(null)}
           onSave={async (tagged) => {
             const ok = await act(async () => { for (const t of tagged) await uploadPhoto(project.id, date, t.file, user.id, t.caption) }, tagged.length > 1 ? 'Photos added' : 'Photo added')
             if (ok) { setTagging(null); setPhotos(await listPhotos(project.id, date)) }
@@ -198,7 +198,7 @@ function Rows({ title, cols, rows, onChange, readOnly }) {
   )
 }
 
-// Asks which task each new photo shows, so reports can caption it. Each pick carries over to the
+// Asks which component (BOQ item) each new photo shows, so reports can caption it. Each pick carries over to the
 // photos after it, so a batch of the same work needs one choice.
 function PhotoTagger({ files, options, onCancel, onSave }) {
   const [captions, setCaptions] = useState(() => files.map(() => ''))
@@ -209,18 +209,18 @@ function PhotoTagger({ files, options, onCancel, onSave }) {
   const pick = (i, v) => setCaptions((c) => c.map((x, j) => (j === i || (j > i && x === c[i]) ? v : x)))
   const ready = captions.every(Boolean) && !busy
   return (
-    <Modal title={files.length > 1 ? `Which task? · ${files.length} photos` : 'Which task is this photo?'} onClose={() => !busy && onCancel()}>
-      <p className="muted small" style={{ margin: '0 0 12px' }}>The task name becomes the photo's description in the reports.</p>
+    <Modal title={files.length > 1 ? `Which component? · ${files.length} photos` : 'Which component is this photo?'} onClose={() => !busy && onCancel()}>
+      <p className="muted small" style={{ margin: '0 0 12px' }}>The component name becomes the photo's description in the reports.</p>
       <div className="stack">
         {files.map((f, i) => (
           <div key={i} className="tag-row">
             <img src={urls[i]} alt="" />
             <label className="field">
-              <span>Task</span>
-              <select className="input" value={captions[i]} onChange={(e) => pick(i, e.target.value)} aria-label={`Task for photo ${i + 1}`}>
-                <option value="" disabled>Choose the task…</option>
+              <span>Component</span>
+              <select className="input" value={captions[i]} onChange={(e) => pick(i, e.target.value)} aria-label={`Component for photo ${i + 1}`}>
+                <option value="" disabled>Choose the component…</option>
                 {options.today.length > 0 && <optgroup label="Worked on today">{options.today.map((o) => <option key={'t' + o} value={o}>{o}</option>)}</optgroup>}
-                {options.groups.map((g) => <optgroup key={g.label} label={g.label}>{g.options.map((o) => <option key={o} value={o}>{o.split(' · ').slice(0, 2).join(' · ')}</option>)}</optgroup>)}
+                {options.groups.map((g) => <optgroup key={g.label} label={g.label}>{g.options.map((o) => <option key={o} value={o}>{o.split(' · ')[0]}</option>)}</optgroup>)}
                 <optgroup label="Other"><option value={GENERAL_VIEW}>{GENERAL_VIEW}</option></optgroup>
               </select>
             </label>

@@ -112,29 +112,28 @@ export function taskPhrase(t) {
   return `${t.from}% → ${t.to}%`
 }
 
-// Photo captions name the task a photo shows, stored as "Task · Item · Room" in track_photos.caption.
+// Photo captions name the component (BOQ item) a photo shows, stored as "Item · Room" in track_photos.caption.
 export const GENERAL_VIEW = 'General site view'
-export function photoCaption({ task, item, room }) {
-  return [task, item, room].map((s) => (s || '').trim()).filter(Boolean).join(' · ')
+export function photoCaption({ item, room }) {
+  return [item, room].map((s) => (s || '').trim()).filter(Boolean).join(' · ')
 }
 export function parseCaption(caption) {
-  const [task = '', item = '', room = ''] = (caption || '').split(' · ')
-  return { task, item, room }
+  const [item = '', room = ''] = (caption || '').split(' · ')
+  return { item, room }
 }
 
-// Everything a photo can be tagged with: tasks worked on today first, then every task by room and item.
-export function photoTaskOptions(plan, changed = []) {
+// Everything a photo can be tagged with: components worked on today first, then every component by room.
+export function photoItemOptions(plan, changed = []) {
   const roomName = new Map(plan.rooms.map((r) => [r.id, r.name]))
   const today = changed.map((c) => {
     const it = plan.items.find((i) => i.id === c.itemId)
-    return photoCaption({ task: c.task, item: c.item, room: roomName.get(it?.roomId) })
+    return photoCaption({ item: c.item, room: roomName.get(it?.roomId) })
   })
   const groups = plan.rooms.map((r) => ({
     label: r.name,
-    options: plan.items.filter((i) => i.roomId === r.id).flatMap((i) =>
-      activeTasks(i.cat, i.polish).map((t) => photoCaption({ task: t.name, item: i.title, room: r.name }))),
+    options: [...new Set(plan.items.filter((i) => i.roomId === r.id).map((i) => photoCaption({ item: i.title, room: r.name })))],
   })).filter((g) => g.options.length)
   return { today: [...new Set(today)], groups }
 }
 
-export const points =(p) => `${p > 0 ? '+' : p < 0 ? '−' : ''}${Math.abs(p * 100).toFixed(1)}`
+export const points = (p) => `${p > 0 ? '+' : p < 0 ? '−' : ''}${Math.abs(p * 100).toFixed(1)}`
