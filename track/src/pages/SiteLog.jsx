@@ -3,6 +3,8 @@ import { useAuth } from '../lib/auth'
 import { Empty, Field, Loading, useAction } from '../components/ui'
 import { dayChanges, localDateKey, pct } from '../lib/progress'
 import { getReport, listReports, startDay, saveDetails, closeDay, reopenDay, listPhotos, uploadPhoto, deletePhoto, summarise } from '../lib/api'
+import { dayNumberOf } from '../lib/report'
+import Report from './Report'
 
 const LONG = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 
@@ -30,18 +32,20 @@ export default function SiteLog({ project, data }) {
           {dates.map((d) => <option key={d} value={d}>{d === today ? 'Today · ' : ''}{LONG(d)}</option>)}
         </select>
       </div>
-      <Day key={project.id + date} project={project} data={data} date={date} isToday={date === today} onChanged={refresh} />
+      <Day key={project.id + date} project={project} data={data} date={date} isToday={date === today} onChanged={refresh} dayNumber={dayNumberOf(history, date)} />
     </div>
   )
 }
 
-function Day({ project, data, date, isToday, onChanged }) {
+function Day({ project, data, date, isToday, onChanged, dayNumber }) {
   const { user } = useAuth()
   const act = useAction()
   const { plan } = data
   const [report, setReport] = useState(undefined)
   const [photos, setPhotos] = useState([])
   const [draft, setDraft] = useState(null)
+  const [viewing, setViewing] = useState(null) // 'client' | 'internal'
+  const closeReport = useCallback(() => setViewing(null), [])
   const timer = useRef(null)
 
   const load = useCallback(async () => {
@@ -132,16 +136,26 @@ function Day({ project, data, date, isToday, onChanged }) {
         )}
       </section>
 
+      <section className="card no-print">
+        <div className="card-head"><h2>Reports</h2><span className="spacer" />{!closed && <span className="muted small">Preview, live until the day is closed</span>}</div>
+        <div className="row">
+          <button className="btn" onClick={() => setViewing('client')}>Client report</button>
+          <button className="btn" onClick={() => setViewing('internal')}>Internal report</button>
+        </div>
+      </section>
+
       <div className="row no-print">
         {!closed && <button className="btn btn-primary" onClick={async () => {
           clearTimeout(timer.current)
           if (await act(async () => { await saveDetails(report.id, draft); await closeDay(report.id, plan, user.id) }, 'Day closed')) { await load(); onChanged() }
         }}>Close day &amp; finish report</button>}
-        {closed && <>
-          <button className="btn btn-primary" onClick={() => window.print()}>Print / save PDF</button>
-          <button className="btn" onClick={async () => { if (await act(() => reopenDay(report.id), 'Day reopened')) { await load(); onChanged() } }}>Reopen day</button>
-        </>}
+        {closed && <button className="btn" onClick={async () => { if (await act(() => reopenDay(report.id), 'Day reopened')) { await load(); onChanged() } }}>Reopen day</button>}
       </div>
+
+      {viewing && (
+        <Report variant={viewing} project={project} plan={plan} dayNumber={dayNumber} photos={photos} onClose={closeReport}
+          report={{ ...report, ...draft }} />
+      )}
     </div>
   )
 }

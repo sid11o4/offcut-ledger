@@ -1,0 +1,190 @@
+/* Daily reports in the FORMGRID house style (tokens from the studio's quotation template):
+   charcoal / taupe / stone / ivory on paper, Satoshi, letter-spaced caps for labels, hairline rules.
+   Everything is scoped to .rpt-screen so the field app keeps its own look. */
+.rpt-screen {
+  --charcoal: #33302b; --taupe: #7d766d; --stone: #c3bfb7; --ivory: #f3f1ec; --paper: #fbfaf7;
+  --rule: #dcd8d0; --r-ink: #2a2723; --pos: #3d6b45; --neg: #a3382f;
+  position: fixed; inset: 0; z-index: 80; overflow: auto; background: #e9e6e0;
+  animation: fade 160ms ease-out;
+}
+.rpt-toolbar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 10px 16px; padding-top: calc(10px + env(safe-area-inset-top)); background: rgba(251, 250, 247, 0.94); backdrop-filter: blur(8px); border-bottom: 1px solid #dcd8d0; }
+.rpt-toolbar .btn { white-space: nowrap; }
+@media (max-width: 480px) { .rpt-toolbar { gap: 6px; padding-left: 10px; padding-right: 10px; } .rpt-toolbar .btn { padding: 0 10px; } .rpt-switch button { padding: 0 10px; } }
+.rpt-switch { display: inline-flex; padding: 3px; border-radius: 9px; background: #e9e6e0; }
+.rpt-switch button { border: 0; background: none; padding: 0 14px; min-height: 30px; border-radius: 7px; font-weight: 600; font-size: 13px; color: #7d766d; cursor: pointer; }
+.rpt-switch button[aria-selected="true"] { background: #fff; color: #33302b; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+.rpt-draft-note { max-width: 210mm; margin: 12px auto 0; padding: 8px 12px; font-size: 13px; color: #7a4b12; background: #fbf3e4; border: 1px solid #ecdcbc; border-radius: 8px; }
+
+.rpt { padding: 16px 0 48px; }
+.rpt .sheet {
+  width: min(210mm, calc(100% - 24px)); margin: 0 auto; background: #fff; padding: 12mm;
+  box-shadow: 0 2mm 8mm rgba(0, 0, 0, 0.12);
+  color: var(--r-ink); font: 400 8.8pt/1.5 Satoshi, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-variant-numeric: tabular-nums; -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.rpt h1, .rpt h2 { letter-spacing: normal; }
+.rpt .muted { color: var(--taupe); }
+.rpt .spacer { flex: 1; }
+.rpt .num { text-align: right; white-space: nowrap; }
+.rpt .label { font-size: 6.4pt; letter-spacing: 0.3em; text-transform: uppercase; color: var(--taupe); margin-bottom: 1.6mm; }
+.rpt .quiet { color: var(--taupe); margin: 0; font-style: italic; }
+.rpt .block { margin-top: 8mm; }
+.rpt .h-block { display: flex; align-items: center; gap: 4mm; margin: 0 0 4mm; break-after: avoid; }
+.rpt .h-block .rule { width: 10mm; height: 0.6pt; background: var(--charcoal); flex: none; }
+.rpt .h-block h2 { margin: 0; font-size: 8.6pt; letter-spacing: 0.34em; font-weight: 500; text-transform: uppercase; display: flex; align-items: center; gap: 3mm; }
+.rpt .count { font-size: 7pt; letter-spacing: 0.05em; padding: 0.2mm 2mm; border-radius: 999px; background: var(--ivory); color: var(--taupe); font-weight: 500; }
+.rpt .note-box { border-left: 1.2pt solid var(--charcoal); padding: 3mm 5mm; background: var(--paper); white-space: pre-wrap; break-inside: avoid; }
+
+.rpt .fg-symbol path, .rpt .lockup svg path, .rpt .mini svg path { stroke-width: 1.6; stroke-linejoin: round; }
+.rpt .mini { display: flex; align-items: center; gap: 2.5mm; }
+.rpt .mini svg { height: 6mm; width: auto; }
+.rpt .mini svg path { fill: var(--charcoal); stroke: var(--charcoal); }
+.rpt .mini b { font-weight: 700; letter-spacing: 0.16em; font-size: 9pt; }
+.rpt .mini .sub { font-size: 8pt; color: var(--taupe); letter-spacing: 0.1em; }
+
+/* ── Client: cover band ── */
+.rpt .band { position: relative; overflow: hidden; background: var(--charcoal); color: var(--ivory); padding: 12mm 10mm 9mm; }
+.rpt .band .ghost { position: absolute; right: -14mm; top: -10mm; width: 92mm; height: auto; opacity: 0.09; }
+.rpt .band .ghost path { fill: none; stroke: var(--ivory); stroke-width: 1.2; }
+.rpt .lockup { display: flex; align-items: center; gap: 5mm; position: relative; }
+.rpt .lockup svg { height: 14mm; width: auto; flex: none; }
+.rpt .lockup svg path { fill: var(--ivory); stroke: var(--ivory); }
+.rpt .wordmark { font-weight: 700; font-size: 22pt; letter-spacing: 0.14em; line-height: 1; }
+.rpt .descriptor { font-size: 6.2pt; letter-spacing: 0.34em; margin-top: 2.2mm; color: var(--stone); }
+.rpt .band-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 8mm; margin-top: 11mm; position: relative; }
+.rpt .doc-title { font-size: 9pt; letter-spacing: 0.42em; font-weight: 500; }
+.rpt .doc-title::before { content: ""; display: inline-block; width: 12mm; height: 0.6pt; background: var(--ivory); vertical-align: middle; margin-right: 4mm; }
+.rpt .tagline { font-size: 6.4pt; letter-spacing: 0.4em; color: var(--stone); margin-top: 4mm; }
+.rpt .doc-meta { display: grid; grid-template-columns: auto auto; gap: 1.2mm 6mm; margin: 0; font-size: 7.4pt; }
+.rpt .doc-meta dt { letter-spacing: 0.24em; color: var(--stone); text-transform: uppercase; font-size: 6.4pt; align-self: center; }
+.rpt .doc-meta dd { margin: 0; text-align: right; min-width: 26mm; }
+
+.rpt .parties { display: grid; grid-template-columns: 1.3fr 1fr; border-bottom: 0.6pt solid var(--rule); margin-top: 7mm; }
+.rpt .party { padding: 0 0 5mm; }
+.rpt .party + .party { border-left: 0.6pt solid var(--rule); padding-left: 8mm; }
+.rpt .party .name { font-size: 15pt; font-weight: 500; letter-spacing: 0.02em; line-height: 1.2; margin-bottom: 1mm; }
+.rpt .party .name.sm { font-size: 11pt; }
+
+/* ── Client: headline ── */
+.rpt .headline { display: grid; grid-template-columns: 52mm 1fr; gap: 8mm; padding: 7mm 0 6mm; border-bottom: 0.6pt solid var(--rule); align-items: end; }
+.rpt .big .figure { font-weight: 300; font-size: 54pt; line-height: 0.9; letter-spacing: -0.02em; color: var(--charcoal); }
+.rpt .big .figure span { font-size: 22pt; margin-left: 1mm; color: var(--taupe); }
+.rpt .big .state { margin-top: 2.5mm; font-size: 6.8pt; letter-spacing: 0.3em; text-transform: uppercase; display: inline-block; padding: 0.8mm 2.4mm; background: var(--ivory); }
+.rpt .today-gain { display: flex; align-items: baseline; gap: 2mm; margin-bottom: 2.5mm; }
+.rpt .today-gain .label { margin: 0 2mm 0 0; }
+.rpt .today-gain b { font-size: 16pt; font-weight: 500; color: var(--charcoal); }
+.rpt .today-gain .unit { color: var(--taupe); font-size: 7.4pt; letter-spacing: 0.2em; text-transform: uppercase; }
+.rpt .track { position: relative; height: 3.2mm; background: var(--ivory); border: 0.6pt solid var(--rule); }
+.rpt .track i { position: absolute; top: 0; bottom: 0; left: 0; }
+.rpt .track .before, .rpt .sw.before { background: var(--charcoal); }
+.rpt .track .gain, .rpt .sw.gain { background: repeating-linear-gradient(135deg, var(--taupe) 0 1.2mm, #a39b90 1.2mm 2.4mm); }
+.rpt .track-legend { display: flex; gap: 6mm; margin-top: 2mm; font-size: 6.8pt; color: var(--taupe); }
+.rpt .sw { display: inline-block; width: 3mm; height: 2mm; margin-right: 1.6mm; vertical-align: middle; }
+.rpt .stats { display: grid; grid-template-columns: repeat(3, 1fr); margin: 5mm 0 0; border-top: 0.6pt solid var(--rule); }
+.rpt .stats > div { padding: 2.6mm 0 0; }
+.rpt .stats > div + div { border-left: 0.6pt solid var(--rule); padding-left: 4mm; }
+.rpt .stats dt { font-size: 6.2pt; letter-spacing: 0.22em; text-transform: uppercase; color: var(--taupe); }
+.rpt .stats dd { margin: 0.8mm 0 0; font-size: 15pt; font-weight: 500; }
+
+/* ── Client: work ── */
+.rpt .room { margin-top: 4mm; break-inside: auto; }
+.rpt .sec-head { display: flex; align-items: baseline; gap: 4mm; padding-bottom: 1.8mm; border-bottom: 1.2pt solid var(--charcoal); break-after: avoid; }
+.rpt .sec-name { font-size: 9.2pt; letter-spacing: 0.26em; font-weight: 500; text-transform: uppercase; }
+.rpt .sec-pct { font-size: 8pt; color: var(--taupe); }
+.rpt .sec-pct em { font-style: normal; margin: 0 1mm; }
+.rpt .sec-pct b { color: var(--charcoal); font-weight: 500; }
+.rpt .work-item { display: grid; grid-template-columns: 62mm 1fr; gap: 4mm; padding: 2.4mm 0; border-bottom: 0.6pt solid var(--rule); break-inside: avoid; }
+.rpt .item-title { font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; }
+.rpt .item-dim { display: block; color: var(--taupe); font-size: 7pt; letter-spacing: 0.04em; text-transform: none; font-weight: 400; margin-top: 0.4mm; }
+.rpt .tasks { list-style: none; margin: 0; padding: 0; }
+.rpt .tasks li { display: grid; grid-template-columns: 3.4mm 1fr auto; gap: 2mm; align-items: center; padding: 0.5mm 0; }
+.rpt .tick { width: 2.6mm; height: 2.6mm; border: 0.8pt solid var(--stone); border-radius: 50%; }
+.rpt .tasks li.done .tick { background: var(--charcoal); border-color: var(--charcoal); box-shadow: inset 0 0 0 0.6mm #fff; }
+.rpt .t-state { font-size: 7.6pt; color: var(--taupe); white-space: nowrap; }
+.rpt .tasks li.done .t-state { color: var(--charcoal); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; font-size: 6.8pt; }
+
+.rpt table { width: 100%; border-collapse: collapse; }
+.rpt table.rooms td { padding: 1.9mm 1.6mm; border-bottom: 0.6pt solid var(--rule); vertical-align: middle; }
+.rpt table.rooms td:first-child { padding-left: 0; }
+.rpt .r-name { text-transform: uppercase; letter-spacing: 0.12em; font-size: 7.8pt; width: 46mm; }
+.rpt .r-bar { width: 52%; }
+.rpt .mini-track { height: 1.6mm; background: var(--ivory); }
+.rpt .mini-track i { display: block; height: 100%; background: var(--charcoal); }
+.rpt .r-pct { width: 14mm; font-weight: 500; }
+.rpt .r-delta { width: 26mm; color: var(--taupe); font-size: 7.4pt; }
+.rpt tr.moved .r-name { font-weight: 500; }
+
+.rpt .gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; }
+.rpt .gallery figure { margin: 0; break-inside: avoid; }
+.rpt .gallery img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--ivory); }
+.rpt .gallery figcaption { font-size: 6.8pt; color: var(--taupe); margin-top: 1.2mm; display: flex; gap: 2mm; }
+.rpt .gallery figcaption span { letter-spacing: 0.2em; color: var(--charcoal); }
+
+.rpt .closing { margin-top: 9mm; padding-top: 3mm; border-top: 0.6pt solid var(--rule); display: flex; justify-content: space-between; align-items: center; gap: 8mm; break-inside: avoid; }
+.rpt .closing .conf { font-size: 6.8pt; color: var(--taupe); max-width: 100mm; text-align: right; }
+
+/* ── Internal ── */
+.rpt .internal { font-size: 8.4pt; }
+.rpt .int-head { display: flex; align-items: center; padding-bottom: 3mm; border-bottom: 1.2pt solid var(--charcoal); }
+.rpt .stamp { font-size: 6.6pt; letter-spacing: 0.26em; text-transform: uppercase; color: var(--neg); border: 0.8pt solid currentColor; padding: 1mm 2.6mm; font-weight: 500; }
+.rpt .int-title { display: flex; justify-content: space-between; align-items: flex-end; gap: 8mm; padding: 5mm 0; }
+.rpt .int-title h1 { font-size: 16pt; font-weight: 500; margin: 0 0 0.8mm; letter-spacing: 0.01em; }
+.rpt .int-meta { display: grid; grid-template-columns: auto auto; gap: 1mm 5mm; margin: 0; font-size: 7.8pt; }
+.rpt .int-meta dt { color: var(--taupe); font-size: 6.2pt; letter-spacing: 0.22em; text-transform: uppercase; align-self: center; }
+.rpt .int-meta dd { margin: 0; text-align: right; }
+.rpt .kpis { display: grid; grid-template-columns: repeat(6, 1fr); margin: 0; border: 0.6pt solid var(--rule); }
+.rpt .kpis > div { padding: 2.6mm 3mm; }
+.rpt .kpis > div + div { border-left: 0.6pt solid var(--rule); }
+.rpt .kpis dt { font-size: 6pt; letter-spacing: 0.2em; text-transform: uppercase; color: var(--taupe); }
+.rpt .kpis dd { margin: 1mm 0 0; font-size: 13pt; font-weight: 500; white-space: nowrap; }
+.rpt .kpis dd small { font-size: 6.8pt; color: var(--taupe); margin-left: 1mm; font-weight: 400; }
+.rpt .kpis .up dd { color: var(--pos); } .rpt .kpis .down dd { color: var(--neg); }
+.rpt .flag { margin-top: 5mm; padding: 3mm 5mm; background: var(--paper); border-left: 1.2pt solid var(--stone); break-inside: avoid; }
+.rpt .flag.has { border-left-color: var(--neg); background: #fbf1ef; }
+.rpt .flag p { margin: 0; white-space: pre-wrap; }
+.rpt .flag:not(.has) p { color: var(--taupe); }
+
+.rpt .grid-table th { font-size: 6pt; letter-spacing: 0.2em; font-weight: 500; color: var(--taupe); text-transform: uppercase; text-align: left; padding: 1.6mm 1.6mm; border-bottom: 0.6pt solid var(--charcoal); }
+.rpt .grid-table th.num { text-align: right; }
+.rpt .grid-table td { padding: 1.5mm 1.6mm; border-bottom: 0.6pt solid var(--rule); vertical-align: top; }
+.rpt .grid-table th:first-child, .rpt .grid-table td:first-child { padding-left: 0; }
+.rpt .grid-table tr { break-inside: avoid; }
+.rpt .grid-table tr.group-start td { border-top: 0.6pt solid var(--stone); }
+.rpt .grid-table tr.total td { font-weight: 500; border-top: 0.8pt solid var(--charcoal); border-bottom: 0; }
+.rpt .grid-table .dim, .rpt .dim { color: var(--taupe); }
+.rpt .pos { color: var(--pos); font-weight: 500; } .rpt .neg { color: var(--neg); font-weight: 500; }
+.rpt .tag { display: inline-block; margin-left: 2mm; padding: 0 1.6mm; font-size: 6.2pt; letter-spacing: 0.14em; text-transform: uppercase; border: 0.6pt solid var(--stone); color: var(--taupe); white-space: nowrap; }
+.rpt td.st .tag { margin-left: 0; }
+.rpt .tag.ok { border-color: #9fb9a3; color: var(--pos); } .rpt .tag.bad { border-color: #dba59f; color: var(--neg); }
+.rpt .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; }
+.rpt .rooms-int .r-bar { width: 30%; }
+.rpt .thumbs { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2mm; }
+.rpt .thumbs img { width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--ivory); }
+.rpt .int-foot { display: flex; justify-content: space-between; gap: 6mm; margin-top: 8mm; padding-top: 2.5mm; border-top: 0.6pt solid var(--rule); font-size: 6.6pt; color: var(--taupe); letter-spacing: 0.06em; }
+
+/* Narrow phones: stack the wide layouts. */
+@media screen and (max-width: 640px) {
+  .rpt .sheet { padding: 6mm; }
+  .rpt .band-row, .rpt .int-title { flex-direction: column; align-items: flex-start; }
+  .rpt .parties, .rpt .headline, .rpt .two-col, .rpt .work-item { grid-template-columns: 1fr; }
+  .rpt .party + .party { border-left: 0; padding-left: 0; }
+  .rpt .kpis { grid-template-columns: repeat(3, 1fr); }
+  .rpt .kpis > div:nth-child(4) { border-left: 0; }
+  .rpt .kpis > div:nth-child(n + 4) { border-top: 0.6pt solid var(--rule); }
+  .rpt .gallery { grid-template-columns: repeat(2, 1fr); }
+  .rpt .thumbs { grid-template-columns: repeat(4, 1fr); }
+  .rpt .r-name { width: auto; }
+}
+
+@page {
+  size: A4; margin: 12mm 12mm 15mm;
+  @bottom-left { content: "FORMGRID  ·  INTERIOR DESIGN AND BUILD STUDIO"; font: 6.6pt Satoshi, "Segoe UI", sans-serif; letter-spacing: 0.22em; color: #7d766d; }
+  @bottom-right { content: "PAGE " counter(page) " / " counter(pages); font: 6.6pt Satoshi, "Segoe UI", sans-serif; letter-spacing: 0.22em; color: #7d766d; }
+}
+@media print {
+  body.report-open #root { display: none !important; }
+  .rpt-screen { position: static; overflow: visible; background: #fff; animation: none; }
+  .rpt-toolbar, .rpt-draft-note { display: none !important; }
+  .rpt { padding: 0; }
+  .rpt .sheet { width: auto; margin: 0; padding: 0; box-shadow: none; }
+}
